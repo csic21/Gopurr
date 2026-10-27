@@ -301,7 +301,8 @@ func (r *Remote) Groups() []core.Group {
 		}
 		groups = append(groups, g)
 	}
-	sortGroups(groups)
+	// Mihomo's generated GLOBAL retains the subscription's group order.
+	sortGroups(groups, out.Proxies["GLOBAL"].All)
 	return groups
 }
 
@@ -435,13 +436,5 @@ func (r *Remote) LastError() string {
 func reverse[T any](s []T) {
 	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
 		s[i], s[j] = s[j], s[i]
-	}
-}
-
-func sortGroups(g []core.Group) {
-	for i := 1; i < len(g); i++ {
-		for j := i; j > 0 && g[j].Name < g[j-1].Name; j-- {
-			g[j], g[j-1] = g[j-1], g[j]
-		}
 	}
 }

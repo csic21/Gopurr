@@ -173,9 +173,10 @@ func (a *App) proxiesPage(c *ui.Context) {
 	}
 	a.proxyGroup = selected.Name
 	ui.Row(c).FillWidth().Grow(1).MinHeight(0).Gap(14).Children(func() {
-		ui.Column(c).Width(156).FillHeight().Gap(12).Children(func() {
+		ui.Column(c).Width(172).FillHeight().Gap(12).Children(func() {
 			ui.Text(c, "策略组").FontSize(11.5).FontWeight(600).TextColor(pal.Faint).PaddingX(8)
-			ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
+			// Keep the scroll thumb and its drag target outside the group cards.
+			ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Padding(0, 16, 0, 0).Label("策略组列表").Children(func() {
 				ui.Column(c).FillWidth().Gap(6).Children(func() {
 					for _, item := range groups {
 						g := item

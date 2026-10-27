@@ -69,8 +69,11 @@ func TestRenderPages(t *testing.T) {
 		{"subs-compact", func() { a.page = "subs" }},
 		{"proxies", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
 		{"proxies-hover", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
+		{"proxies-groups-scrolled", func() {
+			a.page, a.proxyGroup = "proxies", "漏网之鱼 · 工作与家庭共用的长名称策略组"
+		}},
 		{"proxies-testing", func() {
-			a.page = "proxies"
+			a.page, a.proxyGroup = "proxies", "节点选择"
 			a.bmu.Lock()
 			a.testing, a.testDone, a.testTotal, a.testOK = "全部节点", 36, 184, 34
 			a.bmu.Unlock()
@@ -216,6 +219,12 @@ func TestRenderPages(t *testing.T) {
 						tr.Move(r.X+r.W/2, r.Y+r.H/2)
 					}
 				}
+				if shot.name == "proxies-groups-scrolled" {
+					if r, ok := tr.Find("策略组列表"); ok {
+						tr.Scroll(r.X+r.W/2, r.Y+r.H/2, 0, 10000)
+						tr.Move(r.X+r.W-6, r.Y+r.H-24)
+					}
+				}
 				if strings.HasSuffix(shot.name, "-error") && shot.name != "raw-config-error" {
 					tr.Scroll(700, 420, 0, 1000)
 				}
@@ -317,7 +326,21 @@ func startFakeCore(t *testing.T, dir, secret string) {
 			proxies[node] = map[string]any{"type": "Shadowsocks"}
 		}
 		proxies["节点选择"] = map[string]any{"type": "Selector", "now": "香港 01", "all": append(append([]string{}, nodes...), "DIRECT")}
-		proxies["GLOBAL"] = map[string]any{"type": "Selector", "now": "节点选择", "all": append([]string{"DIRECT", "REJECT", "节点选择", "自动选择"}, nodes...)}
+		groups := []string{"节点选择", "自动选择", "Netflix", "Ⓜ️ Microsoft", "Telegram", "Apple", "BiliBili", "Direct", "Block", "漏网之鱼 · 工作与家庭共用的长名称策略组"}
+		for _, group := range groups[2:] {
+			members, now := []string{"节点选择", "DIRECT"}, "节点选择"
+			if group == "Direct" {
+				members, now = []string{"DIRECT"}, "DIRECT"
+			} else if group == "Block" {
+				members, now = []string{"REJECT", "DIRECT"}, "REJECT"
+			} else if strings.HasPrefix(group, "漏网之鱼") {
+				members, now = nodes, nodes[len(nodes)-1]
+			}
+			proxies[group] = map[string]any{"type": "Selector", "now": now, "all": members}
+		}
+		global := append([]string{"DIRECT", "REJECT"}, nodes...)
+		global = append(global, groups...)
+		proxies["GLOBAL"] = map[string]any{"type": "Selector", "now": "节点选择", "all": global}
 		_ = json.NewEncoder(w).Encode(map[string]any{"proxies": proxies})
 	})
 	mux.HandleFunc("/proxies/", func(w http.ResponseWriter, r *http.Request) {

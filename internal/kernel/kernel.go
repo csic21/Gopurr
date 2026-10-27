@@ -17,23 +17,28 @@ type Kernel struct {
 	mgr *Manager
 	r   *Remote
 
-	watchOnce sync.Once
-	setupOnce sync.Once
-	startMu   sync.Mutex
-	mu        sync.Mutex
-	lastErr   string
-	groups    []core.Group
-	groupsAt  time.Time
-	rules     []core.Rule
-	rulesAt   time.Time
-	mode      string
-	modeAt    time.Time
-	counts    [3]int
-	countsAt  time.Time
+	watchOnce  sync.Once
+	setupOnce  sync.Once
+	startMu    sync.Mutex
+	mu         sync.Mutex
+	lastErr    string
+	groups     []core.Group
+	groupsAt   time.Time
+	groupOrder []string
+	rules      []core.Rule
+	rulesAt    time.Time
+	mode       string
+	modeAt     time.Time
+	counts     [3]int
+	countsAt   time.Time
 }
 
 func New(mgr *Manager) *Kernel {
-	return &Kernel{mgr: mgr, r: mgr.Remote()}
+	k := &Kernel{mgr: mgr, r: mgr.Remote()}
+	if raw, err := os.ReadFile(mgr.ConfigPath()); err == nil {
+		k.groupOrder = configuredGroupOrder(raw)
+	}
+	return k
 }
 
 // WatchLogs subscribes to the daemon's traffic and log streams.
@@ -93,8 +98,10 @@ func (k *Kernel) Start(cfg []byte) error {
 	if err := k.r.Reload(k.mgr.ConfigPath()); err != nil {
 		return rollback(err)
 	}
+	order := configuredGroupOrder(cfg)
 	k.mu.Lock()
 	k.lastErr = ""
+	k.groupOrder = order
 	k.mu.Unlock()
 	k.invalidate()
 	return nil
@@ -143,6 +150,9 @@ func (k *Kernel) Groups() []core.Group {
 
 	groups := k.r.Groups()
 	k.mu.Lock()
+	if len(k.groupOrder) > 0 {
+		sortGroups(groups, k.groupOrder)
+	}
 	k.groups, k.groupsAt = groups, time.Now()
 	k.mu.Unlock()
 	return groups
