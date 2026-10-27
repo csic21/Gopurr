@@ -247,3 +247,7 @@ func (k *Kernel) invalidate() {
 	k.countsAt = time.Time{}
 	k.mu.Unlock()
 }
+
+func (k *Kernel) ConnectionsWithError() ([]core.Conn, error) { return k.r.ConnectionsWithError() }
+func (k *Kernel) CloseConnection(id string) error            { return k.r.CloseConnection(id) }
+func (k *Kernel) CloseAllConnections() error                 { return k.r.CloseAllConnections() }

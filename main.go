@@ -85,7 +85,19 @@ func main() {
 		return
 	}
 
+	mygo.App.SetName("Gopurr")
+	if os.Getenv("GOPURR_HOME") == "" && !mygo.App.RequestSingleInstanceLock() {
+		return
+	}
 	a := app.New()
+	mygo.App.OnSecondInstance(func(args []string, _ string) {
+		for _, arg := range args {
+			if arg == "--autostart" {
+				return
+			}
+		}
+		showWindow(a)
+	})
 	update.ConfigureHTTPClient(a.UpdateProxyURL)
 	mygo.Theme.SetSource(mygo.ThemeSource(a.Prefs().Appearance))
 
@@ -112,13 +124,22 @@ func main() {
 		}
 
 		installWindowLifecycle(a)
-		showWindow(a)
-		installTray(a)
+		trayReady := installTray(a)
+		openInitialWindow(a, trayReady)
 		installTestHooks(a)
 	})
 
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func openInitialWindow(a *app.App, trayReady bool) {
+	a.StartBackground()
+	if !trayReady || a.StartupNeedsAttention() || !a.Prefs().SilentStart {
+		showWindow(a)
+	} else {
+		applyDockVisibility(a.Prefs(), false)
 	}
 }
 
@@ -267,7 +288,7 @@ func cancelRelease() {
 	}
 }
 
-func installTray(a *app.App) {
+func installTray(a *app.App) bool {
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		ID:             "main",
 		Icon:           brand.TrayPNG,
@@ -276,12 +297,12 @@ func installTray(a *app.App) {
 	})
 	if err != nil {
 		log.Printf("tray unavailable: %v", err)
-		return
+		return false
 	}
 	openWindow := func() { showWindow(a) }
 	if runtime.GOOS != "darwin" {
 		tray.SetMenu(a.TrayMenu(openWindow))
-		return
+		return true
 	}
 
 	// A fixed NSStatusItem menu consumes clicks before OnClick runs. Attach
@@ -302,6 +323,7 @@ func installTray(a *app.App) {
 	}
 	tray.OnClick(openMenu)
 	tray.OnRightClick(openMenu)
+	return true
 }
 
 // installTestHooks lets the memory measurement drive the app from a script:

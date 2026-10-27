@@ -153,6 +153,27 @@ func setWindowPrefs(t *testing.T, mode string, light bool) {
 	}
 }
 
+func TestNativeSilentStartupRunsWithoutWindow(t *testing.T) {
+	p := lifecycleApp.Prefs()
+	p.SilentStart = true
+	if err := lifecycleApp.UpdatePrefs(p); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { p.SilentStart = false; _ = lifecycleApp.UpdatePrefs(p) }()
+	mygo.RunOnMain(func() { openInitialWindow(lifecycleApp, true) })
+	if state := windowState(); state.window != nil || state.visible {
+		t.Fatalf("silent startup created a window: %+v", state)
+	}
+	if lifecycleApp.StartupNeedsAttention() {
+		t.Fatal("background startup failed")
+	}
+	nativeReopen()
+	if !windowState().visible {
+		t.Fatal("silent app could not reopen from Dock")
+	}
+	mygo.RunOnMain(func() { mainWin.Destroy(); mainWin = nil })
+}
+
 func TestNativeWindowDockLifecycle(t *testing.T) {
 	for _, light := range []bool{false, true} {
 		for _, mode := range []string{app.DockShown, app.DockFollowWindow, app.DockHidden} {

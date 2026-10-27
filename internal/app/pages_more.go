@@ -83,6 +83,7 @@ func (a *App) subsPage(c *ui.Context) {
 			}
 		})
 	})
+	a.subscriptionEditor(c)
 }
 
 func (a *App) subRow(c *ui.Context, p profile.Profile, active, busy bool) {
@@ -116,6 +117,9 @@ func (a *App) subRow(c *ui.Context, p profile.Profile, active, busy bool) {
 		source := subscriptionSource(item.URL)
 		if item.IsFile() {
 			source = item.Path
+			if source == "" {
+				source = "备份中的本地配置"
+			}
 		}
 		ui.Text(c, source).FillWidth().SingleLine().Ellipsis("…").Tooltip(source).FontSize(11).TextColor(pal.Faint)
 
@@ -140,6 +144,8 @@ func (a *App) subRow(c *ui.Context, p profile.Profile, active, busy bool) {
 			}
 			ui.Button(c, label).Disabled(busy).OnClick(func() { a.refreshSubscription(item.ID) })
 			ui.Spacer(c)
+			ui.Text(c, subscriptionUpdateLabel(item)).FontSize(11).TextColor(pal.Faint)
+			ui.Button(c, "编辑…").Disabled(busy).Label("编辑订阅 " + item.Name).OnClick(func() { a.openSubscriptionEditor(item) })
 			ui.Button(c, "删除").Disabled(busy || active).Tooltip("请先启用其他配置，再删除当前订阅").OnClick(func() {
 				a.deleteSubID, a.deleteSubName, a.showDeleteSub = item.ID, item.Name, true
 			})

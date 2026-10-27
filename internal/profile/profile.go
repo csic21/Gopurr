@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -40,14 +41,17 @@ const (
 
 // Profile is one saved configuration: a subscription link or a local file.
 type Profile struct {
-	ID      string    `json:"id"`
-	Name    string    `json:"name"`
-	Kind    string    `json:"kind,omitempty"` // empty on entries from before local files
-	URL     string    `json:"url,omitempty"`
-	Path    string    `json:"path,omitempty"`
-	File    string    `json:"file"`
-	Updated time.Time `json:"updated"`
-	Info    Info      `json:"info"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Kind        string    `json:"kind,omitempty"` // empty on entries from before local files
+	URL         string    `json:"url,omitempty"`
+	Path        string    `json:"path,omitempty"`
+	File        string    `json:"file"`
+	Updated     time.Time `json:"updated"`
+	Info        Info      `json:"info"`
+	UserAgent   string    `json:"userAgent,omitempty"`
+	UpdateHours *int      `json:"updateHours,omitempty"`
+	UseProxy    bool      `json:"useProxy,omitempty"`
 }
 
 // IsFile reports a local file rather than a subscription.
@@ -55,11 +59,12 @@ func (p Profile) IsFile() bool { return p.Kind == KindFile }
 
 // Store is the profiles directory plus its index.
 type Store struct {
-	mu     sync.Mutex
-	dir    string
-	Items  []Profile `json:"profiles"`
-	Active string    `json:"active"`
-	last   string    // last error from a background refresh
+	mu       sync.Mutex
+	dir      string
+	Items    []Profile `json:"profiles"`
+	Active   string    `json:"active"`
+	proxyURL func() *url.URL
+	last     string // last error from a background refresh
 }
 
 // Open loads (or creates) the store under dir.
@@ -201,6 +206,7 @@ func (s *Store) Add(url, name string) (Profile, error) {
 	for i, old := range s.Items {
 		if old.ID == p.ID {
 			p.Name = firstNonEmpty(name, old.Name)
+			p.UserAgent, p.UpdateHours, p.UseProxy = old.UserAgent, old.UpdateHours, old.UseProxy
 			s.Items[i] = p
 			replaced = true
 		}
@@ -275,7 +281,10 @@ func validate(body []byte) error {
 }
 
 // Refresh re-downloads an existing profile.
-func (s *Store) Refresh(id string) error {
+func (s *Store) Refresh(id string) error { return s.RefreshChecked(id, nil) }
+
+// RefreshChecked validates/applies the candidate before replacing the cache.
+func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 	s.mu.Lock()
 	var target Profile
 	found := false
@@ -295,18 +304,27 @@ func (s *Store) Refresh(id string) error {
 	var err error
 
 	if target.IsFile() {
-		body, err = os.ReadFile(target.Path)
+		path := target.Path
+		if path == "" {
+			path = filepath.Join(s.dir, "profiles", target.File)
+		}
+		body, err = os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("读取本地文件失败: %w", err)
 		}
 	} else {
-		body, info, title, err = fetch(target.URL)
+		body, info, title, err = s.fetchProfile(target)
 		if err != nil {
 			return err
 		}
 	}
 	if err := validate(body); err != nil {
 		return err
+	}
+	if accept != nil {
+		if err := accept(body); err != nil {
+			return err
+		}
 	}
 
 	s.mu.Lock()
@@ -315,7 +333,12 @@ func (s *Store) Refresh(id string) error {
 		if p.ID != id {
 			continue
 		}
-		if err := os.WriteFile(filepath.Join(s.dir, "profiles", p.File), body, 0o644); err != nil {
+		path := filepath.Join(s.dir, "profiles", p.File)
+		previous, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := writeContent(path, body); err != nil {
 			return err
 		}
 		s.Items[i].Updated = time.Now()
@@ -325,19 +348,53 @@ func (s *Store) Refresh(id string) error {
 				s.Items[i].Name = title
 			}
 		}
+		if err := s.save(); err != nil {
+			s.Items[i] = p
+			return errors.Join(err, writeContent(path, previous))
+		}
+		return nil
 	}
-	return s.save()
+	return errors.New("没有这个订阅")
+}
+
+func writeContent(path string, body []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".profile-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(body); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 func fetch(url string) (body []byte, info Info, title string, err error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	return fetchWith(url, "", nil)
+}
+
+func fetchWith(address, userAgent string, proxy *url.URL) (body []byte, info Info, title string, err error) {
+	req, err := http.NewRequest(http.MethodGet, address, nil)
 	if err != nil {
 		return nil, Info{}, "", err
 	}
-	req.Header.Set("User-Agent", "clash.meta/mihomo")
+	if userAgent == "" {
+		userAgent = "clash.meta/mihomo"
+	}
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "*/*")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil // Explicit direct download unless this profile opts in.
+	if proxy != nil {
+		transport.Proxy = http.ProxyURL(proxy)
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: 30 * time.Second, Transport: transport}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, Info{}, "", fmt.Errorf("下载失败: %w", err)

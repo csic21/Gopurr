@@ -63,6 +63,9 @@ type App struct {
 	settingsState
 	extensionState
 	featureState
+	subscriptionEditState
+	connectionState
+	backupState
 
 	mu   sync.Mutex
 	hist []sample
@@ -94,10 +97,12 @@ type App struct {
 	confirmInstall   bool
 	confirmUninstall bool
 
-	pmu       sync.Mutex
-	prefs     Prefs
-	prefsPath string
-	prefsHook func(Prefs)
+	pmu             sync.Mutex
+	prefs           Prefs
+	prefsPath       string
+	prefsHook       func(Prefs)
+	applyAutoLaunch func(bool) error
+	subAttempts     map[string]time.Time
 
 	lightOn       bool
 	lightDelayIdx int
@@ -209,6 +214,7 @@ func New() *App {
 		a.loadPrevProxy()
 		if st, err := profile.Open(dir); err == nil {
 			a.store = st
+			st.SetProxyURL(a.SubscriptionProxyURL)
 			if url := os.Getenv("GOPURR_SUB_URL"); url != "" && len(st.List()) == 0 {
 				if p, err := st.Add(url, ""); err == nil {
 					_ = st.SetActive(p.ID)
@@ -340,6 +346,24 @@ func (a *App) View(c *ui.Context) {
 	}
 
 	a.setServices(c.Services())
+	a.StartBackground()
+
+	ui.Column(c).Fill().Background(pal.Bg).Children(func() {
+		windowTitleBar(c)
+		ui.Row(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
+			a.sidebar(c)
+			a.main(c)
+		})
+	})
+	a.softwareUpdateModal(c)
+	a.restoreDialog(c)
+}
+
+// StartBackground starts the proxy and maintenance loops without creating a window.
+func (a *App) StartBackground() {
+	if a.initErr != "" || a.k == nil {
+		return
+	}
 	if !a.ticking {
 		a.ticking = true
 		go a.sampleLoop()
@@ -392,14 +416,10 @@ func (a *App) View(c *ui.Context) {
 		}
 	}
 
-	ui.Column(c).Fill().Background(pal.Bg).Children(func() {
-		windowTitleBar(c)
-		ui.Row(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
-			a.sidebar(c)
-			a.main(c)
-		})
-	})
-	a.softwareUpdateModal(c)
+}
+
+func (a *App) StartupNeedsAttention() bool {
+	return a.initErr != "" || a.k == nil || !a.k.Running() || a.tunErrText() != "" || a.sysErrText() != ""
 }
 
 func (a *App) sampleLoop() {
@@ -792,59 +812,6 @@ func (a *App) chart(c *ui.Context, hist []sample) {
 }
 
 // ---------- connections ----------
-
-func (a *App) connsPage(c *ui.Context) {
-	pal := paletteFor(c)
-	conns := a.k.Connections(120)
-
-	a.pageHeader(c, "连接", fmt.Sprintf("%d 条活跃会话", len(conns)), nil)
-
-	if len(conns) == 0 {
-		emptyState(c, "暂无连接", "打开系统代理或 TUN 后，这里会实时出现会话。")
-		return
-	}
-
-	ui.Row(c).FillWidth().PaddingX(12).PaddingY(6).Children(func() {
-		ui.Text(c, "主机").Grow(1).MinWidth(0).FontSize(11).Bold().TextColor(pal.Faint)
-		ui.Text(c, "规则").Width(100).FontSize(11).Bold().TextColor(pal.Faint)
-		ui.Text(c, "上行").Width(64).FontSize(11).Bold().TextColor(pal.Faint).TextAlign(ui.End)
-		ui.Text(c, "下行").Width(64).FontSize(11).Bold().TextColor(pal.Faint).TextAlign(ui.End)
-	})
-
-	ui.Scroll(c).FillWidth().FillHeight().Children(func() {
-		ui.Column(c).FillWidth().Radius(12).Background(pal.Surface).Border(1, pal.Border).Children(func() {
-			for i, cn := range conns {
-				if i > 0 {
-					hairline(c)
-				}
-				conn := cn
-				row := ui.Row(c).FillWidth().Padding(14, 12).
-					Gap(8).
-					AlignItems(ui.Center).Cursor(ui.CursorPointer).
-					Tooltip("点击复制主机名")
-				if row.Hovered() {
-					row.Background(pal.Hover)
-				}
-				row.Children(func() {
-					ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
-						ui.Text(c, conn.Host).FillWidth().SingleLine().Ellipsis("…").FontSize(13).FontWeight(500).TextColor(pal.Text)
-						ui.Text(c, conn.Chain).FillWidth().SingleLine().Ellipsis("…").FontSize(11).TextColor(pal.Muted)
-					})
-					ui.Text(c, truncate(conn.Rule, 14)).Width(100).
-						FontSize(11).TextColor(pal.Muted)
-					ui.Text(c, fmtBytes(conn.Up)).Width(64).FontSize(11).FontFeatures("tnum").
-						TextColor(pal.Up).TextAlign(ui.End)
-					ui.Text(c, fmtBytes(conn.Down)).Width(64).FontSize(11).FontFeatures("tnum").
-						TextColor(pal.Down).TextAlign(ui.End)
-				})
-				row.OnClick(func() {
-					a.services().WriteClipboard(conn.Host)
-					a.notice = "已复制 " + conn.Host
-				})
-			}
-		})
-	})
-}
 
 // ---------- settings ----------
 
@@ -1351,9 +1318,10 @@ func (a *App) addSubscription() {
 	a.bmu.Unlock()
 	a.setSubErr("")
 
+	name := strings.TrimSpace(a.subName)
 	go func() {
 		previous := a.store.ActiveID()
-		item, err := a.store.Add(url, strings.TrimSpace(a.subName))
+		item, err := a.store.Add(url, name)
 		if err == nil && a.store.ActiveID() == item.ID {
 			if !a.startKernel() {
 				err = errors.New(a.notice)
@@ -1374,40 +1342,26 @@ func (a *App) addSubscription() {
 }
 
 func (a *App) refreshSubscription(id string) {
-	if a.store == nil {
+	if a.store == nil || !a.beginProfileWork() {
 		return
 	}
-	a.bmu.Lock()
-	if a.subBusy {
-		a.bmu.Unlock()
-		return
-	}
-	a.subBusy = true
-	a.bmu.Unlock()
-
 	go func() {
-		err := a.store.Refresh(id)
-		a.bmu.Lock()
-		a.subBusy = false
+		defer func() { a.endProfileWork(); a.invalidate() }()
+		err := a.refreshManagedProfile(id)
 		if err != nil {
-			a.subErr = err.Error()
+			a.setSubErr(err.Error())
 		} else {
-			a.subErr = ""
-		}
-		a.bmu.Unlock()
-		if err == nil && a.store.ActiveID() == id && a.k.Running() {
-			if !a.startKernel() {
-				a.setSubErr(a.notice)
-			}
+			a.setSubErr("")
 		}
 		a.invalidate()
 	}()
 }
 
 func (a *App) useSubscription(id string) {
-	if a.store == nil {
+	if a.store == nil || !a.beginProfileWork() {
 		return
 	}
+	defer a.endProfileWork()
 	previous := a.store.ActiveID()
 	if err := a.store.SetActive(id); err != nil {
 		a.setSubErr(err.Error())
@@ -1424,9 +1378,10 @@ func (a *App) useSubscription(id string) {
 }
 
 func (a *App) removeSubscription(id string) {
-	if a.store == nil {
+	if a.store == nil || !a.beginProfileWork() {
 		return
 	}
+	defer a.endProfileWork()
 	if a.store.ActiveID() == id {
 		a.setSubErr("正在使用的订阅不能直接删除，请先启用其他配置")
 		return
@@ -1612,43 +1567,55 @@ func (a *App) autoUpdateLoop() {
 }
 
 func (a *App) maybeAutoUpdate() {
+	if a.store == nil {
+		return
+	}
+	a.bmu.Lock()
+	if a.subBusy {
+		a.bmu.Unlock()
+		return
+	}
+	a.subBusy = true
+	if a.subAttempts == nil {
+		a.subAttempts = map[string]time.Time{}
+	}
+	a.bmu.Unlock()
+	defer func() { a.endProfileWork(); a.invalidate() }()
 	p := a.Prefs()
-	if p.AutoUpdateHours <= 0 || a.store == nil {
-		return
-	}
-	if p.LastAutoUpdate.After(time.Time{}) &&
-		time.Since(p.LastAutoUpdate) < time.Duration(p.AutoUpdateHours)*time.Hour {
-		return
-	}
-
-	active := a.store.ActiveID()
-	updated, activeChanged := 0, false
-
-	for _, profile := range a.store.List() {
-		if profile.IsFile() {
-			continue // a local file only changes when the user changes it
+	updated, inheritedAttempt := 0, false
+	for _, item := range a.store.List() {
+		if item.IsFile() {
+			continue
 		}
-		if err := a.store.Refresh(profile.ID); err != nil {
-			a.setSubErr(err.Error())
+		hours := p.AutoUpdateHours
+		since := p.LastAutoUpdate
+		if item.UpdateHours != nil {
+			hours = *item.UpdateHours
+			since = item.Updated
+		}
+		if hours <= 0 || time.Since(since) < time.Duration(hours)*time.Hour {
+			continue
+		}
+		if attempted := a.subAttempts[item.ID]; !attempted.IsZero() && time.Since(attempted) < time.Duration(hours)*time.Hour {
+			continue
+		}
+		a.subAttempts[item.ID] = time.Now()
+		if item.UpdateHours == nil {
+			inheritedAttempt = true
+		}
+		if err := a.refreshManagedProfile(item.ID); err != nil {
+			a.setSubErr(item.Name + ": " + err.Error())
 			continue
 		}
 		updated++
-		if profile.ID == active {
-			activeChanged = true
+	}
+	if inheritedAttempt {
+		if err := a.changePrefs(func(cur *Prefs) { cur.LastAutoUpdate = time.Now() }); err != nil {
+			a.setSubErr(err.Error())
 		}
 	}
-
-	if err := a.changePrefs(func(cur *Prefs) { cur.LastAutoUpdate = time.Now() }); err != nil {
-		a.setSubErr(err.Error())
-	}
-
 	if updated > 0 {
 		a.notice = fmt.Sprintf("已自动更新 %d 个订阅", updated)
-		if activeChanged && a.k.Running() {
-			if !a.startKernel() {
-				a.setSubErr(a.notice)
-			}
-		}
 	}
 	a.invalidate()
 }
@@ -1679,6 +1646,12 @@ func (a *App) importLocalFile() {
 			a.setSubErr("订阅目录不可用")
 			return
 		}
+		if !a.beginProfileWork() {
+			a.setSubErr("订阅正在更新，请稍后重试")
+			a.invalidate()
+			return
+		}
+		defer func() { a.endProfileWork(); a.invalidate() }()
 		var lastErr string
 		previous := a.store.ActiveID()
 		for _, path := range paths {

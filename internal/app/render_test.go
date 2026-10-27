@@ -16,7 +16,9 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"gopurr/internal/backup"
 	"gopurr/internal/core"
+	"gopurr/internal/profile"
 	"gopurr/internal/update"
 )
 
@@ -24,7 +26,7 @@ import (
 // "does the UI still build", and it needs no window server.
 func TestRenderPages(t *testing.T) {
 	previousVersion := mygo.App.Version()
-	mygo.App.SetVersion("0.1.1")
+	mygo.App.SetVersion("0.2.0")
 	t.Cleanup(func() { mygo.App.SetVersion(previousVersion) })
 	dir := t.TempDir()
 	t.Setenv("GOPURR_HOME", dir)
@@ -33,6 +35,7 @@ func TestRenderPages(t *testing.T) {
 	// Fixtures use only the fake controller and never query or modify OS proxy
 	// settings. Background sampling is unnecessary for deterministic images.
 	a.booted, a.ticking = true, true
+	a.applyAutoLaunch = func(bool) error { return nil }
 	// A fake controller on the socket the app expects, so the pages render with
 	// the same data they would show against a real kernel.
 	if secret, err := os.ReadFile(filepath.Join(dir, "core.secret")); err == nil {
@@ -86,6 +89,57 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"proxies-compact", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
 		{"conns", func() { a.page = "conns" }},
+		{"conns-filtered", func() { a.page = "conns"; a.refreshConnections(); a.connQuery = "Browser" }},
+		{"conns-empty", func() { a.page = "conns"; a.connQuery = "no-match.example" }},
+		{"connection-detail", func() { a.page = "conns"; a.refreshConnections(); a.connSelected = a.connRows[0]; a.showConn = true }},
+		{"connection-error", func() {
+			a.page = "conns"
+			a.connError = "读取连接失败：内核暂时无法响应，请稍后刷新。"
+			a.connFetched = time.Now()
+		}},
+		{"disconnect-dialog", func() { a.page = "conns"; a.confirmCloseAll = true }},
+		{"subscription-edit-top", func() {
+			a.page = "subs"
+			a.openSubscriptionEditor(profile.Profile{ID: "demo", Name: "工作与家庭共用的远程订阅配置 · 长名称示例", URL: "https://subscription.example.com/api/v1/client/subscribe?token=demo", UserAgent: "clash.meta/mihomo", UseProxy: true})
+			a.editSubPolicy = 2
+			a.editSubHours = "6"
+		}}, {"subscription-edit", func() {
+			a.page = "subs"
+			a.openSubscriptionEditor(profile.Profile{ID: "demo", Name: "工作与家庭共用的远程订阅配置 · 长名称示例", URL: "https://subscription.example.com/api/v1/client/subscribe?token=demo", UserAgent: "clash.meta/mihomo", UseProxy: true})
+			a.editSubPolicy = 2
+			a.editSubHours = "6"
+		}},
+		{"subscription-edit-error", func() {
+			a.page = "subs"
+			a.openSubscriptionEditor(profile.Profile{ID: "demo", Name: "测试订阅", URL: "https://subscription.example.com"})
+			a.editSubPolicy = 2
+			a.editSubHours = "0"
+			a.editSubError = "更新间隔须为 1–8760 小时"
+		}},
+		{"backup-restore", func() {
+			a.page = "settings"
+			a.settingsTab = 3
+			a.restoreName = "Gopurr-2026-10-27.zip"
+			a.restoreCount = 3
+			a.restorePreview = &backup.Snapshot{Version: 1, Created: time.Date(2026, 10, 27, 9, 30, 0, 0, time.Local)}
+			a.showRestore = true
+		}},
+		{"backup-error", func() {
+			a.page = "settings"
+			a.settingsTab = 3
+			a.backupError = "备份文件损坏或版本不受支持，当前配置未更改。"
+		}},
+		{"settings-startup", func() { a.page = "settings"; a.settingsTab = 0; a.settingsReady = false }},
+		{"settings-startup-enabled", func() {
+			a.page = "settings"
+			a.settingsTab = 0
+			if err := a.changePrefs(func(p *Prefs) { p.AutoLaunch, p.SilentStart = true, true }); err != nil {
+				t.Fatal(err)
+			}
+			a.settingsReady = false
+		}},
+		{"settings-cleanup", func() { a.page = "settings"; a.settingsTab = 1 }},
+
 		{"rules", func() { a.page = "rules" }},
 		{"rules-compact", func() { a.page = "rules" }},
 		{"rules-filtered", func() {
@@ -253,6 +307,12 @@ func TestRenderPages(t *testing.T) {
 				a.generalSettingsError, a.mergeYAMLError = "", ""
 				a.dnsError, a.snifferError = "", ""
 				a.rawError = ""
+				a.showConn, a.confirmCloseAll, a.showEditSub, a.showRestore = false, false, false, false
+				a.pmu.Lock()
+				a.prefs.AutoLaunch, a.prefs.SilentStart = false, false
+				a.pmu.Unlock()
+				a.settingsReady = false
+				a.connQuery, a.connError, a.backupError, a.backupStatus = "", "", "", ""
 				a.setSysErr("")
 				a.sysApplied, a.sysOn = false, false
 				if a.softwareUpdates != nil {
@@ -289,6 +349,10 @@ func TestRenderPages(t *testing.T) {
 					}
 				}
 				switch shot.name {
+				case "subscription-edit":
+					tr.Scroll(float32(width/2), float32(height/2), 0, 1000)
+				case "settings-cleanup":
+					tr.Scroll(700, 420, 0, 1000)
 				case "overview-features":
 					tr.Scroll(700, 420, 0, 1000)
 				case "settings-dns-lists", "settings-sniffer-lists":
@@ -303,6 +367,11 @@ func TestRenderPages(t *testing.T) {
 						tr.Move(r.X+r.W/2, r.Y+r.H/2)
 					}
 				}
+				if shot.name == "conns" {
+					if r, ok := tr.Find("查看连接 api.github.com"); ok {
+						tr.Move(r.X+r.W/2, r.Y+r.H/2)
+					}
+				}
 				if shot.name == "proxies-hover" {
 					if r, ok := tr.Find("测试 香港 01"); ok {
 						tr.Move(r.X+r.W/2, r.Y+r.H/2)
@@ -314,7 +383,7 @@ func TestRenderPages(t *testing.T) {
 						tr.Move(r.X+r.W-6, r.Y+r.H-24)
 					}
 				}
-				if strings.HasSuffix(shot.name, "-error") && shot.name != "raw-config-error" {
+				if strings.HasSuffix(shot.name, "-error") && shot.name != "raw-config-error" && shot.name != "backup-error" {
 					tr.Scroll(700, 420, 0, 1000)
 				}
 				img := tr.Image()
@@ -448,10 +517,10 @@ func startFakeCore(t *testing.T, dir, secret string) {
 	})
 	mux.HandleFunc("/connections", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"downloadTotal":91234567,"uploadTotal":1234567,"connections":[
-			{"metadata":{"host":"api.github.com","network":"tcp"},"rule":"DomainSuffix","chains":["节点选择","香港 01"],"upload":12034,"download":884422,"start":"2026-10-27T13:00:00+08:00"},
-			{"metadata":{"host":"www.google.com","network":"tcp"},"rule":"Match","chains":["节点选择","香港 01"],"upload":3200,"download":55211,"start":"2026-10-27T13:00:02+08:00"},
-			{"metadata":{"host":"registry.npmjs.org","network":"tcp"},"rule":"Match","chains":["节点选择","日本 02"],"upload":900,"download":2345111,"start":"2026-10-27T13:00:04+08:00"},
-			{"metadata":{"host":"a-very-long-service-name.api.production.example.internal.example.com","network":"tcp"},"rule":"DomainSuffix","chains":["手动选择 · 工作与家庭共用的长名称策略组","香港 01 · 低延迟优选线路"],"upload":1234567,"download":98765432,"start":"2026-10-27T13:00:05+08:00"}
+			{"id":"conn-github","metadata":{"host":"api.github.com","network":"tcp","process":"Browser","processPath":"/Applications/Browser.app/Contents/MacOS/Browser","sourceIP":"127.0.0.1","sourcePort":"52140","destinationIP":"140.82.112.6","destinationPort":"443"},"rule":"DomainSuffix","chains":["节点选择","香港 01"],"upload":12034,"download":884422,"start":"2026-10-27T13:00:00+08:00"},
+			{"id":"conn-google","metadata":{"host":"www.google.com","network":"tcp","process":"Browser"},"rule":"Match","chains":["节点选择","香港 01"],"upload":3200,"download":55211,"start":"2026-10-27T13:00:02+08:00"},
+			{"id":"conn-npm","metadata":{"host":"registry.npmjs.org","network":"tcp","process":"node"},"rule":"Match","chains":["节点选择","日本 02"],"upload":900,"download":2345111,"start":"2026-10-27T13:00:04+08:00"},
+			{"id":"conn-long","metadata":{"host":"a-very-long-service-name.api.production.example.internal.example.com","network":"tcp","process":"Example Application With A Long Name"},"rule":"DomainSuffix","chains":["手动选择 · 工作与家庭共用的长名称策略组","香港 01 · 低延迟优选线路"],"upload":1234567,"download":98765432,"start":"2026-10-27T13:00:05+08:00"}
 		]}`))
 	})
 	mux.HandleFunc("/traffic", func(w http.ResponseWriter, r *http.Request) {

@@ -25,7 +25,7 @@ func (b fixtureUpdateBackend) Check(context.Context) (*update.Release, error) {
 	if b.phase == update.Current {
 		return nil, nil
 	}
-	return &update.Release{Version: "0.2.0", Notes: "更新说明\n\n• 支持 Windows 与 macOS Apple Silicon 安装\n• 软件更新支持签名校验、下载进度与重试\n• 保留现有订阅、规则与个人设置", Install: func(ctx context.Context, progress func(int64, int64)) error {
+	return &update.Release{Version: "0.2.1", Notes: "更新说明\n\n• 支持 Windows 与 macOS Apple Silicon 安装\n• 软件更新支持签名校验、下载进度与重试\n• 保留现有订阅、规则与个人设置", Install: func(ctx context.Context, progress func(int64, int64)) error {
 		if b.installed != nil {
 			b.installed.Add(1)
 		}

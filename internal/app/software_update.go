@@ -31,17 +31,26 @@ func (a *App) UpdateProxyURL() *url.URL {
 			return proxy
 		}
 	}
-	if a.mgr != nil && a.mgr.Running() {
-		if raw, err := os.ReadFile(a.mgr.ConfigPath()); err == nil {
-			var config struct {
-				Port int `yaml:"mixed-port"`
-			}
-			if yaml.Unmarshal(raw, &config) == nil {
-				return proxyURL("127.0.0.1", config.Port)
-			}
-		}
+	return a.SubscriptionProxyURL()
+}
+
+// SubscriptionProxyURL deliberately uses this application's running listener,
+// rather than another client's system proxy or proxy environment variables.
+func (a *App) SubscriptionProxyURL() *url.URL {
+	if a.mgr == nil || !a.mgr.Running() {
+		return nil
 	}
-	return nil
+	raw, err := os.ReadFile(a.mgr.ConfigPath())
+	if err != nil {
+		return nil
+	}
+	var config struct {
+		Port int `yaml:"mixed-port"`
+	}
+	if yaml.Unmarshal(raw, &config) != nil || config.Port < 1 || config.Port > 65535 {
+		return nil
+	}
+	return &url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(config.Port))}
 }
 
 func (a *App) initSoftwareUpdates() {

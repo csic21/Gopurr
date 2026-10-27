@@ -16,12 +16,15 @@ import (
 // preferences and overrides have loaded; App's existing light/LAN fields stay
 // the bindings for those controls.
 type settingsState struct {
-	settingsTab    int
-	settingsReady  bool
-	settingsPrefs  Prefs
-	appearanceIdx  int
-	dockIdx        int
-	restoreProxyOn bool
+	settingsTab     int
+	settingsReady   bool
+	settingsPrefs   Prefs
+	appearanceIdx   int
+	dockIdx         int
+	restoreProxyOn  bool
+	autoLaunchOn    bool
+	silentStartOn   bool
+	closeOnSwitchOn bool
 
 	mixedPortDraft string
 	unifiedOn      bool
@@ -61,6 +64,7 @@ func (a *App) syncGeneralSettings(p Prefs) {
 	a.lightDelayIdx = delayIndexOf(p.LightDelay)
 	a.autoIdx = autoUpdateIndex(p.AutoUpdateHours)
 	a.restoreProxyOn = p.RestoreSystemProxy
+	a.autoLaunchOn, a.silentStartOn, a.closeOnSwitchOn = p.AutoLaunch, p.SilentStart, p.CloseOnSwitch
 }
 
 func (a *App) resetNetworkDraft() {
@@ -108,6 +112,14 @@ func (a *App) settingsPage(c *ui.Context) {
 					}
 				})
 				settingsGroup(c, "常规", func() {
+					settingsRow(c, "登录时启动 Gopurr", "登录电脑后自动运行，无需手动打开", func() {
+						ui.Switch(c, &a.autoLaunchOn).Label("登录自启开关")
+					})
+					hairline(c)
+					settingsRow(c, "静默启动", "启动后仅驻留菜单栏或托盘，可随时打开窗口", func() {
+						ui.Switch(c, &a.silentStartOn).Label("静默启动开关")
+					})
+					hairline(c)
 					settingsRow(c, "内核自动运行", "随应用启动，无需手动开启；关窗后仍可继续代理", nil)
 					hairline(c)
 					settingsRow(c, "启动时开启系统代理", "内核就绪后，将系统网络请求交给 Gopurr", func() {
@@ -123,7 +135,7 @@ func (a *App) settingsPage(c *ui.Context) {
 							Disabled(!a.lightOn).Label("界面释放等待")
 					})
 					hairline(c)
-					settingsRow(c, "自动更新订阅", "仅更新远程订阅，本地配置保持不变", func() {
+					settingsRow(c, "自动更新订阅", "作为订阅的默认周期，可在各订阅中单独调整", func() {
 						ui.Segmented(c, &a.autoIdx, "关闭", "6 小时", "12 小时", "24 小时").Label("自动更新订阅")
 					})
 					if a.generalSettingsError != "" {
@@ -161,6 +173,10 @@ func (a *App) settingsPage(c *ui.Context) {
 					} else if a.networkStatus != "" && !a.networkSettingsDirty() {
 						settingsFeedback(c, a.networkStatus, false)
 					}
+					settingsRow(c, "切换节点时断开原连接", "立即保存；只断开经过该策略组的连接", func() {
+						ui.Switch(c, &a.closeOnSwitchOn).Label("切换节点时断开原连接开关")
+					})
+					hairline(c)
 					settingsRow(c, "应用网络设置", "保存后热重载内核，已有连接可能受影响", func() {
 						ui.PrimaryButton(c, "保存网络设置").Disabled(!a.networkSettingsDirty()).OnClick(func() {
 							a.saveNetworkSettings()
@@ -201,6 +217,7 @@ func (a *App) settingsPage(c *ui.Context) {
 			}
 
 			if a.settingsTab == 3 {
+				a.backupSettings(c)
 				a.softwareUpdateSettings(c)
 				settingsGroup(c, "配置与维护", func() {
 					settingsRow(c, "当前配置", a.configSource(), func() {
@@ -235,8 +252,20 @@ func (a *App) reconcileSettings() {
 	delayChanged := a.lightDelayIdx != delayIndexOf(last.LightDelay)
 	autoChanged := a.autoIdx != autoUpdateIndex(last.AutoUpdateHours)
 	restoreChanged := a.restoreProxyOn != last.RestoreSystemProxy
-	if appearanceChanged || dockChanged || lightChanged || delayChanged || autoChanged || restoreChanged {
+	startupChanged := a.autoLaunchOn != last.AutoLaunch
+	silentChanged := a.silentStartOn != last.SilentStart
+	cleanupChanged := a.closeOnSwitchOn != last.CloseOnSwitch
+	if startupChanged || silentChanged || cleanupChanged || appearanceChanged || dockChanged || lightChanged || delayChanged || autoChanged || restoreChanged {
 		err := a.changePrefs(func(p *Prefs) {
+			if startupChanged {
+				p.AutoLaunch = a.autoLaunchOn
+			}
+			if silentChanged {
+				p.SilentStart = a.silentStartOn
+			}
+			if cleanupChanged {
+				p.CloseOnSwitch = a.closeOnSwitchOn
+			}
 			if appearanceChanged && a.appearanceIdx >= 0 && a.appearanceIdx < len(appearances) {
 				p.Appearance = appearances[a.appearanceIdx]
 			}

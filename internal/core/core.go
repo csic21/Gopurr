@@ -35,13 +35,22 @@ type Sample struct {
 
 // Conn is one live connection, flattened for the UI.
 type Conn struct {
-	Host    string
-	Network string
-	Rule    string
-	Chain   string
-	Up      int64
-	Down    int64
-	Start   time.Time
+	ID              string
+	Process         string
+	ProcessPath     string
+	SourceIP        string
+	SourcePort      string
+	DestinationIP   string
+	DestinationPort string
+	RulePayload     string
+	Chains          []string
+	Host            string
+	Network         string
+	Rule            string
+	Chain           string
+	Up              int64
+	Down            int64
+	Start           time.Time
 }
 
 // Group is one proxy group with its current selection.

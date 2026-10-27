@@ -2,18 +2,24 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gopurr/internal/autostart"
 )
 
 // Prefs are the settings that belong to the window, not to the kernel. They
 // live beside the profiles, but in their own file: a kernel config and a UI
 // preference are different things and should not share a schema.
 type Prefs struct {
+	AutoLaunch      bool `json:"autoLaunch"`
+	SilentStart     bool `json:"silentStart"`
+	CloseOnSwitch   bool `json:"closeOnSwitch"`
 	CheckAppUpdates bool `json:"checkAppUpdates"`
 	// Appearance controls both the native window and its content.
 	Appearance string `json:"appearance"`
@@ -40,6 +46,7 @@ type Prefs struct {
 func defaultPrefs() Prefs {
 	return Prefs{
 		CheckAppUpdates: true,
+		CloseOnSwitch:   true,
 		Appearance:      AppearanceSystem,
 		DockVisibility:  DockShown,
 		LightDelay:      60,
@@ -114,7 +121,21 @@ func (a *App) changePrefs(edit func(*Prefs)) error {
 		a.pmu.Unlock()
 		return err
 	}
+	startupChanged := p.AutoLaunch != a.prefs.AutoLaunch
+	applyStartup := a.applyAutoLaunch
+	if applyStartup == nil {
+		applyStartup = autostart.Set
+	}
+	if startupChanged {
+		if err := applyStartup(p.AutoLaunch); err != nil {
+			a.pmu.Unlock()
+			return fmt.Errorf("无法设置登录自启: %w", err)
+		}
+	}
 	if err := writeSettingsFile(a.prefsPath, p); err != nil {
+		if startupChanged {
+			err = errors.Join(err, applyStartup(a.prefs.AutoLaunch))
+		}
 		a.pmu.Unlock()
 		return fmt.Errorf("无法保存偏好: %w", err)
 	}

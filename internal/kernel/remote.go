@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -220,47 +221,69 @@ func (r *Remote) Sample() core.Sample {
 }
 
 func (r *Remote) Connections(limit int) []core.Conn {
-	var out struct {
-		Connections []struct {
-			Metadata struct {
-				Host  string `json:"host"`
-				DstIP string `json:"destinationIP"`
-				Net   string `json:"network"`
-			} `json:"metadata"`
-			Rule     string   `json:"rule"`
-			Chains   []string `json:"chains"`
-			Upload   int64    `json:"upload"`
-			Download int64    `json:"download"`
-			Start    string   `json:"start"`
-		} `json:"connections"`
-	}
-	if err := r.request(http.MethodGet, "/connections", nil, &out); err != nil {
+	conns, err := r.ConnectionsWithError()
+	if err != nil {
 		r.setErr(err)
 		return nil
 	}
+	if limit > 0 && len(conns) > limit {
+		return conns[:limit]
+	}
+	return conns
+}
 
+func (r *Remote) ConnectionsWithError() ([]core.Conn, error) {
+	var out struct {
+		Connections []struct {
+			ID       string `json:"id"`
+			Metadata struct {
+				Host        string `json:"host"`
+				DstIP       string `json:"destinationIP"`
+				DstPort     string `json:"destinationPort"`
+				SrcIP       string `json:"sourceIP"`
+				SrcPort     string `json:"sourcePort"`
+				Net         string `json:"network"`
+				Process     string `json:"process"`
+				ProcessPath string `json:"processPath"`
+			} `json:"metadata"`
+			Rule        string    `json:"rule"`
+			RulePayload string    `json:"rulePayload"`
+			Chains      []string  `json:"chains"`
+			Upload      int64     `json:"upload"`
+			Download    int64     `json:"download"`
+			Start       time.Time `json:"start"`
+		} `json:"connections"`
+	}
+	if err := r.request(http.MethodGet, "/connections", nil, &out); err != nil {
+		return nil, err
+	}
 	conns := make([]core.Conn, 0, len(out.Connections))
 	for _, c := range out.Connections {
 		host := c.Metadata.Host
 		if host == "" {
 			host = c.Metadata.DstIP
 		}
-		start, _ := time.Parse(time.RFC3339Nano, c.Start)
 		conns = append(conns, core.Conn{
-			Host:    host,
-			Network: c.Metadata.Net,
-			Rule:    c.Rule,
-			Chain:   strings.Join(c.Chains, " » "),
-			Up:      c.Upload,
-			Down:    c.Download,
-			Start:   start,
+			ID: c.ID, Host: host, Network: c.Metadata.Net, Process: c.Metadata.Process,
+			ProcessPath: c.Metadata.ProcessPath, SourceIP: c.Metadata.SrcIP,
+			SourcePort: c.Metadata.SrcPort, DestinationIP: c.Metadata.DstIP,
+			DestinationPort: c.Metadata.DstPort, Rule: c.Rule, RulePayload: c.RulePayload,
+			Chains: c.Chains, Chain: strings.Join(c.Chains, " » "), Up: c.Upload, Down: c.Download, Start: c.Start,
 		})
 	}
-	reverse(conns)
-	if limit > 0 && len(conns) > limit {
-		conns = conns[:limit]
+	sort.SliceStable(conns, func(i, j int) bool { return conns[i].Start.After(conns[j].Start) })
+	return conns, nil
+}
+
+func (r *Remote) CloseConnection(id string) error {
+	if id == "" {
+		return fmt.Errorf("连接缺少标识，请刷新后重试")
 	}
-	return conns
+	return r.request(http.MethodDelete, "/connections/"+url.PathEscape(id), nil, nil)
+}
+
+func (r *Remote) CloseAllConnections() error {
+	return r.request(http.MethodDelete, "/connections", nil, nil)
 }
 
 func (r *Remote) Groups() []core.Group {

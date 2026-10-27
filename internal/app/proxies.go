@@ -359,12 +359,36 @@ func (a *App) nodeRow(c *ui.Context, group core.Group, member string) {
 // selectProxy is shared by the window and tray so failures and cache updates
 // behave the same when the main window has been released.
 func (a *App) selectProxy(group, member string) bool {
+	var old []core.Conn
+	var snapshotErr error
+	changed := true
+	for _, g := range a.k.Groups() {
+		if g.Name == group {
+			changed = g.Now != member
+			break
+		}
+	}
+	if changed && a.Prefs().CloseOnSwitch {
+		old, snapshotErr = a.k.ConnectionsWithError()
+	}
 	if err := a.k.Select(group, member); err != nil {
 		a.notice = "切换节点失败: " + err.Error()
 		a.invalidate()
 		return false
 	}
 	a.notice = ""
+	if snapshotErr != nil {
+		a.notice = "节点已切换，但无法读取旧连接: " + snapshotErr.Error()
+	}
+	for _, cn := range old {
+		if !containsString(cn.Chains, group) {
+			continue
+		}
+		if err := a.k.CloseConnection(cn.ID); err != nil {
+			a.notice = "节点已切换，部分旧连接未能断开: " + err.Error()
+		}
+	}
+	a.connFetched = time.Time{}
 	a.invalidate()
 	return true
 }
