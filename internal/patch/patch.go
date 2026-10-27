@@ -5,6 +5,8 @@ package patch
 import (
 	"fmt"
 
+	"gopurr/internal/controllerconfig"
+
 	"go.yaml.in/yaml/v3"
 )
 
@@ -52,6 +54,7 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	controllerconfig.Strip(doc)
 	rulesReplaced, err := mergeUserYAML(doc, ov.MergeYAML)
 	if err != nil {
 		return nil, err

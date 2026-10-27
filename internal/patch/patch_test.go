@@ -214,13 +214,12 @@ rules:
 	for key, want := range map[string]any{
 		"mixed-port": 7899, "mode": "rule", "allow-lan": false,
 		"ipv6": false, "unified-delay": true,
-		"external-controller": "127.0.0.1:9090", "secret": "subscription-secret",
 	} {
 		if doc[key] != want {
 			t.Errorf("%s = %v, want %v", key, doc[key], want)
 		}
 	}
-	for _, key := range []string{"port", "socks-port"} {
+	for _, key := range []string{"port", "socks-port", "external-controller", "secret"} {
 		if _, ok := doc[key]; ok {
 			t.Errorf("conflicting listener %s was retained", key)
 		}
@@ -498,5 +497,24 @@ func TestOverridesJSONRoundTripAndClear(t *testing.T) {
 	}
 	if strings.Contains(string(out), "extraRules") || strings.Contains(string(out), "mergeYaml") {
 		t.Fatalf("cleared fields were not omitted: %s", out)
+	}
+}
+
+func TestApplyStripsAllSubscriptionControllers(t *testing.T) {
+	doc := appliedDoc(t, []byte(`external-controller: "0.0.0.0:9090"
+external-controller-tls: "0.0.0.0:9443"
+external-controller-unix: "/tmp/untrusted.sock"
+external-controller-pipe: '\\.\pipe\untrusted'
+external-controller-cors: {allow-origins: ["*"]}
+external-doh-server: /untrusted-dns
+external-ui: /tmp/untrusted-ui
+external-ui-url: https://example.invalid/ui.zip
+secret: untrusted-secret
+rules: ["MATCH,DIRECT"]
+`), Default())
+	for key := range doc {
+		if key == "secret" || strings.HasPrefix(key, "external-controller") || strings.HasPrefix(key, "external-ui") || key == "external-doh-server" {
+			t.Errorf("subscription management setting survived: %s", key)
+		}
 	}
 }

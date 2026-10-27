@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"gopurr/internal/securefs"
+
 	"go.yaml.in/yaml/v3"
 )
 
@@ -69,12 +71,18 @@ type Store struct {
 
 // Open loads (or creates) the store under dir.
 func Open(dir string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Join(dir, "profiles"), 0o755); err != nil {
+	if err := securefs.PrivateDir(dir); err != nil {
+		return nil, err
+	}
+	if err := securefs.PrivateDir(filepath.Join(dir, "profiles")); err != nil {
 		return nil, err
 	}
 	s := &Store{dir: dir}
 	b, err := os.ReadFile(filepath.Join(dir, "profiles.json"))
 	if err == nil {
+		if err := securefs.PrivateFile(filepath.Join(dir, "profiles.json")); err != nil {
+			return nil, err
+		}
 		if err := json.Unmarshal(b, s); err != nil {
 			return nil, fmt.Errorf("profiles.json 损坏: %w", err)
 		}
@@ -84,6 +92,12 @@ func Open(dir string) (*Store, error) {
 
 	// Entries written before local files existed have no kind; they are URLs.
 	for i := range s.Items {
+		if filepath.Base(s.Items[i].File) != s.Items[i].File || !strings.HasSuffix(s.Items[i].File, ".yaml") {
+			return nil, errors.New("订阅文件路径无效")
+		}
+		if err := securefs.PrivateFile(filepath.Join(dir, "profiles", s.Items[i].File)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
 		if s.Items[i].Kind == "" {
 			s.Items[i].Kind = KindURL
 		}
@@ -96,11 +110,7 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(s.dir, "profiles.json.tmp")
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(s.dir, "profiles.json"))
+	return securefs.WriteFile(filepath.Join(s.dir, "profiles.json"), b, 0600)
 }
 
 // List returns the profiles in a stable order.
@@ -198,7 +208,7 @@ func (s *Store) Add(url, name string) (Profile, error) {
 		Updated: time.Now(),
 		Info:    info,
 	}
-	if err := os.WriteFile(filepath.Join(s.dir, "profiles", p.File), body, 0o644); err != nil {
+	if err := securefs.WriteFile(filepath.Join(s.dir, "profiles", p.File), body, 0o600); err != nil {
 		return Profile{}, err
 	}
 
@@ -248,7 +258,7 @@ func (s *Store) AddFile(path, name string) (Profile, error) {
 		File:    idOf("file:"+abs) + ".yaml",
 		Updated: time.Now(),
 	}
-	if err := os.WriteFile(filepath.Join(s.dir, "profiles", p.File), body, 0o644); err != nil {
+	if err := securefs.WriteFile(filepath.Join(s.dir, "profiles", p.File), body, 0o600); err != nil {
 		return Profile{}, err
 	}
 

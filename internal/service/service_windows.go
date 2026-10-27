@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gopurr/internal/process"
+	"gopurr/internal/securefs"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
@@ -131,7 +132,7 @@ func HandleCommand(args []string, run func([]string) error) (bool, error) {
 			result.Error = err.Error()
 		}
 		body, _ := json.Marshal(result)
-		if writeErr := os.WriteFile(args[3], body, 0o600); writeErr != nil {
+		if writeErr := securefs.WriteFile(args[3], body, 0o600); writeErr != nil {
 			return true, writeErr
 		}
 		return true, err
@@ -208,7 +209,10 @@ func installWindowsService(dataDir string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := securefs.AdministratorDir(filepath.Dir(filepath.Dir(target))); err != nil {
+		return err
+	}
+	if err := securefs.AdministratorDir(filepath.Dir(target)); err != nil {
 		return err
 	}
 	source, err := os.Executable()
@@ -298,7 +302,14 @@ type windowsHandler struct {
 
 func (h *windowsHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	changes <- svc.Status{State: svc.StartPending}
-	file, err := os.OpenFile(filepath.Join(h.dir, "core.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	// Privileged logs and provider caches must not follow paths planted in a
+	// user-writable directory. Keep them beside the protected service copy.
+	binary, err := serviceBinary()
+	if err != nil {
+		return true, 1
+	}
+	serviceDir := filepath.Dir(binary)
+	file, err := os.OpenFile(filepath.Join(serviceDir, "core.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return true, 1
 	}
@@ -308,7 +319,7 @@ func (h *windowsHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, 
 	result := make(chan error, 1)
 	go func() {
 		result <- h.run([]string{"--config", filepath.Join(h.dir, "runtime.yaml"), "--socket", filepath.Join(h.dir, "core.sock"),
-			"--secret-file", filepath.Join(h.dir, "core.secret"), "--home", filepath.Join(h.dir, "mihomo"), "--status", filepath.Join(h.dir, "core.json")})
+			"--secret-file", filepath.Join(h.dir, "core.secret"), "--home", filepath.Join(serviceDir, "mihomo"), "--status", filepath.Join(h.dir, "core.json")})
 	}()
 	status := svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	changes <- status

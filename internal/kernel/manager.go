@@ -17,6 +17,7 @@ import (
 	"gopurr/internal/buildinfo"
 	"gopurr/internal/core"
 	"gopurr/internal/process"
+	"gopurr/internal/securefs"
 	"gopurr/internal/service"
 )
 
@@ -38,6 +39,14 @@ type Manager struct {
 }
 
 func NewManager(dir string) (*Manager, error) {
+	if err := securefs.PrivateDir(dir); err != nil {
+		return nil, err
+	}
+	for _, name := range []string{"local.yaml", "runtime.yaml", "prefs.json", "overrides.json", "sysproxy.json"} {
+		if err := securefs.PrivateFile(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
 	m := &Manager{
 		dir:        dir,
 		socket:     filepath.Join(dir, "core.sock"),
@@ -47,7 +56,7 @@ func NewManager(dir string) (*Manager, error) {
 		home:       filepath.Join(dir, "mihomo"),
 		logPath:    filepath.Join(dir, "core.log"),
 	}
-	if err := os.MkdirAll(m.home, 0o755); err != nil {
+	if err := securefs.PrivateDir(m.home); err != nil {
 		return nil, err
 	}
 	secret, err := m.ensureSecret()
@@ -66,6 +75,9 @@ func (m *Manager) Remote() *Remote { return m.remote }
 
 func (m *Manager) ensureSecret() (string, error) {
 	if b, err := os.ReadFile(m.secretFile); err == nil && len(b) >= 16 {
+		if err := securefs.PrivateFile(m.secretFile); err != nil {
+			return "", err
+		}
 		return string(b), nil
 	}
 	buf := make([]byte, 32)
@@ -73,7 +85,7 @@ func (m *Manager) ensureSecret() (string, error) {
 		return "", err
 	}
 	secret := hex.EncodeToString(buf)
-	if err := os.WriteFile(m.secretFile, []byte(secret), 0o600); err != nil {
+	if err := securefs.WriteFile(m.secretFile, []byte(secret), 0o600); err != nil {
 		return "", err
 	}
 	return secret, nil
@@ -108,11 +120,11 @@ func (m *Manager) IsRoot() bool {
 // ServiceNeedsUpdate leaves the existing service running until the user
 // explicitly authorizes reinstalling it with the new application binary.
 func (m *Manager) ServiceNeedsUpdate() bool {
-	if !service.Installed() || buildinfo.Version == "dev" {
+	if !service.Installed() {
 		return false
 	}
 	st, err := m.Status()
-	return err == nil && st.Version != buildinfo.Version
+	return err == nil && (st.SecurityVersion < core.SecurityVersion || (buildinfo.Version != "dev" && st.Version != buildinfo.Version))
 }
 
 // Ensure makes sure a daemon is up. If one is already listening (installed as a
@@ -144,7 +156,7 @@ func (m *Manager) Ensure() error {
 	if err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(m.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logFile, err := os.OpenFile(m.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}

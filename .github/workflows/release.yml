@@ -60,6 +60,8 @@ jobs:
           git show-ref --verify "refs/tags/$RELEASE_TAG"
       - name: Test
         run: go test ./...
+      - name: Check reachable dependency vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Build installer and signed update
         env:
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}

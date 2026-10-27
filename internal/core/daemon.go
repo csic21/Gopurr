@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"gopurr/internal/buildinfo"
+	"gopurr/internal/controllerconfig"
 	"gopurr/internal/process"
+	"gopurr/internal/securefs"
 
 	"go.yaml.in/yaml/v3"
 
@@ -34,12 +37,17 @@ type DaemonOptions struct {
 
 // DaemonStatus is what the app needs to know about a running daemon.
 type DaemonStatus struct {
-	Version string `json:"version,omitempty"`
-	PID     int    `json:"pid"`
-	UID     int    `json:"uid"`
-	Socket  string `json:"socket"`
-	Home    string `json:"home"`
+	SecurityVersion int    `json:"securityVersion"`
+	Version         string `json:"version,omitempty"`
+	PID             int    `json:"pid"`
+	UID             int    `json:"uid"`
+	Socket          string `json:"socket"`
+	Home            string `json:"home"`
 }
+
+// Increment when an installed privileged daemon must be reinstalled even if
+// the application version has not changed (for example a development build).
+const SecurityVersion = 1
 
 // RunDaemon is the privileged side of the app. It is the same kernel code as
 // before, just owned by a process that can legally create TUN devices.
@@ -73,11 +81,17 @@ func RunDaemon(opts DaemonOptions) error {
 		doc = map[string]any{}
 	}
 
-	// The controller lives on a unix socket owned by this daemon; there is no
-	// TCP port to scan, and the secret still gates every request.
-	delete(doc, "external-controller")
-	delete(doc, "external-controller-tls")
-	doc["external-controller-unix"] = opts.Socket
+	backendDir, err := privateControllerDir()
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(backendDir)
+	if err := securefs.PrivateDir(backendDir); err != nil {
+		return err
+	}
+	backend := filepath.Join(backendDir, "c.sock")
+	controllerconfig.Strip(doc)
+	doc["external-controller-unix"] = backend
 	if opts.Home != "" {
 		doc["geodata-mode"] = false
 	}
@@ -100,22 +114,40 @@ func RunDaemon(opts DaemonOptions) error {
 		return err
 	}
 
-	_ = os.Remove(opts.Socket)
 	if err := hub.Parse(merged); err != nil {
 		return err
 	}
+	defer executor.Shutdown()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		conn, err := net.DialTimeout("unix", backend, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("内核控制接口未就绪: %w", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	controller, err := serveController(opts.Socket, backend, secret)
+	if err != nil {
+		return err
+	}
+	defer controller.Close()
 
 	if opts.StatusPath != "" {
-		status := DaemonStatus{Version: buildinfo.Version, PID: os.Getpid(), UID: process.UID(), Socket: opts.Socket, Home: opts.Home}
+		status := DaemonStatus{SecurityVersion: SecurityVersion, Version: buildinfo.Version, PID: os.Getpid(), UID: process.UID(), Socket: opts.Socket, Home: opts.Home}
 		if b, err := json.Marshal(status); err == nil {
-			_ = os.WriteFile(opts.StatusPath, b, 0o644)
+			if err := securefs.WriteFile(opts.StatusPath, b, 0o644); err != nil {
+				return err
+			}
 		}
 	}
 
 	sig := make(chan os.Signal, 1)
 	stopSignals, err := process.NotifyStop(sig)
 	if err != nil {
-		executor.Shutdown()
 		return err
 	}
 	defer stopSignals()
@@ -146,8 +178,6 @@ func RunDaemon(opts DaemonOptions) error {
 
 	<-sig
 
-	executor.Shutdown()
-	_ = os.Remove(opts.Socket)
 	if opts.StatusPath != "" {
 		_ = os.Remove(opts.StatusPath)
 	}

@@ -38,6 +38,8 @@ jobs:
           "TMP=C:\gp-tmp" >> $env:GITHUB_ENV
       - name: Test
         run: go test ./...
+      - name: Check reachable dependency vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Build
         run: go build -o bin/Gopurr${{ runner.os == 'Windows' && '.exe' || '' }} .
       - name: Windows service and Wintun smoke test

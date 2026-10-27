@@ -235,9 +235,9 @@ func appDir() (string, error) {
 	if home := os.Getenv("GOPURR_HOME"); home != "" {
 		abs, err := filepath.Abs(home)
 		if err != nil {
-			return home, os.MkdirAll(home, 0o755)
+			return home, os.MkdirAll(home, 0o700)
 		}
-		return abs, os.MkdirAll(abs, 0o755)
+		return abs, os.MkdirAll(abs, 0o700)
 	}
 	base, err := os.UserConfigDir()
 	if err != nil {
@@ -246,7 +246,7 @@ func appDir() (string, error) {
 	// Capitalised, as other apps name their Application Support folder.
 	dir := filepath.Join(base, "Gopurr")
 	migrateLegacyDir(filepath.Join(base, "myclash"), dir)
-	return dir, os.MkdirAll(dir, 0o755)
+	return dir, os.MkdirAll(dir, 0o700)
 }
 
 // migrateLegacyDir copies the old data directory once, so renaming the app does
