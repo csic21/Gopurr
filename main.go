@@ -124,6 +124,9 @@ func main() {
 		}
 
 		installWindowLifecycle(a)
+		// Windows keeps its initial tray snapshot, so populate it only after
+		// the background kernel and routing groups are ready.
+		a.StartBackground()
 		trayReady := installTray(a)
 		openInitialWindow(a, trayReady)
 		installTestHooks(a)
