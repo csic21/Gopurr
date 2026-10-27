@@ -105,6 +105,18 @@ func TestRenderPages(t *testing.T) {
 			a.logFrozen = a.k.Logs()
 		}},
 		{"settings", func() { a.page, a.settingsTab = "settings", 0 }},
+		{"settings-dock-hidden", func() {
+			a.page, a.settingsTab = "settings", 0
+			if err := a.changePrefs(func(p *Prefs) { p.DockVisibility = DockHidden }); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"settings-dock-follow-window", func() {
+			a.page, a.settingsTab = "settings", 0
+			if err := a.changePrefs(func(p *Prefs) { p.DockVisibility = DockFollowWindow }); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{"settings-error", func() {
 			a.page, a.settingsTab = "settings", 0
 			a.generalSettingsError = "设置保存失败：数据目录暂时不可写，请检查权限后重试。"
@@ -180,6 +192,11 @@ func TestRenderPages(t *testing.T) {
 				a.rawError = ""
 				if a.softwareUpdates != nil {
 					a.softwareUpdates.Hide()
+				}
+				if a.Prefs().DockVisibility != DockShown {
+					if err := a.changePrefs(func(p *Prefs) { p.DockVisibility = DockShown }); err != nil {
+						t.Fatal(err)
+					}
 				}
 				shot.setup()
 				width, height := size[0], size[1]

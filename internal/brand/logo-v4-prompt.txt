@@ -1,0 +1,14 @@
+Generation: built-in imagegen tool, 2026-10-27.
+Selected concept: logo-v4-concept.png.
+The cat contours were traced into logo.svg and tray.svg as cubic Bezier curves.
+The selected icon-master.png is rendered from logo.svg with make brand-master,
+using only #000000 and #ffffff, with clean alpha outside the white tile.
+
+Use case: logo-brand.
+Asset type: a finished original macOS application icon for Gopurr, a calm desktop network utility named for a cat's purr.
+Primary request: redesign the logo as a beautiful, confident BLACK CAT SILHOUETTE ON A PURE WHITE ROUNDED-SQUARE TILE. The cat must read as an animal first, with the suggestion of a G arising naturally from its curled tail and negative space.
+Subject: a relaxed cat curled into a compact circular resting pose, shown in graceful side profile. A full rounded back, a small feline head tucked toward the inside at the right, two naturally shaped ears, and one flowing tapered tail wrapping around the body and curling inward. The head should have a short cat muzzle and one tiny white closed-eye cut, with no other facial detail. Elegant organic curves with carefully varied visual weight; the body has real feline mass, rather than an even-width circular letter stroke. Keep the white cutout between tail and body broad and simple, and make the silhouette distinctive at 32 pixels.
+Style: exceptional professional animal identity design; restrained, minimal, flat, vector-friendly, crisp contour, balanced black mass and white space, calm personality. Similar visual restraint to sophisticated monochrome animal silhouettes in a macOS Dock.
+Color palette: ONLY pure black #000000 and pure white #FFFFFF, with neutral antialiasing at edges. The tile must be neutral pure WHITE, never cream, ivory, beige, blue, navy or tinted gray. The cat must be pure BLACK.
+Composition: one centered icon, straight on, square 1024 x 1024 canvas. A pure white rounded-square tile occupies approximately 88 percent of the square canvas; generous balanced margin inside the tile; cat occupies about 70 percent of the tile. True clean transparency outside the tile.
+Constraints: original design; one cat and one tail; no typography, labels, wordmark, letters printed separately, mockup scene, decorative border, watermark, gradients, shadows, bevels, gloss, 3D, fur texture, whiskers, teeth, giant eyes or cartoon face. Do not use a geometric G with triangular ears attached; avoid swan-like long necks, dragon heads, a thick spiral ribbon, or a disconnected head. Deliver the actual app icon asset.

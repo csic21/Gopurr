@@ -66,7 +66,7 @@ func generate(renderMaster bool) error {
 	if err != nil {
 		return err
 	}
-	// Supersample with the native renderer and preserve the open G counter.
+	// Supersample with the native renderer and preserve the silhouette's cutouts.
 	return writePNG(filepath.Join(dir, "tray.png"), renderVector(template, 32))
 }
 

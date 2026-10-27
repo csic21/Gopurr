@@ -9,7 +9,7 @@ import _ "embed"
 //go:embed logo.svg
 var LogoSVG []byte
 
-// IconPNG is the full-color application icon, used by the Dock and taskbar.
+// IconPNG is the application icon, used by the Dock and taskbar.
 //
 //go:embed icon.png
 var IconPNG []byte
@@ -19,8 +19,8 @@ var IconPNG []byte
 //go:embed sidebar.png
 var SidebarPNG []byte
 
-// TrayPNG is the flat silhouette with an open G counter. The OS tints this
-// template for a light or dark menu bar.
+// TrayPNG is the flat sleeping-cat silhouette with transparent cutouts.
+// The OS tints this template for a light or dark menu bar.
 //
 //go:embed tray.png
 var TrayPNG []byte

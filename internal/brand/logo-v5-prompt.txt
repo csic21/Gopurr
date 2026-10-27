@@ -1,0 +1,20 @@
+Generation: built-in imagegen tool, 2026-10-27.
+Selected concept: logo-v5-concept.png.
+The sleeping cat contours were traced into logo.svg and tray.svg as cubic Bezier curves.
+The selected icon-master.png is rendered from logo.svg with make brand-master,
+using only #000000 and #ffffff, with clean alpha outside the white tile.
+
+Final vector refinement, 2026-10-27: use a pure silhouette with no eye, nose or
+mouth detail. Remove the eye subpath and preserve the exact body, paws, tail and
+tile geometry. logo.svg / tray.svg are the selected design; the original prompt
+below records the initial generated artwork, whose facial detail is omitted
+from the final runtime assets.
+
+Use case: logo-brand.
+Asset type: a carefully designed original black-and-white macOS app icon for Gopurr, named for a cat's purr.
+Primary request: depict the anatomically coherent, NATURAL POSTURE OF A CAT CURLED UP ASLEEP, as an elegant minimal animal silhouette. The logo must read immediately as a comfortable sleeping cat. Let any letter-G association emerge very subtly from the negative space.
+Pose and viewpoint: a slight overhead three-quarter view of a cat LYING DOWN in a snug curl, its body resting on the ground as a soft low oval. Its spine follows a continuous comfortable curve; shoulders and hips are nestled together. Its SMALL head is tucked inward against its folded forepaws, nose close to the tail. The head does not hang from a high upright neck. The two ears belong naturally to the small skull and remain identifiable. Its tail starts at the hindquarters, runs along the lower OUTSIDE edge of the curled body, and tapers smoothly to a slender rounded tip resting beside the forepaws. The tail is clearly narrower than the head and must not become a heavy internal spiral or a second body. No large ring-shaped hole.
+Design: use one confident, balanced black silhouette with just two broad, purposeful white separations to explain the tucked head/forepaws and the slim tail following the belly. Keep a small gentle curved closed-eye dash. The broad back and rounded haunch should look restful, with beautiful organic contour and minimal detail. Strong cat anatomy and a believable resting pose take priority over resemblance to typography. The final mark should feel mature, quiet, warm in personality, memorable, carefully composed and legible at 32 pixels.
+Palette: strictly PURE BLACK #000000 for the cat, PURE WHITE #ffffff for the rounded-square tile, with neutral grayscale only for edge antialiasing. No ivory, beige, navy, blue, gray fill, paper texture or gradients.
+Composition: one finished app icon, square 1024 x 1024 canvas, a centered pure white rounded-square tile taking up 88% of the canvas, comfortable equal optical margins, the low rounded curled cat occupying about 72% of the tile's width. True clean transparency outside the tile; smooth clean edges, no stray fragments. No perspective on the tile.
+Avoid: a cat sitting up or crouching with an upright chest; a long hanging head; a huge spiral tail; a typed G with ears added; an angry pointed eye; a fox or dragon muzzle; big cartoon eyes; whiskers; fur texture; elaborate linework; circles or rings added separately; text; labels; watermark; shadows; bevels; gloss; mockup scenes. Deliver only the finished single icon.

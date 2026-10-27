@@ -444,7 +444,7 @@ func (a *App) sidebar(c *ui.Context) {
 	ui.Column(c).Width(204).FillHeight().Background(pal.Side).
 		BorderWidth(0, 1, 0, 0).BorderColor(pal.Border).Children(func() {
 		ui.Row(c).Padding(24, 20).AlignItems(ui.Center).Gap(10).Children(func() {
-			ui.Image(c, brandLogo).Size(36, 36).Label("Gopurr 猫与 G 标记")
+			ui.Image(c, brandLogo).Size(36, 36).Label("Gopurr 蜷睡猫标记")
 			ui.Column(c).Gap(2).Children(func() {
 				ui.Text(c, "Gopurr").FontSize(18).FontWeight(650).TextColor(pal.Text)
 				ui.Text(c, "让连接简单一点").FontSize(11).TextColor(pal.Faint)

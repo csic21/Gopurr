@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="internal/brand/logo.png" alt="Gopurr 猫与 G 标记" width="160">
+  <img src="internal/brand/logo.png" alt="Gopurr 蜷睡猫标记" width="160">
 </p>
 
 # Gopurr
@@ -52,7 +52,7 @@ make run
 
 应用启动时默认拉起 `--core` 子进程，无需手动启动内核。父子关系决定生命周期：应用退出（甚至崩溃），子进程跟着走。系统代理、订阅、测速、规则、日志都在这个模式下可用。系统代理由用户选择是否开启；设置里的“启动时开启系统代理”可以在之后启动时自动启用。`GOPURR_AUTOSTART=0` 只用于调试时禁用默认启动。
 
-macOS 应用包（含 Finder 图标）：`make bundle`，产物为 `bin/darwin-arm64/Gopurr.app`（发布只支持 Apple Silicon）。图标渲染源文件是 `internal/brand/icon-master.png`，平面与菜单栏版本是 `logo.svg` 与 `tray.svg`；修改后运行 `make icons` 更新内嵌图标，`make preview-icons` 生成明暗背景和实际使用尺寸检查图。生成提示保存在 `internal/brand/logo-v2-prompt.txt`。
+macOS 应用包（含 Finder 图标）：`make bundle`，产物为 `bin/darwin-arm64/Gopurr.app`（发布只支持 Apple Silicon）。图标渲染源文件是 `internal/brand/icon-master.png`，平面与菜单栏版本是 `logo.svg` 与 `tray.svg`；修改后运行 `make icons` 更新内嵌图标，`make preview-icons` 生成明暗背景和实际使用尺寸检查图。当前采用纯白底与纯黑蜷睡猫剪影，修改矢量设计后可用 `make brand-master` 重绘渲染稿；详见 [品牌素材说明](internal/brand/README.md)。
 
 **TUN 模式**（可选，需要一次授权）
 
@@ -128,9 +128,21 @@ macOS 托盘菜单支持直接开关**系统代理**和 **TUN 模式**，勾选�
 
 每次打开托盘菜单都会读取最新状态，轻量模式释放窗口后仍可操作。切换失败会恢复勾选并打开对应页面显示原因。`make build` 后运行 `python3 scripts/preview-tray.py`，可启动使用临时配置、假控制器和代理命令替身的独立预览；`--no-service` 检查 TUN 禁用态，`--light` 检查关窗释放，不改变系统代理。
 
+## 程序坞与窗口
+
+macOS 在「设置 → 常规 → 外观」提供「显示程序坞图标」，选择后立即生效并自动保存：
+
+| 选项 | 行为 |
+| --- | --- |
+| 隐藏 | 始终隐藏程序坞图标，从菜单栏「显示窗口」打开界面 |
+| 跟随窗口 | 打开窗口时显示图标，关闭窗口时隐藏 |
+| 显示（默认） | 关闭窗口后保留图标，点击即可重新打开窗口 |
+
+点击程序坞图标会恢复并聚焦已有窗口；轻量模式释放窗口后会重新创建。最小化的窗口也会恢复，不会重复打开。
+
 ## 轻量模式
 
-关掉窗口就不再绘制；等待 N 秒（30 秒 / 1 分钟 / 5 分钟）后销毁窗口本身。内核、系统代理和菜单栏图标都不受影响，点菜单栏「显示窗口」会重建界面。
+关掉窗口就不再绘制；等待 N 秒（30 秒 / 1 分钟 / 5 分钟）后销毁窗口本身。内核、系统代理和菜单栏图标都不受影响，点菜单栏「显示窗口」会重建界面。程序坞图标仍按上述偏好显示，选择「显示」时也可直接点击程序坞图标重建窗口。
 
 实测（`GOPURR_AUTOSTART=1 GOPURR_LIGHT=1 GOPURR_AUTOCLOSE=5`，用 `proc_pid_rusage` 采样）：
 
@@ -186,9 +198,11 @@ make test
 - `internal/sysproxy`：三条 `networksetup` 命令与引号注入
 - `internal/app`：**离屏渲染全部页面、设置分类与覆写编辑器**并落盘 `docs/render-*.png`；交互覆盖默认启动、草稿与保存回滚、2000 节点列表，不需要窗口服务器
 
+macOS 另可运行 `make test-native`，用真实 AppKit 窗口检查三种程序坞显示方式、Dock 激活、最小化恢复、轻量模式重建及过期计时器取消。使用临时数据目录、假控制器与系统代理命令替身，不加载真实订阅或更改系统代理。
+
 ## 退出
 
-窗口上的红点**不退出**，只是把界面收进菜单栏——代理还在工作。真正退出走菜单栏「退出 Gopurr」或 ⌘Q：
+窗口上的红点**不退出**，关闭界面后代理继续工作；从菜单栏「显示窗口」或仍显示的程序坞图标重新打开。真正退出走菜单栏「退出 Gopurr」或 ⌘Q：
 
 1. `OnBeforeQuit` 置位退出标记，停掉内核守护进程
 2. 关闭窗口（只有退出标记置位时才放行，见下）

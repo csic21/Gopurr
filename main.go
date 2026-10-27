@@ -97,29 +97,12 @@ func main() {
 		a.Shutdown()
 	})
 
-	// mygo quits when the last window closes unless someone says otherwise.
-	// This is a menu bar app: the kernel must outlive the window.
-	mygo.App.OnWindowAllClosed(func() {})
-	mygo.App.OnActivate(func(bool) { showWindow(a) })
-
 	mygo.App.WhenReady(func() {
 		if err := mygo.App.Dock.SetIcon(brand.IconPNG); err != nil {
 			log.Printf("app icon unavailable: %v", err)
 		}
 
-		a.SetPrefsHook(func(p app.Prefs) {
-			mygo.RunOnMain(func() {
-				if quitting.Load() {
-					return
-				}
-				if source := mygo.ThemeSource(p.Appearance); mygo.Theme.Source() != source {
-					mygo.Theme.SetSource(source)
-				}
-				applyDockVisibility(p, windowVisible())
-				scheduleRelease(a)
-			})
-		})
-
+		installWindowLifecycle(a)
 		showWindow(a)
 		installTray(a)
 		installTestHooks(a)
@@ -137,6 +120,26 @@ var (
 	releaseGeneration uint64
 	quitting          atomic.Bool
 )
+
+func installWindowLifecycle(a *app.App) {
+	// The kernel must outlive the last window, including a light-mode release.
+	mygo.App.OnWindowAllClosed(func() {})
+	mygo.App.OnActivate(func(bool) { showWindow(a) })
+	a.SetPrefsHook(func(app.Prefs) {
+		mygo.RunOnMain(func() {
+			if quitting.Load() {
+				return
+			}
+			// A newer save may have reached the UI thread ahead of this hook.
+			p := a.Prefs()
+			if source := mygo.ThemeSource(p.Appearance); mygo.Theme.Source() != source {
+				mygo.Theme.SetSource(source)
+			}
+			applyDockVisibility(p, windowVisible())
+			scheduleRelease(a)
+		})
+	})
+}
 
 func windowVisible() bool {
 	return mainWin != nil && !mainWin.IsDestroyed() && mainWin.IsVisible()

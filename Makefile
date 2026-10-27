@@ -11,7 +11,7 @@ export GOFLAGS ?= -tags=with_gvisor
 
 BIN := bin/Gopurr
 
-.PHONY: run build bundle brand-master icons preview-icons dev tidy clean autostart test
+.PHONY: run build bundle brand-master icons preview-icons dev tidy clean autostart test test-native
 
 build:
 	go build -o $(BIN) .
@@ -43,6 +43,10 @@ dev:
 
 test:
 	go test ./...
+
+# Opt-in macOS window lifecycle checks using an isolated local controller.
+test-native:
+	go test -tags gopurr_native . -count=1 -timeout=60s
 
 tidy:
 	go mod tidy
