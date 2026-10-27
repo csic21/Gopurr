@@ -1,5 +1,11 @@
 # Gopurr UX / UE / UI 审查
 
+## 0.1.1 退出与代理恢复
+
+系统代理改用仅属于当前应用会话的权限助手：首次开启时授权，随后关闭、端口调整和退出恢复复用同一连接；应用断开时助手尝试恢复原网络服务的 HTTP、HTTPS、SOCKS 及绕过列表。恢复失败会保留内核与恢复记录并取消退出，概览页继续显示错误。交互测试隔离系统代理初始化，避免读取本机状态后进入真实授权流程。
+
+验证：229 项测试、14 个包通过；代理助手 14 项测试通过竞态检查，覆盖授权取消、权限会话丢失、异常断开、网络切换、其他客户端修改及失败重试；9 项 macOS 原生窗口生命周期测试通过。检查了明暗外观下 1060×720 / 840×560 的概览错误截图，系统代理与 TUN 开关保持可见，错误文字在小窗口正常换行；更新说明截图显示当前版本 0.1.1。`make build bundle` 与 Windows x64 交叉编译成功。
+
 2026-10-27。根据用户提供的真实界面、现有 Go / mygo 实现和以下上游资料审查，并落地本轮修复。
 
 参考 [Sparkle 项目](https://github.com/xishang0128/sparkle)的开箱即用和常用配置能力、[Clash Verge Rev 扩展文档](https://github.com/clash-verge-rev/clash-verge-rev.github.io/blob/main/docs/guide/extend.md)的配置与应用设置优先级，以及[官方更新记录](https://github.com/clash-verge-rev/clash-verge-rev/releases)中的代理组筛选、排序、延迟测试和分组导航改进。实现继续使用本项目的原生控件和守护进程架构。

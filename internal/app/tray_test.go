@@ -20,7 +20,7 @@ import (
 
 func TestTraySwitchesWithoutWindow(t *testing.T) {
 	a, controller := newTrayTestApp(t)
-	proxyLog := fakeTraySystemProxy(t, a.mixedPort())
+	proxyLog := fakeTraySystemProxy(t, a, a.mixedPort())
 	opened := 0
 	items := a.trayItems(true, nil, func() { opened++ })
 	if runtime.GOOS == "darwin" {
@@ -73,7 +73,7 @@ func TestTraySwitchesWithoutWindow(t *testing.T) {
 
 func TestTrayFailuresRestoreChecksAndShowErrors(t *testing.T) {
 	a, controller := newTrayTestApp(t)
-	fakeTraySystemProxy(t, a.mixedPort())
+	fakeTraySystemProxy(t, a, a.mixedPort())
 	opened := 0
 	openWindow := func() { opened++ }
 	if runtime.GOOS == "darwin" {
@@ -108,7 +108,7 @@ func TestTrayFailuresRestoreChecksAndShowErrors(t *testing.T) {
 
 func TestTrayNodesAndModesRoundTrip(t *testing.T) {
 	a, controller := newTrayTestApp(t)
-	fakeTraySystemProxy(t, a.mixedPort())
+	fakeTraySystemProxy(t, a, a.mixedPort())
 	opened := 0
 	openWindow := func() { opened++ }
 	items := a.trayItems(true, a.k.Groups(), openWindow)
@@ -193,7 +193,7 @@ func TestTrayRefreshesSystemProxyState(t *testing.T) {
 		t.Skip("macOS system proxy command fixtures")
 	}
 	a, _ := newTrayTestApp(t)
-	fakeTraySystemProxy(t, a.mixedPort())
+	fakeTraySystemProxy(t, a, a.mixedPort())
 	for _, state := range []struct {
 		server string
 		on     bool
@@ -336,8 +336,9 @@ func newTrayTestApp(t *testing.T) (*App, *trayTestController) {
 }
 
 // All OS proxy commands are fixtures: no authorization prompt or system change.
-func fakeTraySystemProxy(t *testing.T, port int) string {
+func fakeTraySystemProxy(t *testing.T, a *App, port int) string {
 	t.Helper()
+	a.proxy = scriptedProxyFixture{}
 	if runtime.GOOS != "darwin" {
 		return ""
 	}

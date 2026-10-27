@@ -3,10 +3,8 @@
 // Package service installs the optional LaunchDaemon that lets the kernel own
 // a TUN device.
 //
-// Installing it is the only moment this app asks for administrator rights, and
-// it only happens when the user clicks "安装服务". That matches what Clash
-// Verge does: an explicit "install service" action, one authorization prompt,
-// and a LaunchDaemon afterwards.
+// Installation and removal ask for administrator rights only after an explicit
+// user action. The separate system-proxy helper is scoped to the UI session.
 package service
 
 import (
@@ -41,7 +39,7 @@ func Installed() bool {
 }
 
 // Install registers the daemon and starts it. The caller should have asked the
-// user first: this is the one action that needs a password.
+// user first: installing a persistent service needs administrator authorization.
 func Install(binary, dataDir string) error {
 	if !Available() {
 		return errors.New("当前平台不支持安装 macOS TUN 服务")

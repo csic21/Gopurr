@@ -30,6 +30,8 @@ Gopurr 是基于 [mihomo](https://github.com/MetaCubeX/mihomo) 的原生桌面�
 
 TUN 在 macOS 使用 LaunchDaemon，在 Windows 使用系统服务与内嵌 Wintun。服务安装、升级和卸载由用户主动发起并授权。
 
+macOS 每次启动后首次开启系统代理时需要管理员授权。同一应用会话内的代理开关、端口调整及退出恢复会复用权限；退出时恢复接管前的配置。若恢复失败，应用保留内核并显示错误，修复后可再次退出。
+
 ## 功能
 
 | 页面 | 能力 |

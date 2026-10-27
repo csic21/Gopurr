@@ -58,6 +58,13 @@ func main() {
 		fmt.Printf("Gopurr %s\n", buildinfo.Version)
 		return
 	}
+	if handled, err := sysproxy.HandleCommand(os.Args[1:]); handled {
+		if err != nil {
+			log.Printf("system proxy helper: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if handled, err := service.HandleCommand(os.Args[1:], runDaemon); handled {
 		if err != nil {
 			log.Printf("service: %v", err)
@@ -85,16 +92,18 @@ func main() {
 	mygo.App.SetName("Gopurr")
 	mygo.App.SetVersion(buildinfo.Version)
 
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
 		// mygo closes every window as part of quitting, and a window that
 		// prevents its close cancels the whole quit. Remember why we are
 		// closing so OnClose lets it through this time.
 		quitting.Store(true)
 		cancelRelease()
-		// Restoring the system proxy may need authorization; do not let a slow
-		// dialog keep the app from exiting.
-		sysproxy.SetTimeout(4 * time.Second)
-		a.Shutdown()
+		if err := a.Shutdown(); err != nil {
+			e.PreventDefault()
+			quitting.Store(false)
+			log.Printf("quit canceled: %v", err)
+			showWindow(a)
+		}
 	})
 
 	mygo.App.WhenReady(func() {

@@ -71,6 +71,7 @@ func waitSoftwareUpdate(t *testing.T, a *App, phase update.Phase) {
 
 func TestSoftwareUpdateRequiresInstallConfirmation(t *testing.T) {
 	a, _ := newSettingsTestApp(t, nil)
+	a.booted, a.ticking = true, true
 	var installs atomic.Int32
 	a.softwareUpdates = update.New(fixtureUpdateBackend{phase: update.Ready, installed: &installs}, nil)
 	defer a.softwareUpdates.Close()

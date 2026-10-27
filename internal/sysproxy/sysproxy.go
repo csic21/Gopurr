@@ -15,3 +15,12 @@ type State struct {
 
 // Available reports whether this build can change the system proxy.
 func Available() bool { return supported }
+
+// Controller owns the proxy changes for one application session. On macOS it
+// retains a narrowly scoped privileged helper, so restoring on quit never asks
+// for another password. Close must succeed before the kernel is stopped.
+type Controller interface {
+	Enable(port int, previous *State) error
+	Restore(previous *State) error
+	Close() error
+}

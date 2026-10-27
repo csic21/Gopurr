@@ -24,7 +24,7 @@ import (
 // "does the UI still build", and it needs no window server.
 func TestRenderPages(t *testing.T) {
 	previousVersion := mygo.App.Version()
-	mygo.App.SetVersion("0.1.0")
+	mygo.App.SetVersion("0.1.1")
 	t.Cleanup(func() { mygo.App.SetVersion(previousVersion) })
 	dir := t.TempDir()
 	t.Setenv("GOPURR_HOME", dir)
@@ -65,6 +65,11 @@ func TestRenderPages(t *testing.T) {
 		{"software-update-ready", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Ready) }},
 		{"software-update-error", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Failed) }},
 		{"overview", func() { a.page = "overview" }},
+		{"overview-proxy-error", func() {
+			a.page = "overview"
+			a.sysApplied, a.sysOn = true, true
+			a.setSysErr("恢复系统代理失败，应用保持运行。请重新开启系统代理后重试。")
+		}},
 		{"subs", func() { a.page = "subs" }},
 		{"subs-compact", func() { a.page = "subs" }},
 		{"proxies", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
@@ -193,6 +198,8 @@ func TestRenderPages(t *testing.T) {
 				a.ruleQuery, a.ruleAdapter = "", allAdapters
 				a.generalSettingsError, a.mergeYAMLError = "", ""
 				a.rawError = ""
+				a.setSysErr("")
+				a.sysApplied, a.sysOn = false, false
 				if a.softwareUpdates != nil {
 					a.softwareUpdates.Hide()
 				}

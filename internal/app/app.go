@@ -122,6 +122,7 @@ type App struct {
 	ovPath   string
 	prevPath string
 	prev     *sysproxy.State
+	proxy    sysproxy.Controller
 
 	sysOn      bool
 	sysApplied bool
@@ -372,7 +373,7 @@ func (a *App) View(c *ui.Context) {
 			a.ov.Mode = a.modeToken
 			a.modePick = labelFor(a.modeToken)
 			a.modeIdx = modeIndex(a.modeToken)
-			if a.Prefs().RestoreSystemProxy && !a.sysApplied {
+			if a.sysApplied || a.Prefs().RestoreSystemProxy {
 				a.setSystemProxy(true)
 			}
 		}
@@ -1052,7 +1053,7 @@ func (a *App) setSystemProxy(on bool) {
 				a.savePrevProxy()
 			}
 		}
-		err = sysproxy.Enable(port)
+		err = a.proxyController().Enable(port, a.prev)
 	} else {
 		err = a.restoreProxy()
 	}
@@ -1072,13 +1073,19 @@ func (a *App) setSystemProxy(on bool) {
 // restoreProxy hands the system proxy back to its previous owner, or turns it
 // off when there was none.
 func (a *App) restoreProxy() error {
-	prev := a.prev
+	if err := a.proxyController().Restore(a.prev); err != nil {
+		return err
+	}
 	a.prev = nil
 	a.savePrevProxy()
-	if prev != nil && prev.Enabled && (prev.Server != "" || prev.RawServer != "") {
-		return sysproxy.Restore(*prev)
+	return nil
+}
+
+func (a *App) proxyController() sysproxy.Controller {
+	if a.proxy == nil {
+		a.proxy = sysproxy.NewController()
 	}
-	return sysproxy.Disable()
+	return a.proxy
 }
 
 func ownsProxy(st sysproxy.State, port int) bool {
@@ -1116,7 +1123,23 @@ func (a *App) savePrevProxy() {
 }
 
 // Shutdown puts the machine back the way it was. The window calls it on quit.
-func (a *App) Shutdown() {
+func (a *App) Shutdown() error {
+	// A failed restore must leave the listener and recovery record available
+	// for retry, rather than quitting with a dead system proxy.
+	if a.sysApplied {
+		a.setSystemProxy(false)
+		if a.sysApplied {
+			a.page = "overview"
+			return fmt.Errorf("无法恢复系统代理，应用保持运行: %s", a.sysErrText())
+		}
+	}
+	if a.proxy != nil {
+		if err := a.proxy.Close(); err != nil {
+			a.setSysErr(err.Error())
+			a.page = "overview"
+			return err
+		}
+	}
 	if a.stopSoftwareUpdates != nil {
 		a.stopSoftwareUpdates()
 	}
@@ -1124,10 +1147,10 @@ func (a *App) Shutdown() {
 		a.softwareUpdates.Close()
 	}
 	a.cancelDelayTest()
-	if a.sysApplied {
-		a.setSystemProxy(false)
+	if a.k != nil {
+		a.k.Shutdown()
 	}
-	a.k.Shutdown()
+	return nil
 }
 
 func (a *App) setSysErr(msg string) {
@@ -1150,8 +1173,8 @@ func (a *App) svcState() (installed, busy bool, errText string) {
 	return a.svcInstalled, a.svcBusy, a.svcErr
 }
 
-// installService is the only place this app asks for administrator rights, and
-// only because the user clicked the button that says so.
+// installService asks for administrator rights after the user explicitly
+// confirms installing the persistent TUN service.
 func (a *App) installService() {
 	a.bmu.Lock()
 	if a.svcBusy {

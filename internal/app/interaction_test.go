@@ -66,6 +66,8 @@ func TestInteraction(t *testing.T) {
 	startFakeCore(t, dir, string(secret))
 	a.k.WatchLogs()
 	time.Sleep(250 * time.Millisecond)
+	// Navigation tests use the fake controller, without OS proxy integration.
+	a.booted, a.ticking = true, true
 
 	tr := ui.NewTester(a.View, 1060, 720)
 	tr.Frame()

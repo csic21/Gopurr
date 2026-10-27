@@ -475,7 +475,7 @@ func TestPrefsNetworkPortChangeResyncsProxyWithoutReplacingPreviousOwner(t *test
 	if port == a.mixedPort() {
 		t.Skip("ephemeral port happened to equal the existing port")
 	}
-	logPath := fakeSettingsSystemProxy(t, port, false)
+	logPath := fakeSettingsSystemProxy(t, a, port, false)
 	previous := &sysproxy.State{Enabled: true, Server: "previous.example", Port: 8080}
 	a.prev, a.sysApplied, a.sysOn = previous, true, true
 	a.savePrevProxy()
@@ -511,7 +511,7 @@ func TestPrefsNetworkRollsBackWhenProxyAuthorizationIsCanceled(t *testing.T) {
 	if port == a.mixedPort() {
 		t.Skip("ephemeral port happened to equal the existing port")
 	}
-	logPath := fakeSettingsSystemProxy(t, port, true)
+	logPath := fakeSettingsSystemProxy(t, a, port, true)
 	previous := &sysproxy.State{Enabled: true, Server: "previous.example", Port: 8080}
 	a.prev, a.sysApplied, a.sysOn = previous, true, true
 	a.mixedPortDraft = strconv.Itoa(port)
@@ -536,8 +536,9 @@ func TestPrefsNetworkRollsBackWhenProxyAuthorizationIsCanceled(t *testing.T) {
 	}
 }
 
-func fakeSettingsSystemProxy(t *testing.T, port int, cancelFirst bool) string {
+func fakeSettingsSystemProxy(t *testing.T, a *App, port int, cancelFirst bool) string {
 	t.Helper()
+	a.proxy = scriptedProxyFixture{}
 	binDir := t.TempDir()
 	logPath := filepath.Join(binDir, "proxy-call.txt")
 	scripts := map[string]string{

@@ -18,16 +18,7 @@ const supported = true
 // every other Clash client does and what keeps the app's own traffic direct.
 var bypassDomains = []string{"127.0.0.1", "localhost", "169.254/16", "*.local"}
 
-// runTimeout bounds every networksetup/route call. Quitting shortens it so a
-// slow authorization dialog cannot hold the app open.
-var runTimeout = 15 * time.Second
-
-// SetTimeout shortens or restores the bound for these calls.
-func SetTimeout(d time.Duration) {
-	if d > 0 {
-		runTimeout = d
-	}
-}
+const runTimeout = 5 * time.Second
 
 func run(name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
@@ -42,7 +33,13 @@ func run(name string, args ...string) (string, error) {
 // Service resolves the network service in front of the default route, e.g.
 // "Wi-Fi" for en0.
 func Service() (string, error) {
-	route, err := run("route", "-n", "get", "default")
+	return serviceUsing(run)
+}
+
+type commandRunner func(string, ...string) (string, error)
+
+func serviceUsing(command commandRunner) (string, error) {
+	route, err := command("route", "-n", "get", "default")
 	if err != nil {
 		return "", err
 	}
@@ -56,11 +53,15 @@ func Service() (string, error) {
 	if device == "" {
 		return "", errors.New("找不到默认网卡")
 	}
-	return serviceForDevice(device)
+	return serviceForDeviceUsing(command, device)
 }
 
 func serviceForDevice(device string) (string, error) {
-	order, err := run("networksetup", "-listnetworkserviceorder")
+	return serviceForDeviceUsing(run, device)
+}
+
+func serviceForDeviceUsing(command commandRunner, device string) (string, error) {
+	order, err := command("networksetup", "-listnetworkserviceorder")
 	if err != nil {
 		return "", err
 	}
@@ -111,71 +112,6 @@ func Current() (State, error) {
 	return st, nil
 }
 
-// Enable points HTTP, HTTPS and SOCKS at the kernel's mixed port. macOS wants
-// administrator rights for this, so the commands go through one Authorization
-// prompt instead of three.
-func Enable(port int) error { return Apply("127.0.0.1", port) }
-
-func Restore(st State) error { return Apply(st.Server, st.Port) }
-
-// Apply points the proxies at any server, which is how a previous client's
-// settings get put back.
-func Apply(server string, port int) error {
-	service, err := Service()
-	if err != nil {
-		return err
-	}
-	return runPrivileged(enableScript(service, server, port))
-}
-
-// Disable turns the three proxy switches back off.
-func Disable() error {
-	service, err := Service()
-	if err != nil {
-		return err
-	}
-	return runPrivileged(disableScript(service))
-}
-
-func runPrivileged(script string) error {
-	// The script is executed by a shell as root; the only interpolation is the
-	// service name and an integer port, both quoted.
-	apple := fmt.Sprintf("do shell script %s with administrator privileges", strconv.Quote(script))
-	out, err := run("osascript", "-e", apple)
-	if err != nil {
-		if strings.Contains(strings.ToLower(out+err.Error()), "cancel") {
-			return errors.New("已取消授权")
-		}
-		return err
-	}
-	return nil
-}
-
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-func enableScript(service, server string, port int) string {
-	svc := shellQuote(service)
-	host := shellQuote(server)
-	bypass := make([]string, len(bypassDomains))
-	for i, d := range bypassDomains {
-		bypass[i] = shellQuote(d)
-	}
-	p := strconv.Itoa(port)
-	return strings.Join([]string{
-		fmt.Sprintf("networksetup -setwebproxy %s %s %s", svc, host, p),
-		fmt.Sprintf("networksetup -setsecurewebproxy %s %s %s", svc, host, p),
-		fmt.Sprintf("networksetup -setsocksfirewallproxy %s %s %s", svc, host, p),
-		fmt.Sprintf("networksetup -setproxybypassdomains %s %s", svc, strings.Join(bypass, " ")),
-	}, "; ")
-}
-
-func disableScript(service string) string {
-	svc := shellQuote(service)
-	return strings.Join([]string{
-		fmt.Sprintf("networksetup -setwebproxystate %s off", svc),
-		fmt.Sprintf("networksetup -setsecurewebproxystate %s off", svc),
-		fmt.Sprintf("networksetup -setsocksfirewallproxystate %s off", svc),
-	}, "; ")
 }
