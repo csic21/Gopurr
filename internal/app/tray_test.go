@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -15,8 +16,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"go.yaml.in/yaml/v3"
-
-	"gopurr/internal/sysproxy"
 )
 
 func TestTraySwitchesWithoutWindow(t *testing.T) {
@@ -24,7 +23,7 @@ func TestTraySwitchesWithoutWindow(t *testing.T) {
 	proxyLog := fakeTraySystemProxy(t, a.mixedPort())
 	opened := 0
 	items := a.trayItems(true, nil, func() { opened++ })
-	if sysproxy.Available() {
+	if runtime.GOOS == "darwin" {
 		proxy := findTrayItem(t, items, "system-proxy")
 		clickTrayItem(t, proxy)
 		if !a.sysApplied || !a.sysOn || !proxy.IsChecked() {
@@ -77,7 +76,7 @@ func TestTrayFailuresRestoreChecksAndShowErrors(t *testing.T) {
 	fakeTraySystemProxy(t, a.mixedPort())
 	opened := 0
 	openWindow := func() { opened++ }
-	if sysproxy.Available() {
+	if runtime.GOOS == "darwin" {
 		t.Setenv("GOPURR_TEST_TRAY_PROXY_CANCEL", "1")
 		proxy := findTrayItem(t, a.trayItems(true, nil, openWindow), "system-proxy")
 		clickTrayItem(t, proxy)
@@ -190,8 +189,8 @@ func TestTrayUnavailableStates(t *testing.T) {
 }
 
 func TestTrayRefreshesSystemProxyState(t *testing.T) {
-	if !sysproxy.Available() {
-		t.Skip("system proxy integration is unavailable")
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS system proxy command fixtures")
 	}
 	a, _ := newTrayTestApp(t)
 	fakeTraySystemProxy(t, a.mixedPort())
@@ -339,6 +338,9 @@ func newTrayTestApp(t *testing.T) (*App, *trayTestController) {
 // All OS proxy commands are fixtures: no authorization prompt or system change.
 func fakeTraySystemProxy(t *testing.T, port int) string {
 	t.Helper()
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
 	dir := t.TempDir()
 	state, logPath := filepath.Join(dir, "state"), filepath.Join(dir, "calls")
 	if err := os.WriteFile(state, []byte("Enabled: No\n"), 0o600); err != nil {

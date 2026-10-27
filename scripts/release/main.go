@@ -29,6 +29,7 @@ func run() error {
 	platform := flag.String("platform", runtime.GOOS+"/"+runtime.GOARCH, "darwin/arm64 or windows/amd64")
 	version := flag.String("version", "", "release version, with or without v")
 	release := flag.Bool("release", false, "require a signing key and stage release artifacts in dist")
+	output := flag.String("out", "bin", "build output directory")
 	skipDMG := flag.Bool("skip-dmg", false, "build the local macOS app bundle only")
 	flag.Parse()
 	if *platform != "darwin/arm64" && *platform != "windows/amd64" {
@@ -70,7 +71,7 @@ func run() error {
 			return errors.New("release needs the MYGO_UPDATER_PRIVATE_KEY GitHub Actions secret")
 		}
 	}
-	args := []string{"run", "github.com/egoist/mygo/cmd/mygo", "build", "-platform", *platform, "-skip-notarize"}
+	args := []string{"run", "github.com/egoist/mygo/cmd/mygo", "build", "-platform", *platform, "-skip-notarize", "-o", *output}
 	if *skipDMG {
 		args = append(args, "-skip-dmg")
 	}
@@ -83,7 +84,7 @@ func run() error {
 		return nil
 	}
 	target := strings.ReplaceAll(*platform, "/", "-")
-	stage := filepath.Join("bin", target)
+	stage := filepath.Join(*output, target)
 	installer := "gopurr-" + current + "-arm64.dmg"
 	if *platform == "windows/amd64" {
 		installer = "gopurr-setup-" + current + "-amd64.exe"
