@@ -67,6 +67,20 @@ func run() error {
 		}
 	}()
 	env := os.Environ()
+	flags := strings.Fields(os.Getenv("GOFLAGS"))
+	hasTags := false
+	for i, flag := range flags {
+		if tags, ok := strings.CutPrefix(flag, "-tags="); ok {
+			hasTags = true
+			if !strings.Contains(","+tags+",", ",with_gvisor,") {
+				flags[i] = "-tags=" + tags + ",with_gvisor"
+			}
+		}
+	}
+	if !hasTags {
+		flags = append(flags, "-tags=with_gvisor")
+	}
+	env = append(env, "GOFLAGS="+strings.Join(flags, " "))
 	if os.Getenv("MYGO_UPDATER_PRIVATE_KEY") == "" {
 		if key, err := os.ReadFile(".secrets/mygo-update.key"); err == nil {
 			env = append(env, "MYGO_UPDATER_PRIVATE_KEY="+strings.TrimSpace(string(key)))

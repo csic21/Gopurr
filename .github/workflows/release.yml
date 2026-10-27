@@ -36,6 +36,7 @@ jobs:
       GOMODCACHE: ${{ github.workspace }}/.cache/mod
       GOCACHE: ${{ github.workspace }}/.cache/build
       CGO_ENABLED: '0'
+      GOFLAGS: -tags=with_gvisor
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

@@ -1,6 +1,6 @@
 # 发布流程
 
-支持 macOS `darwin/arm64` 与 Windows `windows/amd64`。在 `main` 推送和 PR 时，CI 在两个系统运行全部测试、编译程序并保存界面截图。Windows 还在临时 runner 上验证真实 SCM 服务安装、Wintun 网卡创建、HTTP 代理、配置重载、服务升级和卸载，不修改系统代理或默认路由。
+支持 macOS `darwin/arm64` 与 Windows `windows/amd64`。所有正式构建都启用 `with_gvisor`，以支持默认的 mixed 和可选的 gvisor TUN 协议栈；不要用缺少该标签的裸 `go build` 作为发布包。在 `main` 推送和 PR 时，CI 在两个系统运行全部测试、编译程序并保存界面截图。Windows 还在临时 runner 上验证真实 SCM 服务安装、Wintun 网卡创建、HTTP 代理、配置重载、服务升级和卸载，不修改系统代理或默认路由。
 
 ## 发布一个版本
 
