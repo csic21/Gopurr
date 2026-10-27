@@ -14,6 +14,7 @@ import (
 
 	"gopurr/internal/process"
 
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -303,6 +304,7 @@ func (h *windowsHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, 
 	}
 	defer file.Close()
 	log.SetOutput(file)
+	logrus.SetOutput(file)
 	result := make(chan error, 1)
 	go func() {
 		result <- h.run([]string{"--config", filepath.Join(h.dir, "runtime.yaml"), "--socket", filepath.Join(h.dir, "core.sock"),

@@ -129,7 +129,19 @@ rules:
 	if err != nil {
 		return err
 	}
-	adapter := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; Get-NetAdapter -Name Gopurr-CI | Format-List Name,Status,InterfaceDescription")
+	adapterContext, cancelAdapter := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancelAdapter()
+	adapter := exec.CommandContext(adapterContext, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `
+$ErrorActionPreference = 'Stop'
+$deadline = (Get-Date).AddSeconds(25)
+do {
+  $adapter = Get-NetAdapter -IncludeHidden -Name Gopurr-CI -ErrorAction SilentlyContinue
+  if ($adapter) { $adapter | Format-List Name,Status,InterfaceDescription; exit 0 }
+  Start-Sleep -Milliseconds 500
+} while ((Get-Date) -lt $deadline)
+Get-NetAdapter -IncludeHidden | Format-List Name,Status,InterfaceDescription
+throw 'Wintun adapter Gopurr-CI was not created'
+`)
 	if out, err := adapter.CombinedOutput(); err != nil {
 		return fmt.Errorf("Wintun adapter missing: %v %s", err, out)
 	} else {
