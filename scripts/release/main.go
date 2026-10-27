@@ -3,6 +3,9 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -99,7 +102,50 @@ func run() error {
 			return fmt.Errorf("missing release artifact %s: %w", name, err)
 		}
 	}
+	updates, _ := config["updates"].(map[string]any)
+	publicKey, _ := updates["publicKey"].(string)
+	if err := verifyUpdate(destination, current, target, publicKey); err != nil {
+		return err
+	}
 	fmt.Printf("Release artifacts: %s\n", destination)
+	return nil
+}
+
+func verifyUpdate(dir, version, target, key string) error {
+	var manifest struct {
+		Version, URL, Signature string
+		Size                    int64
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "update-"+target+".json"))
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		return err
+	}
+	name := "gopurr-" + version + "-" + target + ".tar.gz"
+	if manifest.Version != version || !strings.HasSuffix(manifest.URL, "/releases/download/v"+version+"/"+name) {
+		return errors.New("update manifest version or download URL does not match release")
+	}
+	archive, err := os.Open(filepath.Join(dir, name))
+	if err != nil {
+		return err
+	}
+	defer archive.Close()
+	hash := sha256.New()
+	size, err := io.Copy(hash, archive)
+	if err != nil {
+		return err
+	}
+	public, err := base64.StdEncoding.DecodeString(key)
+	if err != nil || len(public) != ed25519.PublicKeySize {
+		return errors.New("invalid update public key")
+	}
+	signature, err := base64.StdEncoding.DecodeString(manifest.Signature)
+	if err != nil || size != manifest.Size || !ed25519.Verify(ed25519.PublicKey(public), hash.Sum(nil), signature) {
+		return errors.New("release update archive failed size or Ed25519 signature verification")
+	}
+	fmt.Printf("Verified %s update signature (%d bytes).\n", target, size)
 	return nil
 }
 

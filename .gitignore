@@ -11,3 +11,15 @@ dist/
 # Legacy desktop captures contain unrelated personal workspace content.
 /docs/shot-*.png
 /docs/screenshot.png
+# Runtime data if GOPURR_HOME points at the checkout root.
+/prefs.json
+/profiles.json
+/profiles/
+/runtime.yaml
+/local.yaml
+/overrides.json
+/core.secret
+/core.sock
+/core.json
+/mihomo/
+/sysproxy.json

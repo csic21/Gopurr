@@ -19,6 +19,8 @@
 
 每个 Release 包含 DMG、Windows NSIS 安装器、两个平台的 `.tar.gz` 签名更新包、`update-*.json` 和合并的 `SHA256SUMS`。工作流只上传明确收集的发布产物，不上传缓存或密钥。
 
+更新请求优先使用当前系统代理；系统代理未开启时可使用正在运行的本地内核。这样从 Finder 或开始菜单启动、没有代理环境变量的应用也能检查和下载更新。
+
 ## 更新密钥
 
 - 客户端公钥位于 `mygo.json` 的 `updates.publicKey`，仓库为 `updates.github`。

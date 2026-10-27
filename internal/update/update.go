@@ -45,11 +45,13 @@ type Native struct{}
 
 func (Native) Enabled() bool { return mygo.Updater.Enabled() }
 func (Native) Check(ctx context.Context) (*Release, error) {
-	up, err := mygo.Updater.Check(ctx)
+	up, err := mygo.Updater.Check(requestContext(ctx))
 	if err != nil || up == nil {
 		return nil, err
 	}
-	return &Release{Version: up.Version, Notes: up.Notes, Install: up.Install}, nil
+	return &Release{Version: up.Version, Notes: up.Notes, Install: func(ctx context.Context, progress func(int64, int64)) error {
+		return up.Install(requestContext(ctx), progress)
+	}}, nil
 }
 
 type Controller struct {

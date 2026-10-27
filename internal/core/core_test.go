@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/metacubex/mihomo/component/profile/cachefile"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -49,7 +50,14 @@ rules:
 	if err := c.Start([]byte(cfg)); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	defer c.Stop()
+	defer func() {
+		c.Stop()
+		// The in-process test owns mihomo's singleton cache; Windows cannot
+		// remove the temporary home until this handle is closed.
+		if db := cachefile.Cache().DB; db != nil {
+			_ = db.Close()
+		}
+	}()
 
 	// The listener comes up asynchronously once the config is applied.
 	deadline := time.Now().Add(5 * time.Second)

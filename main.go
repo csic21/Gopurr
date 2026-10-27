@@ -22,6 +22,7 @@ import (
 	"gopurr/internal/core"
 	"gopurr/internal/service"
 	"gopurr/internal/sysproxy"
+	"gopurr/internal/update"
 )
 
 // runDaemon parses the --core flags and blocks until the process is asked to
@@ -78,6 +79,7 @@ func main() {
 	}
 
 	a := app.New()
+	update.ConfigureHTTPClient(a.UpdateProxyURL)
 	mygo.Theme.SetSource(mygo.ThemeSource(a.Prefs().Appearance))
 
 	mygo.App.SetName("Gopurr")

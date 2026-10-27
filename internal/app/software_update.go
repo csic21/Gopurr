@@ -3,13 +3,46 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"strconv"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"go.yaml.in/yaml/v3"
 	"gopurr/internal/buildinfo"
+	"gopurr/internal/sysproxy"
 	"gopurr/internal/update"
 )
+
+// UpdateProxyURL reads persisted/runtime state instead of UI-owned fields,
+// because update downloads run on a worker goroutine.
+func (a *App) UpdateProxyURL() *url.URL {
+	proxyURL := func(host string, port int) *url.URL {
+		if host == "" || port < 1 || port > 65535 {
+			return nil
+		}
+		return &url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(port))}
+	}
+	if state, err := sysproxy.Current(); err == nil && state.Enabled {
+		if proxy := proxyURL(state.Server, state.Port); proxy != nil {
+			return proxy
+		}
+	}
+	if a.mgr != nil && a.mgr.Running() {
+		if raw, err := os.ReadFile(a.mgr.ConfigPath()); err == nil {
+			var config struct {
+				Port int `yaml:"mixed-port"`
+			}
+			if yaml.Unmarshal(raw, &config) == nil {
+				return proxyURL("127.0.0.1", config.Port)
+			}
+		}
+	}
+	return nil
+}
 
 func (a *App) initSoftwareUpdates() {
 	if a.softwareUpdates == nil {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -108,7 +109,7 @@ func TestExtensionSaveKeepsOtherDraft(t *testing.T) {
 	if !reflect.DeepEqual(saved, a.ov) {
 		t.Fatalf("persisted overrides differ from the accepted candidate: %#v", saved)
 	}
-	if info, err := os.Stat(a.ovPath); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(a.ovPath); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("overrides should remain private: %v, %v", info, err)
 	}
 
