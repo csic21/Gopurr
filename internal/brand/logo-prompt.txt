@@ -1,0 +1,18 @@
+Generated with the built-in image_gen tool, transparent_background=true.
+Face-only revision requested by the user. The first full-body generation
+was the identity reference. Runtime PNGs are deterministic reductions of
+logo.png; tray.svg simplifies this face into a solid silhouette with round
+cheeks, cat ears, large eye cutouts, inward-looking pupils and two buck
+teeth. Fine lines, the tuft, whiskers and eye highlights are omitted for
+legibility at menu-bar sizes. Eye and tooth cutouts are transparent.
+
+Use case: logo-brand
+Asset type: revised MyClash app logo, a compact gopher-cat FACE ONLY.
+Input image 1: existing MyClash full-body mascot, used as an edit target and identity reference.
+Primary request: Redesign the attached mascot into a standalone cat-face logo. Keep its recognizable identity but remove the entire body, chest, arms, paws, feet and tail. The output must be ONLY a single floating head, like a compact cat-face app icon.
+Preserve: the bright cyan-blue face, two pointed cat ears with small golden-orange interiors, two huge round white Go Gopher eyes with dark navy pupils, the small dark nose, TWO distinct white gopher buck teeth, and two short golden-orange whiskers on each cheek. Keep the friendly slightly goofy expression and thick smooth deep navy outlines.
+Head shape: a compact rounded cat head with broad cheeks and a clean rounded chin closing immediately underneath the buck teeth. The bottom of the head must be a deliberate curved face outline, not a cropped torso. Simplify the small hair tuft to a single tiny shape if needed.
+Style: clean polished flat vector-like logo with bold curves and restrained detail. Match the source character and color palette. This is the final app icon, not a character illustration.
+Composition: square image, single large centered face occupying about 85% of the canvas width and height, symmetrical ears, comfortable transparent padding all around so ears and whiskers are not clipped. Readable at 32px.
+Background: genuinely transparent alpha.
+Constraints: FACE ONLY. No body, no torso, no neck, no shoulders, no arms, no paws, no feet, no tail. No badge, no circle, no backing square, no text, no watermark, no shadow, no scene, no grid, no multiple variants.

@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish (for example v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin/arm64
+            target: darwin-arm64
+          - os: windows-latest
+            platform: windows/amd64
+            target: windows-amd64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOPATH: ${{ github.workspace }}/.cache/go
+      GOMODCACHE: ${{ github.workspace }}/.cache/mod
+      GOCACHE: ${{ github.workspace }}/.cache/build
+      CGO_ENABLED: '0'
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Use short temporary paths for Windows Unix sockets
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item C:\gp-tmp -ItemType Directory -Force | Out-Null
+          "TEMP=C:\gp-tmp" >> $env:GITHUB_ENV
+          "TMP=C:\gp-tmp" >> $env:GITHUB_ENV
+      - name: Validate tag
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
+          git show-ref --verify "refs/tags/$RELEASE_TAG"
+      - name: Test
+        run: go test ./...
+      - name: Build installer and signed update
+        env:
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          PLATFORM: ${{ matrix.platform }}
+        shell: bash
+        run: go run ./scripts/release -release -version "$RELEASE_TAG" -platform "$PLATFORM"
+      - name: Windows service and Wintun smoke test
+        if: runner.os == 'Windows'
+        run: go run ./scripts/smoke-windows -binary bin/windows-amd64/Gopurr.exe
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Assemble complete release
+        working-directory: dist
+        shell: bash
+        run: |
+          test -s "gopurr-${RELEASE_TAG#v}-arm64.dmg"
+          test -s "gopurr-setup-${RELEASE_TAG#v}-amd64.exe"
+          test -s update-darwin-arm64.json
+          test -s update-windows-amd64.json
+          sha256sum *.dmg *.exe *.tar.gz *.json > SHA256SUMS
+      - name: Publish after both platforms succeed
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > /tmp/release-draft; then
+            if [[ "$(cat /tmp/release-draft)" != true ]]; then
+              echo "Release is already public; preserving its immutable assets."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Gopurr $RELEASE_TAG" --generate-notes --notes-file docs/release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi

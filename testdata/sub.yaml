@@ -1,0 +1,23 @@
+# 用于本地联调的示例订阅（不含真实节点）
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - {name: "香港 01", type: ss, server: 127.0.0.1, port: 9, cipher: aes-128-gcm, password: demo}
+  - {name: "日本 02", type: ss, server: 127.0.0.1, port: 9, cipher: aes-128-gcm, password: demo}
+  - {name: "新加坡 03", type: ss, server: 127.0.0.1, port: 9, cipher: aes-128-gcm, password: demo}
+proxy-groups:
+  - name: 节点选择
+    type: select
+    proxies: ["香港 01", "日本 02", "新加坡 03", DIRECT]
+  - name: 自动选择
+    type: url-test
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    proxies: ["香港 01", "日本 02", "新加坡 03"]
+rules:
+  - DOMAIN-SUFFIX,local,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,节点选择

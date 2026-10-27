@@ -1,0 +1,15 @@
+Generation: built-in imagegen tool, 2026-10-27.
+Selected master: icon-master.png (preserve its alpha channel).
+The generated master is 1280 × 1280; make icons derives the runtime sizes.
+Small-size companion: logo.svg / tray.svg.
+
+Cleanup edit: remove stray blue pixels outside the rounded navy tile while
+preserving the cat/G geometry, ivory material, lighting, palette and framing.
+Exact edit prompt: logo-v2-cleanup-prompt.txt.
+
+Use case: logo-brand.
+Asset type: one finished production macOS application icon for Gopurr, a refined native desktop network utility whose name combines Go and a cat's purr.
+Primary request: redesign its unattractive childish cartoon logo into a beautiful, memorable, original premium app icon. Create an elegant abstract cat curled into a letter g. The cat's relaxed head with two subtly pointed ears merges seamlessly into a broad sweeping circular body and an inward-curled tail. The shape is one confident, continuous porcelain-ivory ribbon, with generous circular negative space, balanced optical weight and beautiful smooth curves. No eyes, no mouth, no whiskers, no teeth. The silhouette must remain distinctly feline and recognizable at 24 pixels. Make it feel lovingly crafted and calm, a serious macOS utility with quiet personality.
+Style/medium: exceptional professional identity design presented as a restrained sculpted app icon: a nearly flat ivory mark with very subtle bevel, edge light and shallow soft shadow, on a deep ink-navy rounded-square tile, with an extremely subtle midnight-blue lighting gradient. Crisp vector-like geometry and silhouette; tiny amount of tactile material depth. High craft, not a puffy toy.
+Composition/framing: single straight-on centered icon, square 1024 x 1024 canvas, tile occupies about 88 percent of the canvas with matching rounded corners, transparent outside the tile. The large ivory mark occupies about 64 percent of the tile and has comfortable, optically balanced margins. No perspective tilt. No scene, no poster, no mockup, no typography, no text, no watermark, no labels, no extra icons.
+Constraints: Original mark. Strong simple silhouette and one main negative-space opening. Avoid busy linework, generic cat-face clipart, a literal typed letter g, oversize eyes, buck teeth, gradients inside the ivory silhouette, stars, orbit rings, glossy neon, holographic rainbow, excessive glow, photographic fur and complicated illustration. Produce the actual app-icon asset with true alpha outside the rounded-square tile.

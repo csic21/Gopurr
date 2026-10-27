@@ -1,0 +1,20 @@
+{
+  "name": "Gopurr",
+  "slug": "gopurr",
+  "identifier": "io.github.gopurr.app",
+  "version": "0.1.0",
+  "icon": "internal/brand/logo.png",
+  "out": "bin",
+  "publisher": "Gopurr",
+  "updates": {
+    "publicKey": "ToB+ygOcp9k9Cftxlj/Vkj2iMNyy5hm3n2yNZLYvmdU=",
+    "github": "csic21/Gopurr",
+    "tagPrefix": "v",
+    "deltas": 0
+  },
+  "resources": [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ]
+}

@@ -1,0 +1,13 @@
+.cache/
+bin/
+*.log
+dist/
+.secrets/
+*.key
+.env
+.env.*
+*.syso
+.DS_Store
+# Legacy desktop captures contain unrelated personal workspace content.
+/docs/shot-*.png
+/docs/screenshot.png

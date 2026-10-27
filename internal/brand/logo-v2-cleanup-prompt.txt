@@ -1,0 +1,7 @@
+Generation: built-in imagegen edit, 2026-10-27.
+Input: initial generated icon-master.png.
+Output: selected icon-master.png.
+
+Use case: precise-object-edit / background-extraction.
+Edit target: the supplied finished Gopurr application icon.
+Change ONLY the stray blue pixels and translucent blue noise floating OUTSIDE the rounded navy square, especially just above its top edge. The outside of the navy rounded square must be genuinely clean transparent alpha. Preserve the exact cat/G silhouette, all curves, ear shape, material depth, ivory mark, navy blue tile gradient, tile position, tile size and corner radius. Preserve the entire interior pixel appearance as closely as possible. Do not redesign, redraw or simplify the mark. Do not change the composition, perspective, lighting or color palette. Do not add shadows, backgrounds, text or new objects. Output the same single square production app icon with a clean antialiased rounded-square edge and no stray pixels at all beyond it.

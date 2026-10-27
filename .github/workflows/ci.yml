@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      GOPATH: ${{ github.workspace }}/.cache/go
+      GOMODCACHE: ${{ github.workspace }}/.cache/mod
+      GOCACHE: ${{ github.workspace }}/.cache/build
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Use short temporary paths for Windows Unix sockets
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item C:\gp-tmp -ItemType Directory -Force | Out-Null
+          "TEMP=C:\gp-tmp" >> $env:GITHUB_ENV
+          "TMP=C:\gp-tmp" >> $env:GITHUB_ENV
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build -o bin/Gopurr${{ runner.os == 'Windows' && '.exe' || '' }} .
+      - name: Windows service and Wintun smoke test
+        if: runner.os == 'Windows'
+        run: go run ./scripts/smoke-windows -binary bin/Gopurr.exe
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: screenshots-${{ runner.os }}
+          path: docs/render-*.png
+          retention-days: 7

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Flat companion to icon-master.png: ink-blue cat on warm porcelain. -->
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="#faf9f6"/>
+  <rect x="8.35" y="8.35" width="111.3" height="111.3" rx="25.65" fill="none" stroke="#dedfe2" stroke-width=".7"/>
+  <path fill="#202b3c" d="M72 30C65 27 58 27 51 30C34 35 24 50 24 68C24 90 40 105 62 105C85 105 103 92 103 73C103 65 98 60 91 60C83 60 76 65 74 71C73 75 76 78 79 77C82 77 83 73 87 73C91 73 92 77 90 81C86 90 76 94 64 94C48 94 38 84 38 69C38 54 47 43 60 42C66 41 72 43 76 48C80 53 85 56 91 55C98 54 102 48 101 41L101 25Q101 23 99 24L89 30C86 28 82 27 79 28L72 21Q70 20 70 23Z"/>
+</svg>
