@@ -86,7 +86,12 @@ func (a *App) settingsPage(c *ui.Context) {
 	a.initSettings()
 	a.reconcileSettings()
 	a.pageHeader(c, "设置", "偏好自动保存；网络与测试设置确认后应用", nil)
-	ui.Segmented(c, &a.settingsTab, "常规", "网络", "延迟测试", "维护").AlignSelf(ui.Start).Label("设置分类")
+	ui.Segmented(c, &a.settingsTab, "常规", "网络", "延迟测试", "维护", "DNS", "域名嗅探").AlignSelf(ui.Start).Label("设置分类")
+	if a.settingsTab == 4 || a.settingsTab == 5 {
+		a.featureSettingsPage(c, a.settingsTab == 4)
+		a.rawConfigModal(c)
+		return
+	}
 
 	ui.Scroll(c).Key(a.settingsTab).FillWidth().FillHeight().Children(func() {
 		ui.Column(c).FillWidth().Gap(18).Padding(0, 0, 12, 0).Children(func() {

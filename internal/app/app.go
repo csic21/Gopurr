@@ -62,6 +62,7 @@ type App struct {
 	proxyState
 	settingsState
 	extensionState
+	featureState
 
 	mu   sync.Mutex
 	hist []sample
@@ -584,10 +585,6 @@ func (a *App) overviewPage(c *ui.Context) {
 	running := a.k.Running()
 	_, windowHeight := c.Size()
 	compact := windowHeight < 660
-	chartPadding, chartGap := float32(20), float32(18)
-	if compact {
-		chartPadding, chartGap = 16, 12
-	}
 
 	a.pageHeader(c, "概览", a.statusLine(), func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
@@ -613,10 +610,10 @@ func (a *App) overviewPage(c *ui.Context) {
 				a.statCard(c, iconRules, "生效规则", fmt.Sprintf("%d", len(a.k.Rules())), "按顺序匹配", pal.Muted)
 			})
 
-			ui.Column(c).FillWidth().Padding(chartPadding).Radius(12).Background(pal.Surface).
-				Border(1, pal.Border).Gap(chartGap).Children(func() {
+			ui.Column(c).FillWidth().Padding(16).Radius(12).Background(pal.Surface).
+				Border(1, pal.Border).Gap(12).Children(func() {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-					ui.Column(c).Gap(4).Children(func() {
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, "实时流量").FontSize(14).FontWeight(600).TextColor(pal.Text)
 						if !compact {
 							ui.Text(c, "最近 72 秒的网络活动").FontSize(11).TextColor(pal.Faint)
@@ -675,6 +672,7 @@ func (a *App) overviewPage(c *ui.Context) {
 					})
 				})
 			})
+			a.overviewFeatures(c)
 		})
 	})
 
@@ -731,7 +729,8 @@ func controlIcon(c *ui.Context, icon *ui.SVG) {
 
 func (a *App) chart(c *ui.Context, hist []sample) {
 	pal := paletteFor(c)
-	height := float32(178)
+	// Leave room for all four network controls in the normal overview window.
+	height := float32(96)
 	if _, windowHeight := c.Size(); windowHeight < 660 {
 		height = 76
 	}

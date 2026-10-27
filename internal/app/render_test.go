@@ -65,6 +65,7 @@ func TestRenderPages(t *testing.T) {
 		{"software-update-ready", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Ready) }},
 		{"software-update-error", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Failed) }},
 		{"overview", func() { a.page = "overview" }},
+		{"overview-features", func() { a.page = "overview" }},
 		{"overview-proxy-error", func() {
 			a.page = "overview"
 			a.sysApplied, a.sysOn = true, true
@@ -131,6 +132,59 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"settings-network", func() { a.page, a.settingsTab = "settings", 1 }},
 		{"settings-network-compact", func() { a.page, a.settingsTab = "settings", 1 }},
+		{"settings-dns-follow", func() {
+			a.page, a.settingsTab = "settings", 4
+			a.dnsError, a.dnsStatus = "", ""
+			a.resetDNSDraft()
+		}},
+		{"settings-dns", func() {
+			a.page, a.settingsTab = "settings", 4
+			a.resetDNSDraft()
+			a.dnsDraft.Source, a.dnsDraft.Enable = 1, true
+		}},
+		{"settings-dns-servers", func() {
+			a.page, a.settingsTab = "settings", 4
+			a.resetDNSDraft()
+			a.dnsDraft.Source, a.dnsDraft.Enable = 1, true
+			a.dnsDraft.Servers = "https://resolver-with-a-long-hostname.example.com/dns-query#DIRECT\n1.1.1.1"
+		}},
+		{"settings-dns-lists", func() {
+			a.page, a.settingsTab = "settings", 4
+			a.resetDNSDraft()
+			a.dnsDraft.Source, a.dnsDraft.Enable = 1, true
+			a.dnsDraft.Mode = "fake-ip"
+			a.dnsDraft.Servers = "https://resolver-with-a-long-hostname.example.com/dns-query#DIRECT\n1.1.1.1"
+			a.dnsDraft.Filter = "*.lan\n+.local\n+.example.com"
+		}},
+		{"settings-dns-error", func() {
+			a.page, a.settingsTab = "settings", 4
+			a.resetDNSDraft()
+			a.dnsDraft.Source, a.dnsDraft.Enable = 1, true
+			a.dnsDraft.Bootstrap = "https://bootstrap.example.com/dns-query"
+			a.dnsError = "引导 DNS 的服务器必须使用 IP 地址或 system，请修改后重新保存。"
+		}},
+		{"settings-sniffer-follow", func() {
+			a.page, a.settingsTab = "settings", 5
+			a.snifferError, a.snifferStatus = "", ""
+			a.resetSnifferDraft()
+		}},
+		{"settings-sniffer", func() {
+			a.page, a.settingsTab = "settings", 5
+			a.resetSnifferDraft()
+			a.snifferDraft.Source, a.snifferDraft.Enable = 1, true
+		}},
+		{"settings-sniffer-ports", func() {
+			a.page, a.settingsTab = "settings", 5
+			a.resetSnifferDraft()
+			a.snifferDraft.Source, a.snifferDraft.Enable = 1, true
+		}},
+		{"settings-sniffer-lists", func() {
+			a.page, a.settingsTab = "settings", 5
+			a.resetSnifferDraft()
+			a.snifferDraft.Source, a.snifferDraft.Enable = 1, true
+			a.snifferDraft.SkipDomain = "+.push.apple.com\n+.long-domain-for-compatibility-check.example.com"
+			a.snifferDraft.SkipDst = "91.105.192.0/23\n91.108.4.0/22\n91.108.8.0/21"
+		}},
 		{"settings-testing", func() { a.page, a.settingsTab = "settings", 2 }},
 		{"settings-maintenance", func() { a.page, a.settingsTab = "settings", 3 }},
 		{"settings-maintenance-compact", func() { a.page, a.settingsTab = "settings", 3 }},
@@ -197,6 +251,7 @@ func TestRenderPages(t *testing.T) {
 				a.logPaused, a.logLevelIdx, a.extensionTab = false, 0, 0
 				a.ruleQuery, a.ruleAdapter = "", allAdapters
 				a.generalSettingsError, a.mergeYAMLError = "", ""
+				a.dnsError, a.snifferError = "", ""
 				a.rawError = ""
 				a.setSysErr("")
 				a.sysApplied, a.sysOn = false, false
@@ -221,6 +276,33 @@ func TestRenderPages(t *testing.T) {
 				tr.SetDark(appearance == AppearanceDark)
 				tr.Advance(200 * time.Millisecond)
 				tr.Frame()
+				if shot.name == "overview" || shot.name == "overview-live" {
+					controls := []string{"系统代理开关", "TUN 模式"}
+					if width == 1060 {
+						controls = append(controls, "概览DNS开关", "概览域名嗅探开关")
+					}
+					for _, label := range controls {
+						r, ok := tr.Find(label)
+						if !ok || r.Y < 38 || r.Y+r.H > float32(height-24) || r.X+r.W > float32(width-24) {
+							t.Fatalf("%s: control %q is outside the overview: %+v (found=%v)", page, label, r, ok)
+						}
+					}
+				}
+				switch shot.name {
+				case "overview-features":
+					tr.Scroll(700, 420, 0, 1000)
+				case "settings-dns-lists", "settings-sniffer-lists":
+					tr.Scroll(700, 420, 0, 2000)
+				case "settings-sniffer-ports":
+					tr.Scroll(700, 420, 0, 290)
+				case "settings-dns-servers":
+					tr.Scroll(700, 420, 0, 330)
+				}
+				if shot.name == "settings-dns" {
+					if r, ok := tr.Find("保存 DNS 设置"); ok {
+						tr.Move(r.X+r.W/2, r.Y+r.H/2)
+					}
+				}
 				if shot.name == "proxies-hover" {
 					if r, ok := tr.Find("测试 香港 01"); ok {
 						tr.Move(r.X+r.W/2, r.Y+r.H/2)

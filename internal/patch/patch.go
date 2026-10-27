@@ -23,6 +23,11 @@ type Overrides struct {
 
 	ExtraRules []string `json:"extraRules,omitempty"`
 	MergeYAML  string   `json:"mergeYaml,omitempty"`
+
+	// nil follows the subscription and YAML overrides; a non-nil value owns
+	// only the fields exposed by the corresponding settings page.
+	DNS     *DNSSettings     `json:"dns,omitempty"`
+	Sniffer *SnifferSettings `json:"sniffer,omitempty"`
 }
 
 // Default is what a fresh install runs with: mixed port 7890, rule mode, TUN
@@ -97,6 +102,9 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 		}
 	}
 	doc["tun"] = tun
+	if err := applyNetworkFeatures(doc, ov); err != nil {
+		return nil, err
+	}
 
 	// A TUN device needs a DNS the kernel answers locally.
 	if ov.TunEnable {
