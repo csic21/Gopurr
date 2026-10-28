@@ -292,19 +292,35 @@ func cancelRelease() {
 }
 
 func installTray(a *app.App) bool {
+	// The icon shows the window on a left click and its state menu on a
+	// right click, as other menu bar proxies do. Only Linux panels, which
+	// have no separate right click, open the menu on the click itself.
+	menuOnClick := runtime.GOOS == "linux"
+	toolTip := "Gopurr"
+	if !menuOnClick {
+		// The right click has no other affordance, so name it on hover.
+		toolTip = "Gopurr · 左键显示窗口，右键打开菜单"
+	}
+
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		ID:             "main",
 		Icon:           brand.TrayPNG,
 		IconIsTemplate: true,
-		ToolTip:        "Gopurr",
+		ToolTip:        toolTip,
 	})
 	if err != nil {
 		log.Printf("tray unavailable: %v", err)
 		return false
 	}
 	openWindow := func() { showWindow(a) }
+
 	if runtime.GOOS != "darwin" {
+		// Windows pops this menu on a right click by itself; Linux panels
+		// open it on the click. Only Windows has a left click left to use.
 		tray.SetMenu(a.TrayMenu(openWindow))
+		if !menuOnClick {
+			tray.OnClick(openWindow)
+		}
 		return true
 	}
 
@@ -324,7 +340,7 @@ func installTray(a *app.App) bool {
 		tray.SetMenu(a.TrayMenu(openWindow))
 		tray.PopUpMenu()
 	}
-	tray.OnClick(openMenu)
+	tray.OnClick(openWindow)
 	tray.OnRightClick(openMenu)
 	return true
 }
