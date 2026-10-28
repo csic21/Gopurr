@@ -21,6 +21,8 @@ func Available() bool { return supported }
 // for another password. Close must succeed before the kernel is stopped.
 type Controller interface {
 	Enable(port int, previous *State) error
-	Restore(previous *State) error
+	// Restore puts the proxy back. port is the local listener that a previous
+	// application session may have left in the system settings.
+	Restore(port int, previous *State) error
 	Close() error
 }

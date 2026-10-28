@@ -144,6 +144,9 @@ func (m *Manager) Ensure() error {
 			}
 			time.Sleep(150 * time.Millisecond)
 		}
+		if tail := service.LogTail(m.dir); tail != "" {
+			return fmt.Errorf("系统服务已安装，但内核没有启动：%s", tail)
+		}
 		return errors.New("系统服务已安装但没有响应：请重试，或在概览页重新安装")
 	}
 	m.mu.Lock()

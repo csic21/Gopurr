@@ -59,6 +59,22 @@ cp "$BIN" "$STAGED"
 chown root:wheel "$STAGED"
 chmod 755 "$STAGED"
 
+# Seed the geodata the kernel caches in its own home. A fresh privileged home
+# would otherwise download it from GitHub on first start, which is exactly when
+# the proxy is unavailable, and the kernel then exits instead of serving TUN.
+mkdir -p "$SERVICE_DIR/mihomo"
+chown root:wheel "$SERVICE_DIR/mihomo" 2>/dev/null || true
+chmod 755 "$SERVICE_DIR/mihomo"
+for name in geoip.metadb GeoIP.dat GeoSite.dat geosite.dat; do
+    from="$DIR/mihomo/$name"
+    to="$SERVICE_DIR/mihomo/$name"
+    if [ -f "$from" ] && [ ! -f "$to" ]; then
+        cp "$from" "$to"
+        chown root:wheel "$to" 2>/dev/null || true
+        chmod 644 "$to"
+    fi
+done
+
 CONFIG=$(xml_escape "$DIR/runtime.yaml")
 SOCK=$(xml_escape "$DIR/core.sock")
 SECRET=$(xml_escape "$DIR/core.secret")
@@ -80,7 +96,8 @@ cat >"$STAGED_PLIST" <<PLIST
     <string>--status</string><string>$STATUS</string>
   </array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><false/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
   <key>StandardOutPath</key><string>$SERVICE_DIR/core.log</string>
   <key>StandardErrorPath</key><string>$SERVICE_DIR/core.log</string>
   <key>ProcessType</key><string>Interactive</string>
@@ -93,4 +110,13 @@ launchctl bootout "system/$LABEL" 2>/dev/null || true
 mv -f "$STAGED" "$TARGET"
 mv -f "$STAGED_PLIST" "$PLIST"
 launchctl bootstrap system "$PLIST"
+# Give the daemon a moment, then leave a readable summary behind: the real log
+# is root-only, and a daemon that dies at startup is the one case the app must
+# be able to explain.
+sleep 1
+if [ -f "$SERVICE_DIR/core.log" ]; then
+    cp "$SERVICE_DIR/core.log" "$DIR/service.log" 2>/dev/null || true
+    chown "$(stat -f '%u:%g' "$DIR")" "$DIR/service.log" 2>/dev/null || true
+    chmod 600 "$DIR/service.log" 2>/dev/null || true
+fi
 echo "已安装 $LABEL"

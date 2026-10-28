@@ -14,14 +14,16 @@ import (
 
 type proxyControllerFixture struct {
 	enable  func(int, *sysproxy.State) error
-	restore func(*sysproxy.State) error
+	restore func(int, *sysproxy.State) error
 	close   func() error
 }
 
 func (p proxyControllerFixture) Enable(port int, previous *sysproxy.State) error {
 	return p.enable(port, previous)
 }
-func (p proxyControllerFixture) Restore(previous *sysproxy.State) error { return p.restore(previous) }
+func (p proxyControllerFixture) Restore(port int, previous *sysproxy.State) error {
+	return p.restore(port, previous)
+}
 func (p proxyControllerFixture) Close() error {
 	if p.close != nil {
 		return p.close()
@@ -37,7 +39,7 @@ func (scriptedProxyFixture) Enable(port int, _ *sysproxy.State) error {
 	return runProxyFixture("networksetup -setwebproxy Wi-Fi 127.0.0.1 " + strconv.Itoa(port) +
 		"; networksetup -setsocksfirewallproxy Wi-Fi 127.0.0.1 " + strconv.Itoa(port) + ";")
 }
-func (scriptedProxyFixture) Restore(previous *sysproxy.State) error {
+func (scriptedProxyFixture) Restore(_ int, previous *sysproxy.State) error {
 	if previous != nil && previous.Enabled {
 		return runProxyFixture("networksetup -setwebproxy Wi-Fi " + previous.Server + " " + strconv.Itoa(previous.Port))
 	}
@@ -69,7 +71,10 @@ func TestShutdownPreservesRecoveryStateAndKernelOnRestoreFailure(t *testing.T) {
 	fail, closed, updatesStopped := true, false, false
 	a.stopSoftwareUpdates = func() { updatesStopped = true }
 	a.proxy = proxyControllerFixture{
-		restore: func(got *sysproxy.State) error {
+		restore: func(gotPort int, got *sysproxy.State) error {
+			if gotPort != a.mixedPort() {
+				t.Fatalf("restore port = %d, want %d", gotPort, a.mixedPort())
+			}
 			if got != previous {
 				t.Fatal("previous proxy was discarded before restore")
 			}

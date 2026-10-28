@@ -44,7 +44,9 @@ type helperController struct {
 	conn  net.Conn
 	input *bufio.Scanner
 	open  func() (net.Conn, error)
-	port  int
+	// direct holds the changes when macOS lets the signed-in administrator
+	// write them without an authorization prompt.
+	direct *proxyLeases
 }
 
 func NewController() Controller { return &helperController{open: startProxyHelper} }
@@ -55,8 +57,17 @@ func (c *helperController) Enable(port int, previous *State) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.port = port
 	if c.conn == nil {
+		// Most macOS versions allow an administrator to change these settings
+		// directly. Asking for the password only when that is refused keeps a
+		// restart with the proxy already enabled silent.
+		if c.direct == nil {
+			c.direct = &proxyLeases{command: run, services: make(map[string]*proxyLease)}
+		}
+		if err := c.direct.enable(port, previous); err == nil {
+			return nil
+		}
+		c.direct = nil
 		conn, err := c.open()
 		if err != nil {
 			return err
@@ -66,25 +77,67 @@ func (c *helperController) Enable(port int, previous *State) error {
 	return c.request(helperRequest{Operation: "enable", Port: port, Previous: previous})
 }
 
-func (c *helperController) Restore(previous *State) error {
+func (c *helperController) Restore(port int, previous *State) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.conn != nil {
 		return c.request(helperRequest{Operation: "restore"})
 	}
-	// Never try to recover missing privileges by prompting during quit.
-	if current, err := Current(); err == nil && (!current.Enabled || (c.port > 0 &&
-		(current.Server != "127.0.0.1" || current.Port != c.port))) {
+	if c.direct != nil {
+		err := c.direct.restore()
+		if len(c.direct.services) == 0 {
+			c.direct = nil
+		}
+		return err
+	}
+	// The helper only lives for one application session, so a proxy left over
+	// from an earlier run has no session to restore it. The signed-in
+	// administrator can still change these settings without a password, which
+	// keeps quitting from deadlocking on a missing authorization.
+	current, err := Current()
+	if err != nil {
+		return err
+	}
+	if !current.Enabled || (port > 0 && (current.Server != "127.0.0.1" || current.Port != port)) {
 		return nil
 	}
-	return errors.New("系统代理权限会话已断开，请重新开启系统代理后重试")
+	return restoreDirect(run, current.Service, previous)
+}
+
+// restoreDirect writes the pre-Gopurr proxy settings back through
+// networksetup. It never opens a helper, so it cannot prompt for a password.
+func restoreDirect(command commandRunner, service string, previous *State) error {
+	if previous != nil && previous.Enabled && previous.Server != "" && previous.Port > 0 {
+		if err := validateProxy(previous.Server, previous.Port); err != nil {
+			return err
+		}
+		for _, protocol := range proxyProtocols {
+			if _, err := command("networksetup", "-set"+protocol+"proxy", service, previous.Server, strconv.Itoa(previous.Port)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, protocol := range proxyProtocols {
+		if _, err := command("networksetup", "-set"+protocol+"proxystate", service, "off"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *helperController) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.conn == nil {
-		return nil
+		if c.direct == nil {
+			return nil
+		}
+		err := c.direct.restore()
+		if len(c.direct.services) == 0 {
+			c.direct = nil
+		}
+		return err
 	}
 	if err := c.request(helperRequest{Operation: "restore"}); err != nil {
 		return err
@@ -95,7 +148,7 @@ func (c *helperController) Close() error {
 }
 
 func (c *helperController) request(request helperRequest) error {
-	_ = c.conn.SetDeadline(time.Now().Add(20 * time.Second))
+	_ = c.conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if err := json.NewEncoder(c.conn).Encode(request); err != nil {
 		c.disconnect()
 		return fmt.Errorf("系统代理助手连接中断: %w", err)

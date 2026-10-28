@@ -93,6 +93,9 @@ type App struct {
 	svcInstalled bool
 	svcBusy      bool
 	svcErr       string
+	// tunWanted remembers that TUN was on before its service turned out to be
+	// unusable, so a repaired service can pick the preference up again.
+	tunWanted bool
 
 	confirmInstall   bool
 	confirmUninstall bool
@@ -387,6 +390,7 @@ func (a *App) StartBackground() {
 		} else {
 			a.ov.TunEnable, a.tunOn = false, false
 			if wantTUN {
+				a.tunWanted = true
 				a.setTunErr("TUN 服务未就绪，请安装或修复服务后重新开启")
 			}
 			if !a.k.Running() && os.Getenv("GOPURR_AUTOSTART") != "0" {
@@ -398,7 +402,10 @@ func (a *App) StartBackground() {
 			a.ov.Mode = a.modeToken
 			a.modePick = labelFor(a.modeToken)
 			a.modeIdx = modeIndex(a.modeToken)
-			if a.sysApplied || a.Prefs().RestoreSystemProxy {
+			// A proxy that already points at this kernel keeps working across
+			// restarts; re-applying it would only ask for the administrator
+			// password again on every launch.
+			if !a.sysApplied && a.Prefs().RestoreSystemProxy {
 				a.setSystemProxy(true)
 			}
 		}
@@ -661,6 +668,13 @@ func (a *App) overviewPage(c *ui.Context) {
 					Background(pal.Surface).Border(1, pal.Border).Gap(10).Children(func() {
 					installed, busy, svcErr := a.svcState()
 					root := a.k.IsRoot()
+					// A service repaired in this session can take TUN back over
+					// without making the user find the switch again.
+					if a.tunWanted && root {
+						a.tunWanted = false
+						a.applyTun(true)
+						root = a.k.IsRoot()
+					}
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
 						controlIcon(c, iconShield)
 						ui.Text(c, "TUN 模式").FontSize(13).FontWeight(600).TextColor(pal.Text)
@@ -1039,7 +1053,7 @@ func (a *App) setSystemProxy(on bool) {
 // restoreProxy hands the system proxy back to its previous owner, or turns it
 // off when there was none.
 func (a *App) restoreProxy() error {
-	if err := a.proxyController().Restore(a.prev); err != nil {
+	if err := a.proxyController().Restore(a.mixedPort(), a.prev); err != nil {
 		return err
 	}
 	a.prev = nil
@@ -1180,7 +1194,11 @@ func (a *App) installService() {
 		case !installed:
 			a.svcErr = "服务没有安装成功，请查看 README 的安装步骤"
 		case !a.k.IsRoot():
-			a.svcErr = "服务已安装，但内核尚未获得管理员权限，请稍后重试或重新安装"
+			if tail := service.LogTail(a.dir); tail != "" {
+				a.svcErr = "服务已安装，但内核没有启动：" + tail
+			} else {
+				a.svcErr = "服务已安装，但内核尚未获得管理员权限，请稍后重试或重新安装"
+			}
 		}
 		a.bmu.Unlock()
 	}()
@@ -1234,6 +1252,7 @@ func (a *App) setTunErr(msg string) {
 // applyTun only edits the config. Whether a device can exist is decided by the
 // daemon's privileges, and mihomo itself creates and routes it.
 func (a *App) applyTun(on bool) {
+	a.tunWanted = false
 	if on && !a.k.IsRoot() {
 		a.setTunErr("TUN 需要系统服务：先在概览页点「安装服务…」")
 		a.ov.TunEnable = false

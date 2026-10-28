@@ -101,6 +101,8 @@ func (n *networkFixture) assertOriginal(t *testing.T) {
 
 func testHelperController(t *testing.T, network *networkFixture) (*helperController, *int, <-chan error) {
 	t.Helper()
+	// The direct path must never reach this machine's networksetup.
+	t.Setenv("PATH", t.TempDir())
 	opens := 0
 	done := make(chan error, 1)
 	c := &helperController{open: func() (net.Conn, error) {
@@ -140,7 +142,7 @@ func TestProxySessionAuthorizesOnceAcrossSwitchesAndQuit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := c.Restore(nil); err != nil {
+	if err := c.Restore(7890, nil); err != nil {
 		t.Fatal(err)
 	}
 	network.assertOriginal(t)
@@ -213,7 +215,7 @@ func TestProxyRestoreFailureCanRetryWithoutAuthorization(t *testing.T) {
 	network.mu.Lock()
 	network.fail = "-setsocksfirewallproxystate Wi-Fi off"
 	network.mu.Unlock()
-	if err := c.Restore(nil); err == nil {
+	if err := c.Restore(7890, nil); err == nil {
 		t.Fatal("restore failure hidden")
 	}
 	if err := c.Close(); err != nil {
@@ -285,24 +287,123 @@ func TestProxyAuthorizationCancellationDoesNotStartASession(t *testing.T) {
 	}
 }
 
-func TestProxyRestoreNeverAuthorizesAMissingSession(t *testing.T) {
-	dir := t.TempDir()
-	for name, body := range map[string]string{
-		"route":        "#!/bin/sh\nprintf 'interface: en0\\n'\n",
-		"networksetup": "#!/bin/sh\ncase \"$1\" in\n-listnetworkserviceorder) printf '(1) Wi-Fi\\n(Hardware Port: Wi-Fi, Device: en0)\\n';;\n-getwebproxy) printf 'Enabled: Yes\\nServer: 127.0.0.1\\nPort: 7890\\n';;\nesac\n",
+// A proxy left over from an earlier application session has no helper to
+// restore it. Quitting must still repair it instead of blocking the app.
+func TestProxyRestoreFixesLeftoverProxyWithoutAuthorization(t *testing.T) {
+	dir, calls := proxyFixture(t, "Enabled: Yes\\nServer: 127.0.0.1\\nPort: 7890\\n")
+	t.Setenv("PATH", dir)
+	c := &helperController{open: func() (net.Conn, error) {
+		t.Fatal("restoring a leftover proxy must not ask for administration")
+		return nil, nil
+	}}
+	if err := c.Restore(7890, nil); err != nil {
+		t.Fatal(err)
+	}
+	written := readCalls(t, calls)
+	for _, want := range []string{
+		"-setwebproxystate Wi-Fi off",
+		"-setsecurewebproxystate Wi-Fi off",
+		"-setsocksfirewallproxystate Wi-Fi off",
 	} {
+		if !strings.Contains(written, want) {
+			t.Fatalf("leftover proxy not cleared (%s):\n%s", want, written)
+		}
+	}
+}
+
+func TestProxyRestoreReinstatesPreviousProxyWithoutAuthorization(t *testing.T) {
+	dir, calls := proxyFixture(t, "Enabled: Yes\\nServer: 127.0.0.1\\nPort: 7890\\n")
+	t.Setenv("PATH", dir)
+	c := &helperController{open: func() (net.Conn, error) {
+		t.Fatal("restoring a leftover proxy must not ask for administration")
+		return nil, nil
+	}}
+	previous := &State{Enabled: true, Server: "10.0.0.2", Port: 8080}
+	if err := c.Restore(7890, previous); err != nil {
+		t.Fatal(err)
+	}
+	if written := readCalls(t, calls); !strings.Contains(written, "-setwebproxy Wi-Fi 10.0.0.2 8080") {
+		t.Fatalf("previous proxy not restored:\n%s", written)
+	}
+}
+
+func TestProxyRestoreLeavesAnotherClientsSettingsAlone(t *testing.T) {
+	dir, calls := proxyFixture(t, "Enabled: Yes\\nServer: 127.0.0.1\\nPort: 9090\\n")
+	t.Setenv("PATH", dir)
+	c := &helperController{open: func() (net.Conn, error) {
+		t.Fatal("restore must not authorize")
+		return nil, nil
+	}}
+	if err := c.Restore(7890, nil); err != nil {
+		t.Fatal(err)
+	}
+	if written := readCalls(t, calls); strings.Contains(written, "proxystate") {
+		t.Fatalf("another client's proxy was overwritten:\n%s", written)
+	}
+}
+
+// A macOS session that lets the administrator write these settings needs no
+// helper; asking for a password anyway is what makes every launch feel broken.
+func TestProxyEnableAvoidsAuthorizationWhenTheSystemAllowsIt(t *testing.T) {
+	dir, calls := proxyFixture(t, "Enabled: No\\n")
+	t.Setenv("PATH", dir)
+	c := &helperController{open: func() (net.Conn, error) {
+		t.Fatal("authorization was requested although the change needs none")
+		return nil, nil
+	}}
+	if err := c.Enable(7890, nil); err != nil {
+		t.Fatal(err)
+	}
+	if written := readCalls(t, calls); !strings.Contains(written, "-setwebproxy Wi-Fi 127.0.0.1 7890") {
+		t.Fatalf("proxy not applied directly:\n%s", written)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if written := readCalls(t, calls); !strings.Contains(written, "-setwebproxystate Wi-Fi off") {
+		t.Fatalf("direct session not restored:\n%s", written)
+	}
+}
+
+// proxyFixture starts two fake commands: route resolves en0, and networksetup
+// answers with body until a write changes it, so restores see their own edit.
+func proxyFixture(t *testing.T, body string) (dir, calls string) {
+	t.Helper()
+	dir = t.TempDir()
+	calls = filepath.Join(dir, "calls.log")
+	state := filepath.Join(dir, "state")
+	network := "#!/bin/sh\n" +
+		"echo \"$*\" >> " + shellQuote(calls) + "\n" +
+		"state=" + shellQuote(state) + "\n" +
+		"case \"$1\" in\n" +
+		"-setwebproxy|-setsecurewebproxy|-setsocksfirewallproxy)\n" +
+		"  printf 'Enabled: Yes\\nServer: %s\\nPort: %s\\n' \"$3\" \"$4\" > \"$state\" ;;\n" +
+		"-setwebproxystate|-setsecurewebproxystate|-setsocksfirewallproxystate)\n" +
+		"  printf 'Enabled: No\\n' > \"$state\" ;;\n" +
+		"-listnetworkserviceorder) printf '(1) Wi-Fi\\n(Hardware Port: Wi-Fi, Device: en0)\\n';;\n" +
+		"-getwebproxy|-getsecurewebproxy|-getsocksfirewallproxy)\n" +
+		"  if [ -f \"$state\" ]; then while IFS= read -r line; do printf '%s\\n' \"$line\"; done < \"$state\"; else printf '" + body + "'; fi ;;\n" +
+		"-getproxybypassdomains) printf \"There aren't any bypass domains\\n\";;\n" +
+		"esac\n"
+	files := map[string]string{
+		"route":        "#!/bin/sh\nprintf 'interface: en0\\n'\n",
+		"networksetup": network,
+	}
+	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PATH", dir)
-	c := &helperController{port: 7890, open: func() (net.Conn, error) {
-		t.Fatal("quit tried to authorize a new helper")
-		return nil, nil
-	}}
-	if err := c.Restore(nil); err == nil {
-		t.Fatal("lost session should keep the app running for recovery")
+	return dir, calls
+}
+
+func readCalls(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return string(b)
 }
 
 func TestProxyHelperRejectsUnknownOperations(t *testing.T) {

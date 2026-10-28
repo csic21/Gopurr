@@ -1,11 +1,51 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
 const Label = "io.github.gopurr.core"
+
+// LogTail explains a daemon that is installed but not answering. The installer
+// copies the protected log into the user's data directory so the interface can
+// show why the kernel stopped instead of guessing "no administrator rights".
+func LogTail(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(dataDir, "service.log"))
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	var last string
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if last == "" {
+			last = line
+		}
+		if strings.Contains(line, "level=error") || strings.Contains(line, "core:") {
+			last = line
+			break
+		}
+	}
+	return shorten(last, 160)
+}
+
+func shorten(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "…"
+}
 
 func WaitInstalled(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)

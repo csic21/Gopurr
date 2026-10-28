@@ -27,6 +27,15 @@ func TestInstallerUsesProtectedCopyAndEscapesPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDir, "runtime.yaml"), []byte("rules: [MATCH,DIRECT]"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// The kernel would otherwise download this from GitHub on first start,
+	// which fails exactly when the proxy is the thing being repaired.
+	if err := os.Mkdir(filepath.Join(dataDir, "mihomo"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	geodata := []byte("fake geoip database")
+	if err := os.WriteFile(filepath.Join(dataDir, "mihomo", "geoip.metadb"), geodata, 0600); err != nil {
+		t.Fatal(err)
+	}
 	binary := filepath.Join(dir, "User App")
 	if err := os.WriteFile(binary, []byte("original application"), 0700); err != nil {
 		t.Fatal(err)
@@ -85,6 +94,12 @@ func TestInstallerUsesProtectedCopyAndEscapesPaths(t *testing.T) {
 	}
 	if info, _ := os.Stat(filepath.Join(helperParent, Label)); info.Mode().Perm() != 0700 {
 		t.Fatal("service directory not protected")
+	}
+	if b, err := os.ReadFile(filepath.Join(helperParent, Label, "mihomo", "geoip.metadb")); err != nil || string(b) != string(geodata) {
+		t.Fatalf("geodata not seeded for the service: %v", err)
+	}
+	if !strings.Contains(string(b), "<key>KeepAlive</key><true/>") {
+		t.Fatal("daemon is not supervised after a crash")
 	}
 	if out, err := run("uninstall"); err != nil {
 		t.Fatalf("uninstall: %v %s", err, out)
