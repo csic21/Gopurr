@@ -171,7 +171,8 @@ func inspectBundle(ctx context.Context, path string) (Application, error) {
 	}
 	exePath := filepath.Join(path, "Contents", "MacOS", executable)
 	info, err := os.Stat(exePath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+	// Windows reports no Unix executable bit, so a regular file is enough there.
+	if err != nil || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0) {
 		return Application{}, errors.New("找不到应用的可执行主程序")
 	}
 	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
