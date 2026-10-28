@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gopurr/internal/buildinfo"
+	"gopurr/internal/configyaml"
 	"gopurr/internal/controllerconfig"
 	"gopurr/internal/geodata"
 	"gopurr/internal/process"
@@ -112,7 +113,7 @@ func RunDaemon(opts DaemonOptions) error {
 	}
 	doc["secret"] = secret
 
-	merged, err := yaml.Marshal(doc)
+	merged, err := configyaml.Marshal(raw, doc)
 	if err != nil {
 		return err
 	}

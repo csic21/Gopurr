@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopurr/internal/core"
@@ -32,11 +33,13 @@ type Remote struct {
 	stream *http.Client // no timeout: traffic and logs are long-lived
 	call   *http.Client // short timeout for request/response
 
-	mu      sync.Mutex
-	logs    []core.LogLine
-	traffic core.Sample
-	conns   int
-	lastErr string
+	mu       sync.Mutex
+	logs     []core.LogLine
+	traffic  core.Sample
+	conns    int
+	lastErr  string
+	quiet    atomic.Bool
+	pollWake chan struct{}
 }
 
 func NewRemote(socket, secret string) *Remote {
@@ -45,8 +48,9 @@ func NewRemote(socket, secret string) *Remote {
 		return d.DialContext(ctx, "unix", socket)
 	}
 	return &Remote{
-		socket: socket,
-		secret: secret,
+		socket:   socket,
+		secret:   secret,
+		pollWake: make(chan struct{}, 1),
 		stream: &http.Client{Transport: &http.Transport{
 			DialContext:           dial,
 			MaxIdleConns:          4,
@@ -206,7 +210,27 @@ func (r *Remote) pollConnections() {
 			r.conns = len(out.Connections)
 			r.mu.Unlock()
 		}
-		time.Sleep(2 * time.Second)
+		timer := time.NewTimer(r.connectionPollInterval())
+		select {
+		case <-timer.C:
+		case <-r.pollWake:
+		}
+		timer.Stop()
+	}
+}
+
+func (r *Remote) connectionPollInterval() time.Duration {
+	if r.quiet.Load() {
+		return 15 * time.Second
+	}
+	return 2 * time.Second
+}
+
+func (r *Remote) SetUIActive(active bool) {
+	r.quiet.Store(!active)
+	select {
+	case r.pollWake <- struct{}{}:
+	default:
 	}
 }
 

@@ -8,12 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -434,11 +435,11 @@ func parseUserinfo(raw string) Info {
 		if !ok {
 			continue
 		}
-		n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
-		if err != nil {
+		n, ok := usageNumber(strings.TrimSpace(value))
+		if !ok {
 			continue
 		}
-		switch strings.TrimSpace(key) {
+		switch strings.ToLower(strings.TrimSpace(key)) {
 		case "upload":
 			info.Upload = n
 		case "download":
@@ -450,6 +451,20 @@ func parseUserinfo(raw string) Info {
 		}
 	}
 	return info
+}
+
+var usageDecimal = regexp.MustCompile(`^\+?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]{1,3})?$`)
+
+func usageNumber(raw string) (int64, bool) {
+	if len(raw) > 128 || !usageDecimal.MatchString(raw) {
+		return 0, false
+	}
+	n, ok := new(big.Rat).SetString(raw)
+	if !ok || n.Sign() < 0 {
+		return 0, false
+	}
+	whole := new(big.Int).Quo(n.Num(), n.Denom())
+	return whole.Int64(), whole.IsInt64()
 }
 
 // decodeTitle accepts both "base64:..." and plain text, as providers disagree.

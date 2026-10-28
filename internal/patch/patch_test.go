@@ -120,6 +120,18 @@ func TestMixedPort(t *testing.T) {
 	}
 }
 
+func TestMixedPortRejectsConflictingCustomListeners(t *testing.T) {
+	for _, port := range []string{"7890", "'7890'", "'7888-7892'", "'7891/7890'"} {
+		if _, err := Apply([]byte("listeners:\n - {name: duplicate, type: mixed, port: "+port+"}\n"), Default()); err == nil || !strings.Contains(err.Error(), "duplicate") {
+			t.Fatalf("conflicting listener %s not explained: %v", port, err)
+		}
+	}
+	out, err := Apply([]byte("redir-port: 7890\ntproxy-port: 7890\nlisteners:\n - {name: other, type: mixed, port: 7891}\n"), Default())
+	if err != nil || strings.Contains(string(out), "redir-port:") || strings.Contains(string(out), "tproxy-port:") || !strings.Contains(string(out), "7891") {
+		t.Fatalf("legacy listeners not cleared or independent listener lost: %v\n%s", err, out)
+	}
+}
+
 func TestApplyEmptyDoc(t *testing.T) {
 	out, err := Apply(nil, Default())
 	if err != nil {

@@ -46,10 +46,26 @@ type helperController struct {
 	open  func() (net.Conn, error)
 	// direct holds the changes when macOS lets the signed-in administrator
 	// write them without an authorization prompt.
-	direct *proxyLeases
+	direct         *proxyLeases
+	journal        string
+	watcherStarted bool
+	watch          func(string) error
 }
 
 func NewController() Controller { return &helperController{open: startProxyHelper} }
+
+func NewControllerAt(journal string) Controller {
+	return &helperController{open: startProxyHelper, journal: journal}
+}
+
+func (c *helperController) loadDirect() error {
+	if c.direct != nil {
+		return nil
+	}
+	var err error
+	c.direct, err = loadLeases(c.journal, run)
+	return err
+}
 
 func (c *helperController) Enable(port int, previous *State) error {
 	if err := validateProxy("127.0.0.1", port); err != nil {
@@ -57,15 +73,35 @@ func (c *helperController) Enable(port int, previous *State) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	unlock, lockErr := lockJournal(c.journal)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	if c.conn == nil {
 		// Most macOS versions allow an administrator to change these settings
 		// directly. Asking for the password only when that is refused keeps a
 		// restart with the proxy already enabled silent.
 		if c.direct == nil {
-			c.direct = &proxyLeases{command: run, services: make(map[string]*proxyLease)}
+			if err := c.loadDirect(); err != nil {
+				return err
+			}
+		}
+		if c.journal != "" && !c.watcherStarted {
+			watch := c.watch
+			if watch == nil {
+				watch = startLeaseWatcher
+			}
+			if err := watch(c.journal); err != nil {
+				return err
+			}
+			c.watcherStarted = true
 		}
 		if err := c.direct.enable(port, previous); err == nil {
 			return nil
+		} else if len(c.direct.services) != 0 {
+			// Keep a failed partial restore retryable; never discard its lease.
+			return err
 		}
 		c.direct = nil
 		conn, err := c.open()
@@ -80,10 +116,20 @@ func (c *helperController) Enable(port int, previous *State) error {
 func (c *helperController) Restore(port int, previous *State) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	unlock, lockErr := lockJournal(c.journal)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	if c.conn != nil {
 		return c.request(helperRequest{Operation: "restore"})
 	}
-	if c.direct != nil {
+	if c.journal != "" {
+		if err := c.loadDirect(); err != nil {
+			return err
+		}
+	}
+	if c.direct != nil && len(c.direct.services) != 0 {
 		err := c.direct.restore()
 		if len(c.direct.services) == 0 {
 			c.direct = nil
@@ -129,7 +175,22 @@ func restoreDirect(command commandRunner, service string, previous *State) error
 func (c *helperController) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.conn == nil && (c.direct == nil || len(c.direct.services) == 0) && c.journal != "" {
+		if _, err := os.Stat(c.journal); errors.Is(err, os.ErrNotExist) {
+			return nil // no changes to restore, even if the data folder vanished
+		}
+	}
+	unlock, lockErr := lockJournal(c.journal)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	if c.conn == nil {
+		if c.journal != "" {
+			if err := c.loadDirect(); err != nil {
+				return err
+			}
+		}
 		if c.direct == nil {
 			return nil
 		}
@@ -253,6 +314,9 @@ func checkHelperPeer(conn *net.UnixConn, wantUID, wantPID int) error {
 
 // HandleCommand runs before AppKit or user configuration is initialized.
 func HandleCommand(args []string) (bool, error) {
+	if len(args) > 0 && args[0] == watcherFlag {
+		return true, runLeaseWatcher(args[1:])
+	}
 	if len(args) == 0 || args[0] != helperFlag {
 		return false, nil
 	}

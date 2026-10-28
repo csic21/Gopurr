@@ -5,6 +5,8 @@ package patch
 import (
 	"fmt"
 
+	"github.com/metacubex/mihomo/common/utils"
+	"gopurr/internal/configyaml"
 	"gopurr/internal/controllerconfig"
 
 	"go.yaml.in/yaml/v3"
@@ -86,6 +88,20 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 		// it before mihomo can start the mixed listener.
 		delete(doc, "port")
 		delete(doc, "socks-port")
+		delete(doc, "redir-port")
+		delete(doc, "tproxy-port")
+		if listeners, ok := doc["listeners"].([]any); ok {
+			for _, item := range listeners {
+				listener, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				ports, err := utils.NewUnsignedRanges[uint16](fmt.Sprint(listener["port"]))
+				if err == nil && len(ports) > 0 && ports.Check(uint16(ov.MixedPort)) {
+					return nil, fmt.Errorf("自定义入站 %q 的端口 %d 与应用混合端口冲突，请修改入站端口", listener["name"], ov.MixedPort)
+				}
+			}
+		}
 	}
 	doc["allow-lan"] = ov.AllowLAN
 	doc["ipv6"] = ov.IPv6
@@ -132,7 +148,7 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 		doc["dns"] = dns
 	}
 
-	out, err := yaml.Marshal(doc)
+	out, err := configyaml.Marshal(raw, doc, []byte(ov.MergeYAML))
 	if err != nil {
 		return nil, fmt.Errorf("生成运行配置失败: %w", err)
 	}

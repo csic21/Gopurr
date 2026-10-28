@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -157,10 +158,11 @@ type App struct {
 
 	tunErr string
 
-	smu     sync.Mutex
-	svc     ui.Services
-	ticking bool
-	booted  bool
+	smu          sync.Mutex
+	svc          ui.Services
+	ticking      bool
+	booted       bool
+	windowHidden atomic.Bool
 }
 
 // New builds the app with a built-in demo profile so the first launch does
@@ -234,6 +236,9 @@ func New() *App {
 			}
 		} else {
 			log.Printf("profiles: %v", err)
+		}
+		if a.mgr != nil {
+			a.proxy = sysproxy.NewControllerAt(filepath.Join(dir, "sysproxy-recovery.json"))
 		}
 	}
 	return a
@@ -445,9 +450,23 @@ func (a *App) sampleLoop() {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	tick := 0
+	missed := 0
 	for range t.C {
-		s := a.k.Sample()
 		tick++
+		if tick%3 == 0 {
+			if a.k.Running() {
+				missed = 0
+			} else {
+				missed++
+				if missed%2 == 0 {
+					mygo.RunOnMain(a.recoverFailedKernel)
+				}
+			}
+		}
+		if a.windowHidden.Load() {
+			continue
+		}
+		s := a.k.Sample()
 		if os.Getenv("GOPURR_DEBUG") == "1" && tick%5 == 0 {
 			log.Printf("rss=%.1fMiB conns=%d up=%d down=%d heap=%dMiB",
 				float64(s.Mem)/1048576, s.Conns, s.UpNow, s.DownNow,
@@ -462,6 +481,34 @@ func (a *App) sampleLoop() {
 		a.mu.Unlock()
 		a.invalidate()
 	}
+}
+
+// SetWindowVisible stops UI sampling while parked in the tray, while kernel
+// health checks and subscription maintenance continue independently.
+func (a *App) SetWindowVisible(visible bool) {
+	a.windowHidden.Store(!visible)
+	if a.k != nil {
+		a.k.SetUIActive(visible)
+	}
+	if visible {
+		a.mu.Lock()
+		a.hist = nil // do not join rates across a hidden interval
+		a.mu.Unlock()
+		a.invalidate()
+	}
+}
+
+func (a *App) recoverFailedKernel() {
+	if a.k == nil || a.k.Running() || !a.sysApplied {
+		return
+	}
+	a.setSystemProxy(false)
+	if !a.sysApplied {
+		a.notice = "内核已退出，已恢复系统代理"
+	} else {
+		a.notice = "内核已退出，系统代理恢复失败，请重试: " + a.sysErrText()
+	}
+	a.invalidate()
 }
 
 func readHeap() uint64 {
@@ -783,12 +830,16 @@ func (a *App) UseMode(token string) {
 
 func (a *App) toggle() {
 	if a.k.Running() {
+		if a.sysApplied {
+			a.setSystemProxy(false)
+			if a.sysApplied {
+				a.notice = "系统代理恢复失败，内核保持运行: " + a.sysErrText()
+				return
+			}
+		}
 		if err := a.k.Stop(); err != nil {
 			a.notice = "停止失败: " + err.Error()
 			return
-		}
-		if a.sysApplied {
-			a.setSystemProxy(false)
 		}
 		a.notice = "内核已停止。"
 		return
@@ -1104,7 +1155,7 @@ func (a *App) applyTun(on bool) {
 		return
 	}
 	a.setTunErr("")
-	previous := a.ov.TunEnable
+	previous, previousOn := a.ov.TunEnable, a.tunOn
 	a.ov.TunEnable = on
 	if !a.startKernel() {
 		a.ov.TunEnable, a.tunOn = previous, previous
@@ -1113,7 +1164,12 @@ func (a *App) applyTun(on bool) {
 	}
 	a.tunOn = on
 	if err := a.saveOverridesAtomic(); err != nil {
-		a.setTunErr("TUN 已应用，但无法保存设置: " + err.Error())
+		a.ov.TunEnable, a.tunOn = previous, previousOn
+		message := "TUN 设置保存失败，已恢复原设置: " + err.Error()
+		if !a.startKernel() {
+			message += "；恢复原内核配置失败: " + a.notice
+		}
+		a.setTunErr(message)
 	}
 }
 

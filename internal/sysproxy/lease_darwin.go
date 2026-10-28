@@ -5,6 +5,7 @@ package sysproxy
 import (
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,6 +31,8 @@ type proxyLease struct {
 type proxyLeases struct {
 	command  commandRunner
 	services map[string]*proxyLease
+	journal  string
+	owner    int
 }
 
 func validateProxy(server string, port int) error {
@@ -117,6 +120,14 @@ func (l *proxyLeases) enable(port int, previous *State) error {
 		l.services[service] = lease
 	}
 	lease.ports[port] = true
+	l.owner = os.Getpid()
+	// Commit the complete snapshot before the first OS write. A process crash
+	// must not lose protocol-specific settings or the previous bypass list.
+	lease.dirty = [3]bool{true, true, true}
+	lease.bypassDirty = true
+	if err := l.persist(); err != nil {
+		return fmt.Errorf("保存系统代理恢复记录失败: %w", err)
+	}
 	for i, protocol := range proxyProtocols {
 		lease.dirty[i] = true
 		if _, err := l.command("networksetup", "-set"+protocol+"proxy", service, "127.0.0.1", strconv.Itoa(port)); err != nil {
@@ -140,7 +151,7 @@ func (l *proxyLeases) restore() error {
 			delete(l.services, service)
 		}
 	}
-	return errors.Join(failures...)
+	return errors.Join(append(failures, l.persist())...)
 }
 
 func (l *proxyLeases) restoreService(service string, lease *proxyLease) error {
@@ -160,6 +171,11 @@ func (l *proxyLeases) restoreService(service string, lease *proxyLease) error {
 		inProgress := lease.restoring[i] && current.server == old.server && current.port == old.port
 		if !current.enabled || (!ours && !inProgress) {
 			lease.dirty[i] = false
+			continue
+		}
+		lease.restoring[i] = true
+		if err := l.persist(); err != nil {
+			failures = append(failures, err)
 			continue
 		}
 		if old.server != "" && old.port > 0 {

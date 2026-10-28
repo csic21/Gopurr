@@ -35,7 +35,13 @@ type Manager struct {
 
 	mu     sync.Mutex
 	cmd    *exec.Cmd // non-nil when this app spawned the daemon
+	exit   *processExit
 	remote *Remote
+}
+
+type processExit struct {
+	done chan struct{}
+	err  error // written before done closes
 }
 
 func NewManager(dir string) (*Manager, error) {
@@ -181,21 +187,46 @@ func (m *Manager) Ensure() error {
 		return err
 	}
 	m.cmd = cmd
+	m.exit = &processExit{done: make(chan struct{})}
+	exit := m.exit
 	_ = logFile.Close()
-	go func() { _ = cmd.Wait() }()
+	go func() {
+		exit.err = cmd.Wait()
+		close(exit.done)
+	}()
+	if err := m.waitReady(exit, 10*time.Second); err != nil {
+		_ = cmd.Process.Kill()
+		m.cmd, m.exit = nil, nil
+		return err
+	}
+	return nil
+}
 
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if m.healthy() {
-			return nil
+func (m *Manager) waitReady(exit *processExit, timeout time.Duration) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	poll := time.NewTicker(120 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case <-exit.done:
+			return m.startupError(fmt.Sprintf("内核提前退出 (%v)", exit.err))
+		case <-deadline.C:
+			return m.startupError("内核启动超时")
+		case <-poll.C:
+			if m.healthy() {
+				return nil
+			}
 		}
-		time.Sleep(120 * time.Millisecond)
 	}
+}
+
+func (m *Manager) startupError(reason string) error {
 	tail, _ := os.ReadFile(m.logPath)
-	if len(tail) > 800 {
-		tail = tail[len(tail)-800:]
+	if len(tail) > 2000 {
+		tail = tail[len(tail)-2000:]
 	}
-	return fmt.Errorf("守护进程没有起来: %s", strings.TrimSpace(string(tail)))
+	return fmt.Errorf("%s: %s", reason, strings.TrimSpace(string(tail)))
 }
 
 // Stop shuts down a daemon this app owns. A system-managed daemon is left
@@ -203,25 +234,22 @@ func (m *Manager) Ensure() error {
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	cmd := m.cmd
+	exit := m.exit
 	m.mu.Unlock()
 	if cmd == nil || cmd.Process == nil {
 		return errNotOwned
 	}
 	_ = process.Stop(cmd.Process)
-
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if !m.healthy() {
-			m.mu.Lock()
-			m.cmd = nil
-			m.mu.Unlock()
-			return nil
-		}
-		time.Sleep(150 * time.Millisecond)
+	select {
+	case <-exit.done:
+	case <-time.After(5 * time.Second):
+		_ = cmd.Process.Kill()
+		<-exit.done
 	}
-	_ = cmd.Process.Kill()
 	m.mu.Lock()
-	m.cmd = nil
+	if m.cmd == cmd {
+		m.cmd, m.exit = nil, nil
+	}
 	m.mu.Unlock()
 	return nil
 }

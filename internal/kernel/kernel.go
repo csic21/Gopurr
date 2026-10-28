@@ -137,6 +137,8 @@ func (k *Kernel) Stop() error {
 
 func (k *Kernel) Sample() core.Sample { return k.r.Sample() }
 
+func (k *Kernel) SetUIActive(active bool) { k.r.SetUIActive(active) }
+
 func (k *Kernel) Connections(limit int) []core.Conn { return k.r.Connections(limit) }
 
 func (k *Kernel) Groups() []core.Group {

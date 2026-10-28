@@ -142,6 +142,7 @@ func openInitialWindow(a *app.App, trayReady bool) {
 	if !trayReady || a.StartupNeedsAttention() || !a.Prefs().SilentStart {
 		showWindow(a)
 	} else {
+		a.SetWindowVisible(false)
 		applyDockVisibility(a.Prefs(), false)
 	}
 }
@@ -224,6 +225,11 @@ func newMainWindow(a *app.App) *mygo.Window {
 	if err := w.SetIcon(brand.IconPNG); err != nil {
 		log.Printf("window icon unavailable: %v", err)
 	}
+	w.OnShow(func() { a.SetWindowVisible(true) })
+	w.OnHide(func() { a.SetWindowVisible(false) })
+	w.OnMinimize(func() { a.SetWindowVisible(false) })
+	w.OnRestore(func() { a.SetWindowVisible(true) })
+	a.SetWindowVisible(true)
 
 	// Closing the window parks the app in the menu bar: the kernel and the
 	// system proxy must keep running, that is the whole point of a proxy app.

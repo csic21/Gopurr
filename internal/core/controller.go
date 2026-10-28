@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"gopurr/internal/configyaml"
 	"gopurr/internal/controllerconfig"
 	"gopurr/internal/geodata"
 
@@ -108,7 +109,7 @@ func sanitizeReload(r *http.Request) error {
 	}
 	controllerconfig.Strip(doc)
 	geodata.Defaults(doc)
-	data, err := yaml.Marshal(doc)
+	data, err := configyaml.Marshal([]byte(request.Payload), doc)
 	if err != nil {
 		return err
 	}
