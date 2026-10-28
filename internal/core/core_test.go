@@ -12,12 +12,21 @@ import (
 
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for attempt := 0; attempt < 100; attempt++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		udp, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+		_ = ln.Close()
+		if err == nil {
+			_ = udp.Close()
+			return port
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	t.Fatal("could not reserve a mixed TCP/UDP test port")
+	return 0
 }
 
 // TestKernelLifecycle is the headless version of "does the client work":

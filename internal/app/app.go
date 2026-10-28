@@ -889,11 +889,17 @@ func (a *App) restart() {
 }
 
 func portFree(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	address := fmt.Sprintf("127.0.0.1:%d", port)
+	ln, err := net.Listen("tcp", address)
 	if err != nil {
 		return false
 	}
-	_ = ln.Close()
+	defer ln.Close()
+	udp, err := net.ListenPacket("udp", address)
+	if err != nil {
+		return false
+	}
+	_ = udp.Close()
 	return true
 }
 
@@ -1155,7 +1161,7 @@ func (a *App) applyTun(on bool) {
 		return
 	}
 	a.setTunErr("")
-	previous, previousOn := a.ov.TunEnable, a.tunOn
+	previous := a.ov.TunEnable
 	a.ov.TunEnable = on
 	if !a.startKernel() {
 		a.ov.TunEnable, a.tunOn = previous, previous
@@ -1164,10 +1170,15 @@ func (a *App) applyTun(on bool) {
 	}
 	a.tunOn = on
 	if err := a.saveOverridesAtomic(); err != nil {
-		a.ov.TunEnable, a.tunOn = previous, previousOn
-		message := "TUN 设置保存失败，已恢复原设置: " + err.Error()
+		a.ov.TunEnable, a.tunOn = previous, previous
+		message := "TUN 设置保存失败: " + err.Error()
 		if !a.startKernel() {
+			// The kernel last accepted the requested state. Keep the switch
+			// truthful and retryable if restoring the old config also fails.
+			a.ov.TunEnable, a.tunOn = on, on
 			message += "；恢复原内核配置失败: " + a.notice
+		} else {
+			message += "；已恢复原设置"
 		}
 		a.setTunErr(message)
 	}
