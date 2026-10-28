@@ -288,7 +288,7 @@ func (a *App) nodeRow(c *ui.Context, group core.Group, member string) {
 func (a *App) nodeRowAction(c *ui.Context, group core.Group, member string, selected func()) {
 	pal := paletteFor(c)
 	on := member == group.Now
-	row := ui.Row(c).FillWidth().Height(56).Padding(8, 12).
+	row := ui.Row(c).FillWidth().Height(56).Padding(0, 12, 0, 0).
 		Background(pal.Surface).BorderWidth(0, 0, 1, 0).BorderColor(pal.Grid).AlignItems(ui.Center).Gap(12).Transition(colorMotion())
 	if on {
 		row.Background(pal.Selected)
@@ -296,50 +296,59 @@ func (a *App) nodeRowAction(c *ui.Context, group core.Group, member string, sele
 		row.Background(pal.Hover)
 	}
 	row.Children(func() {
-		mark, color := iconCircle, pal.Faint
-		if on {
-			mark, color = iconCheck, pal.Accent
-		}
-		ui.Icon(c, mark).Size(17, 17).TextColor(color).Role(ui.RoleNone).ContentTransition(contentMotion())
-		name := ui.Column(c).Grow(1).MinWidth(0).Gap(3).Tooltip(member + " · " + group.MemberTypes[member])
+		// The radio, text and remaining row space form one native selection
+		// target. The latency-test button is a sibling with its own action.
+		var choice ui.Element
 		if manualGroup(group) {
-			name.Cursor(ui.CursorPointer).Focusable().Role(ui.RoleButton).Label("选择 " + member).OnClick(func() {
+			choice = ui.ButtonBase(c).Role(ui.RoleRadio).Checked(on).Label("选择 " + member).
+				Cursor(ui.CursorPointer).OnClick(func() {
 				if a.selectProxy(group.Name, member) && selected != nil {
 					selected()
 				}
 			})
+		} else {
+			choice = ui.Row(c)
 		}
-		name.Children(func() {
-			ui.Text(c, member).FillWidth().MaxLines(1).Ellipsis("…").FontSize(13).FontWeight(500).TextColor(pal.Text)
-			kind := group.MemberTypes[member]
-			if member == "DIRECT" {
-				kind = "直连"
-			}
-			if member == "REJECT" || member == "REJECT-DROP" {
-				kind = "拦截"
-			}
-			if kind == "" {
-				kind = "代理节点"
-			}
+		choice.Grow(1).MinWidth(0).FillHeight().Padding(8, 0, 8, 12).
+			AlignItems(ui.Center).Justify(ui.Start).Gap(12).Children(func() {
+			mark, color := iconCircle, pal.Faint
 			if on {
-				ui.Text(c, "当前使用 · "+groupTypeLabel(kind)).FontSize(11).TextColor(pal.Muted)
-			} else if isBuiltin(member) || groupTypeLabel(kind) != kind {
-				ui.Text(c, groupTypeLabel(kind)).FontSize(11).TextColor(pal.Faint)
+				mark, color = iconCheck, pal.Accent
 			}
-		})
-		d, known := a.memberDelay(group, member)
-		label, color := "未测试", pal.Faint
-		if known {
-			label, color = latencyText(d), latencyColor(c, d)
-		}
-		if isBuiltin(member) && member != "DIRECT" {
-			label = "—"
-		}
-		a.bmu.Lock()
-		errorText := a.delayErrors[member]
-		a.bmu.Unlock()
-		ui.Row(c).Width(72).Justify(ui.End).Tooltip(errorText).Children(func() {
-			ui.Text(c, label).FontSize(12).FontFeatures("tnum").TextColor(color).ContentTransition(contentMotion())
+			ui.Icon(c, mark).Size(17, 17).TextColor(color).Role(ui.RoleNone).ContentTransition(contentMotion())
+			name := ui.Column(c).Grow(1).MinWidth(0).Gap(3).Tooltip(member + " · " + group.MemberTypes[member])
+			name.Children(func() {
+				ui.Text(c, member).FillWidth().MaxLines(1).Ellipsis("…").FontSize(13).FontWeight(500).TextColor(pal.Text)
+				kind := group.MemberTypes[member]
+				if member == "DIRECT" {
+					kind = "直连"
+				}
+				if member == "REJECT" || member == "REJECT-DROP" {
+					kind = "拦截"
+				}
+				if kind == "" {
+					kind = "代理节点"
+				}
+				if on {
+					ui.Text(c, "当前使用 · "+groupTypeLabel(kind)).FontSize(11).TextColor(pal.Muted)
+				} else if isBuiltin(member) || groupTypeLabel(kind) != kind {
+					ui.Text(c, groupTypeLabel(kind)).FontSize(11).TextColor(pal.Faint)
+				}
+			})
+			d, known := a.memberDelay(group, member)
+			label, color := "未测试", pal.Faint
+			if known {
+				label, color = latencyText(d), latencyColor(c, d)
+			}
+			if isBuiltin(member) && member != "DIRECT" {
+				label = "—"
+			}
+			a.bmu.Lock()
+			errorText := a.delayErrors[member]
+			a.bmu.Unlock()
+			ui.Row(c).Width(72).Justify(ui.End).Tooltip(errorText).Children(func() {
+				ui.Text(c, label).FontSize(12).FontFeatures("tnum").TextColor(color).ContentTransition(contentMotion())
+			})
 		})
 		iconButton(c, iconRefresh, "测试 "+member).Disabled(a.testingGroup() != "" || (isBuiltin(member) && member != "DIRECT")).
 			Tooltip("测试 " + member + " 的连通性与延迟").OnClick(func() { a.testGroup(member, []string{member}) })

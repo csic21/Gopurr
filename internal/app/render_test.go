@@ -27,7 +27,15 @@ import (
 // "does the UI still build", and it needs no window server.
 func TestRenderPages(t *testing.T) {
 	previousVersion := mygo.App.Version()
-	mygo.App.SetVersion("0.2.0")
+	configRaw, err := os.ReadFile(filepath.Join("..", "..", "mygo.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct{ Version string }
+	if err := json.Unmarshal(configRaw, &config); err != nil || config.Version == "" {
+		t.Fatalf("invalid app version in render fixture: %v", err)
+	}
+	mygo.App.SetVersion(config.Version)
 	t.Cleanup(func() { mygo.App.SetVersion(previousVersion) })
 	dir := t.TempDir()
 	t.Setenv("GOPURR_HOME", dir)
@@ -466,8 +474,8 @@ func TestRenderPages(t *testing.T) {
 					}
 				}
 				if shot.name == "proxies-hover" {
-					if r, ok := tr.Find("测试 香港 01"); ok {
-						tr.Move(r.X+r.W/2, r.Y+r.H/2)
+					if r, ok := tr.Find("选择 日本 02"); ok {
+						tr.Move(r.X+20, r.Y+r.H/2)
 					}
 				}
 				if shot.name == "proxies-groups-scrolled" {
