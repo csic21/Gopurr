@@ -79,7 +79,7 @@ func main() {
 					ui.Box(c).FillWidth().Height(1).Background(line)
 					ui.Text(c, "应用图标 / 侧栏").FontSize(12).TextColor(muted)
 					ui.Row(c).AlignItems(ui.End).Gap(16).Children(func() {
-						for _, size := range []float32{64, 36, 24, 16} {
+						for _, size := range []float32{64, 32, 24, 16} {
 							ui.Column(c).Width(68).AlignItems(ui.Center).Gap(8).Children(func() {
 								ui.Image(c, logo).Size(size, size)
 								ui.Text(c, sizeLabel(size)).FontSize(11).TextColor(muted)

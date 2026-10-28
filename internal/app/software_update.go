@@ -77,7 +77,7 @@ func (a *App) softwareUpdateSettings(c *ui.Context) {
 	a.initSoftwareUpdates()
 	s := a.softwareUpdates.Snapshot()
 	settingsGroup(c, "软件更新", func() {
-		settingsRow(c, "Gopurr "+softwareVersion(), "mygo 原生界面 · mihomo 内核", nil)
+		settingsRow(c, "Gopurr "+softwareVersion(), "让连接简单一点 · mygo 原生界面 · mihomo 内核", nil)
 		hairline(c)
 		on := a.Prefs().CheckAppUpdates
 		settingsRow(c, "自动检查更新", "每天检查新版本；下载与安装前由你确认", func() {

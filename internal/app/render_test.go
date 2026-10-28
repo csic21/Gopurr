@@ -336,11 +336,8 @@ func TestRenderPages(t *testing.T) {
 				tr.SetDark(appearance == AppearanceDark)
 				tr.Advance(200 * time.Millisecond)
 				tr.Frame()
-				if shot.name == "overview" || shot.name == "overview-live" {
-					controls := []string{"系统代理开关", "TUN 模式"}
-					if width == 1060 {
-						controls = append(controls, "概览DNS开关", "概览域名嗅探开关")
-					}
+				if shot.name == "overview" || shot.name == "overview-live" || shot.name == "overview-proxy-error" {
+					controls := []string{"系统代理开关", "TUN 模式", "概览DNS开关", "概览域名嗅探开关", "DNS 设置", "域名嗅探 设置"}
 					for _, label := range controls {
 						r, ok := tr.Find(label)
 						if !ok || r.Y < 38 || r.Y+r.H > float32(height-24) || r.X+r.W > float32(width-24) {

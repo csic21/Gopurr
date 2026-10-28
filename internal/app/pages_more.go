@@ -37,8 +37,8 @@ func (a *App) subsPage(c *ui.Context) {
 		a.kernelButton(c, running)
 	})
 
-	ui.Column(c).FillWidth().Padding(16).Radius(12).Background(pal.Surface).
-		Border(1, pal.Border).Gap(10).Children(func() {
+	ui.Column(c).FillWidth().Padding(12, 16).Radius(12).Background(pal.Surface).
+		Border(1, pal.Border).Gap(8).Children(func() {
 		sectionLabel(c, "添加配置")
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
@@ -94,8 +94,8 @@ func (a *App) subRow(c *ui.Context, p profile.Profile, active, busy bool) {
 	if active {
 		border = pal.SelectedBorder
 	}
-	ui.Column(c).FillWidth().Padding(16).Radius(12).Background(pal.Surface).
-		Border(1, border).Gap(12).Children(func() {
+	ui.Column(c).FillWidth().Padding(12, 16).Radius(12).Background(pal.Surface).
+		Border(1, border).Gap(8).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
 			icon := iconSubs
 			if item.IsFile() {
@@ -433,21 +433,23 @@ func (a *App) logsPage(c *ui.Context) {
 	scrollable := a.logScroll.MaxY > 1
 	away := a.logScroll.Y < a.logScroll.MaxY-18
 
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-		if a.logPaused {
-			label := "已暂停"
-			if pending > 0 {
-				label = fmt.Sprintf("已暂停 · 新 %d 行", pending)
+	if a.logPaused || (scrollable && away) {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+			if a.logPaused {
+				label := "已暂停"
+				if pending > 0 {
+					label = fmt.Sprintf("已暂停 · 新 %d 行", pending)
+				}
+				pill(c, label, pal.Warn, pal.Warn.Alpha(0.10))
 			}
-			pill(c, label, pal.Warn, pal.Warn.Alpha(0.10))
-		}
-		ui.Spacer(c)
-		if scrollable && away {
-			ui.Button(c, "回到底部").OnClick(func() {
-				a.logScroll.ScrollTo(0, math.MaxFloat32, ui.Smooth)
-			})
-		}
-	})
+			ui.Spacer(c)
+			if scrollable && away {
+				ui.Button(c, "回到底部").OnClick(func() {
+					a.logScroll.ScrollTo(0, math.MaxFloat32, ui.Smooth)
+				})
+			}
+		})
+	}
 
 	ui.Scroll(c).FillWidth().FillHeight().TrackScroll(&a.logScroll).Children(func() {
 		ui.Column(c).FillWidth().Padding(10, 12).Radius(12).Background(pal.Surface).

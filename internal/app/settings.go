@@ -98,7 +98,7 @@ func (a *App) settingsPage(c *ui.Context) {
 	}
 
 	ui.Scroll(c).Key(a.settingsTab).FillWidth().FillHeight().Children(func() {
-		ui.Column(c).FillWidth().Gap(18).Padding(0, 0, 12, 0).Children(func() {
+		ui.Column(c).FillWidth().Gap(16).Padding(0, 0, 12, 0).Children(func() {
 			if a.settingsTab == 0 {
 				settingsGroup(c, "外观", func() {
 					settingsRow(c, "主题", "窗口与内容统一配色，切换后立即生效", func() {

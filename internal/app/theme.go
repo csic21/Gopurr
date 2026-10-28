@@ -6,6 +6,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+const sidebarWidth = 184
+
 // Both appearances share semantic tokens. Resolve them from the frame, never
 // by mutating package globals: draw callbacks may outlive a theme switch.
 type palette struct {
@@ -123,7 +125,7 @@ func windowTitleBar(c *ui.Context) {
 	}
 	pal := paletteFor(c)
 	ui.Row(c).FillWidth().Height(bar.Height).Shrink(0).DragWindow().Label("窗口标题栏").Children(func() {
-		ui.Box(c).Width(204).FillHeight().Background(pal.Side).
+		ui.Box(c).Width(sidebarWidth).FillHeight().Background(pal.Side).
 			BorderWidth(0, 1, 0, 0).BorderColor(pal.Border)
 		ui.Box(c).Grow(1).FillHeight().Background(pal.Bg)
 	})
@@ -234,8 +236,8 @@ func settingsGroup(c *ui.Context, title string, rows func()) {
 
 func settingsRow(c *ui.Context, title, desc string, control func()) {
 	pal := paletteFor(c)
-	ui.Row(c).FillWidth().Padding(14, 16).AlignItems(ui.Center).Gap(16).Children(func() {
-		ui.Column(c).Grow(1).Gap(2).Children(func() {
+	ui.Row(c).FillWidth().Padding(12, 16).AlignItems(ui.Center).Gap(16).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, title).FontSize(13).FontWeight(500).TextColor(pal.Text)
 			if desc != "" {
 				ui.Text(c, desc).FontSize(11).TextColor(pal.Faint)
@@ -245,6 +247,24 @@ func settingsRow(c *ui.Context, title, desc string, control func()) {
 			control()
 		}
 	})
+}
+
+// The overview uses one alignment for status, optional actions and switches.
+// Rows grow for wrapped status text instead of reserving empty card height.
+func overviewControlRow(c *ui.Context, title, status string, statusColor ui.Color, control func()) {
+	pal := paletteFor(c)
+	ui.Row(c).FillWidth().MinHeight(44).Padding(8, 16).AlignItems(ui.Center).Gap(12).Children(func() {
+		ui.Text(c, title).Width(76).FontSize(13).FontWeight(500).TextColor(pal.Text)
+		ui.Text(c, status).Grow(1).MinWidth(0).MaxLines(2).Ellipsis("…").
+			FontSize(11).TextColor(statusColor).Tooltip(status)
+		control()
+	})
+}
+
+func controlIcon(c *ui.Context, icon *ui.SVG) {
+	pal := paletteFor(c)
+	ui.Box(c).Size(30, 30).Radius(8).Background(pal.Hover).AlignItems(ui.Center).Justify(ui.Center).
+		Children(func() { ui.Icon(c, icon).Size(17, 17).TextColor(pal.Muted).Role(ui.RoleNone) })
 }
 
 func hairline(c *ui.Context) {

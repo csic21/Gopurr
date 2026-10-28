@@ -335,11 +335,11 @@ func (a *App) toggleNetworkFeature(isDNS, enabled bool) {
 	}
 }
 
-// Compact status rows sit below the system proxy and TUN controls. Their
-// settings buttons remain available even while following the subscription.
+// These rows complete the overview's shared network control group. Settings
+// remain available even while following the subscription.
 func (a *App) overviewFeatures(c *ui.Context) {
 	dns, sniffer, err := a.effectiveFeatures()
-	settingsGroup(c, "", func() {
+	ui.Column(c).FillWidth().Children(func() {
 		for i, feature := range []struct {
 			name            string
 			enabled, custom bool
@@ -362,9 +362,11 @@ func (a *App) overviewFeatures(c *ui.Context) {
 			if err != nil {
 				status = "配置读取失败，请检查设置"
 			}
-			ui.Row(c).FillWidth().Padding(10, 16).AlignItems(ui.Center).Gap(12).Children(func() {
-				ui.Text(c, feature.name).Width(64).FontSize(13).TextColor(paletteFor(c).Text)
-				ui.Text(c, status).Grow(1).MinWidth(0).FontSize(11).TextColor(paletteFor(c).Muted)
+			color := paletteFor(c).Muted
+			if err != nil {
+				color = paletteFor(c).Danger
+			}
+			overviewControlRow(c, feature.name, status, color, func() {
 				ui.Button(c, feature.name+" 设置").OnClick(func() {
 					a.page, a.settingsTab = "settings", feature.tab
 				})

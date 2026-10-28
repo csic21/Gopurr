@@ -120,26 +120,22 @@ func (a *App) proxiesPage(c *ui.Context) {
 	}
 	groups := visibleGroups(all, a.modeToken)
 	nodes := uniqueNodes(all)
+	hint := "按规则为不同应用与网站分流"
+	if a.modeToken == "global" {
+		hint = "全部连接使用 GLOBAL 的出口"
+	} else if a.modeToken == "direct" {
+		hint = "全部连接直接访问网络"
+	}
 	a.pageHeader(c, "代理", fmt.Sprintf("%d 个策略组 · %d 个节点", len(visibleGroups(all, "rule")), len(nodes)), func() {
-		if !running {
-			a.kernelButton(c, false)
-			return
-		}
-		ui.PrimaryButton(c, "测试全部").Disabled(a.testingGroup() != "" || len(nodes) == 0).
-			OnClick(func() { a.testGroup("全部节点", nodes) })
-	})
-
-	ui.Row(c).FillWidth().Padding(0, 0, 12, 0).
-		BorderWidth(0, 0, 1, 0).BorderColor(pal.Border).Gap(12).AlignItems(ui.Center).Children(func() {
-		a.modeControl(c)
-		ui.Spacer(c)
-		hint := "按规则为不同应用与网站分流"
-		if a.modeToken == "global" {
-			hint = "全部连接使用 GLOBAL 的出口"
-		} else if a.modeToken == "direct" {
-			hint = "全部连接直接访问网络"
-		}
-		ui.Text(c, hint).FontSize(11.5).TextColor(pal.Muted)
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Children(func() { a.modeControl(c) }).Tooltip(hint)
+			if !running {
+				a.kernelButton(c, false)
+				return
+			}
+			ui.PrimaryButton(c, "测试全部").Disabled(a.testingGroup() != "" || len(nodes) == 0).
+				OnClick(func() { a.testGroup("全部节点", nodes) })
+		})
 	})
 
 	a.delayProgress(c)
@@ -177,7 +173,7 @@ func (a *App) proxiesPage(c *ui.Context) {
 			ui.Text(c, "策略组").FontSize(11.5).FontWeight(600).TextColor(pal.Faint).PaddingX(8)
 			// Keep the scroll thumb and its drag target outside the group cards.
 			ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Padding(0, 16, 0, 0).Label("策略组列表").Children(func() {
-				ui.Column(c).FillWidth().Gap(6).Children(func() {
+				ui.Column(c).FillWidth().Gap(4).Children(func() {
 					for _, item := range groups {
 						g := item
 						on := g.Name == selected.Name
@@ -185,7 +181,7 @@ func (a *App) proxiesPage(c *ui.Context) {
 						if on {
 							bg, border = pal.Selected, pal.SelectedBorder
 						}
-						ui.Column(c).FillWidth().Padding(12).Radius(10).Gap(6).
+						ui.Column(c).FillWidth().Padding(8, 12).Radius(10).Gap(4).
 							Background(bg).Border(1, border).Cursor(ui.CursorPointer).
 							Label("策略组 " + g.Name).Tooltip(g.Name + " → " + g.Now).
 							OnClick(func() { a.proxyGroup = g.Name }).Children(func() {
@@ -299,10 +295,10 @@ func (a *App) sortedMembers(g core.Group) []string {
 func (a *App) nodeRow(c *ui.Context, group core.Group, member string) {
 	pal := paletteFor(c)
 	on := member == group.Now
-	row := ui.Row(c).FillWidth().Height(64).Padding(12).
+	row := ui.Row(c).FillWidth().Height(56).Padding(8, 12).
 		Background(pal.Surface).BorderWidth(0, 0, 1, 0).BorderColor(pal.Border).AlignItems(ui.Center).Gap(12)
 	if on {
-		row.Background(pal.Selected).BorderWidth(0, 0, 1, 3).BorderColor(pal.SelectedBorder)
+		row.Background(pal.Selected).BorderColor(pal.SelectedBorder)
 	}
 	row.Children(func() {
 		mark, color := iconCircle, pal.Faint
