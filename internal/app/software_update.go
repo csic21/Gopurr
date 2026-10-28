@@ -81,7 +81,7 @@ func (a *App) softwareUpdateSettings(c *ui.Context) {
 		hairline(c)
 		on := a.Prefs().CheckAppUpdates
 		settingsRow(c, "自动检查更新", "每天检查新版本；下载与安装前由你确认", func() {
-			ui.Switch(c, &on).Label("自动检查软件更新")
+			softSwitch(c, &on).Label("自动检查软件更新")
 		})
 		if on != a.Prefs().CheckAppUpdates {
 			if err := a.changePrefs(func(p *Prefs) { p.CheckAppUpdates = on }); err != nil {
@@ -106,7 +106,7 @@ func (a *App) softwareUpdateSettings(c *ui.Context) {
 			hint = "安装正式发布包后可在应用内更新"
 		}
 		settingsRow(c, "版本检查", hint, func() {
-			ui.Button(c, label).Disabled(s.Phase == update.Checking).OnClick(func() {
+			softButton(c, label).Disabled(s.Phase == update.Checking).OnClick(func() {
 				if s.Phase == update.Available || s.Phase == update.Downloading || s.Phase == update.Ready {
 					a.softwareUpdates.Show()
 				} else {
@@ -131,7 +131,7 @@ func (a *App) softwareUpdateModal(c *ui.Context) {
 	pal := paletteFor(c)
 	width, height := c.Size()
 	visible := true
-	ui.Modal(c, &visible, func() {
+	softModal(c, "software-update", &visible, func() {
 		ui.Column(c).Width(min(float32(560), width-64)).Padding(24).Radius(14).
 			Background(pal.Surface).Border(1, pal.Border).Gap(14).Children(func() {
 			title, message := "软件更新", "当前版本 "+softwareVersion()
@@ -173,17 +173,17 @@ func (a *App) softwareUpdateModal(c *ui.Context) {
 			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 				switch s.Phase {
 				case update.Checking, update.Downloading:
-					ui.Button(c, "取消").OnClick(func() { a.softwareUpdates.Cancel(); a.softwareUpdates.Hide() })
+					softButton(c, "取消").OnClick(func() { a.softwareUpdates.Cancel(); a.softwareUpdates.Hide() })
 				case update.Available:
-					ui.Button(c, "稍后").OnClick(a.softwareUpdates.Hide)
-					ui.PrimaryButton(c, "下载并安装").OnClick(a.softwareUpdates.Install)
+					softButton(c, "稍后").OnClick(a.softwareUpdates.Hide)
+					softPrimaryButton(c, "下载并安装").OnClick(a.softwareUpdates.Install)
 				case update.Ready:
-					ui.Button(c, "稍后重启").OnClick(a.softwareUpdates.Hide)
-					ui.PrimaryButton(c, "立即重启").OnClick(mygo.App.Relaunch)
+					softButton(c, "稍后重启").OnClick(a.softwareUpdates.Hide)
+					softPrimaryButton(c, "立即重启").OnClick(mygo.App.Relaunch)
 				default:
-					ui.Button(c, "关闭").OnClick(a.softwareUpdates.Hide)
+					softButton(c, "关闭").OnClick(a.softwareUpdates.Hide)
 					if s.Enabled {
-						ui.PrimaryButton(c, "重新检查").OnClick(func() { a.softwareUpdates.Check(true) })
+						softPrimaryButton(c, "重新检查").OnClick(func() { a.softwareUpdates.Check(true) })
 					}
 				}
 			})

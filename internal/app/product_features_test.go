@@ -244,6 +244,40 @@ func TestProductFeatureControlsFitMinimumWindow(t *testing.T) {
 	}
 }
 
+func TestConnectionInspectorKeepsListInteractiveAndSurvivesResize(t *testing.T) {
+	a := subscriptionTestApp(t)
+	a.booted, a.ticking, a.page = true, true, "conns"
+	tr := ui.NewTester(a.View, 1060, 720)
+	tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
+	tr.Advance(200 * time.Millisecond)
+	for _, host := range []string{"api.github.com", "registry.npmjs.org"} {
+		if err := tr.Click("查看连接 " + host); err != nil {
+			t.Fatal(err)
+		}
+		tr.Frame()
+		if a.connSelected.Host != host || !a.showConn {
+			t.Fatal("inspector blocks choosing another connection")
+		}
+		if _, ok := tr.Find("连接详情侧栏"); !ok {
+			t.Fatal("wide window did not use the inspector")
+		}
+	}
+	tr.SetSize(840, 560)
+	tr.Frame()
+	if _, ok := tr.Find("连接详情侧栏"); ok {
+		t.Fatal("small window retained the cramped side inspector")
+	}
+	if a.connSelected.Host != "registry.npmjs.org" || !tr.HasText("连接详情") {
+		t.Fatal("selected connection was lost when switching to modal")
+	}
+	if err := tr.Click("关闭"); err != nil {
+		t.Fatal(err)
+	}
+	if a.showConn {
+		t.Fatal("inspector did not close")
+	}
+}
+
 func TestChangedSubscriptionSourceRejectedByKernelKeepsCache(t *testing.T) {
 	a, reloads := newSettingsTestApp(t, func(raw string) bool { return strings.Contains(raw, "rejected.example") })
 	raw := "rules:\n - DOMAIN,original.example,DIRECT\n - MATCH,DIRECT\n"

@@ -148,7 +148,7 @@ func (a *App) extraRulesEditor(c *ui.Context) {
 		ui.Column(c).FillWidth().Gap(12).Children(func() {
 			card(c).Children(func() {
 				ui.Text(c, "优先匹配你的规则").FontSize(13).Bold().TextColor(pal.Text)
-				ui.Text(c, "放在最终规则列表最前面，按行顺序匹配；订阅更新后仍会保留。").
+				ui.Text(c, "排在应用分流之后、订阅规则之前，按行匹配；订阅更新后仍会保留。").
 					FillWidth().FontSize(11.5).TextColor(pal.Muted)
 				ui.Row(c).FillWidth().Gap(8).Children(func() {
 					ui.Select(c, &a.extraRuleKind, extraRuleKinds).Width(160).Label("规则类型")
@@ -163,7 +163,7 @@ func (a *App) extraRulesEditor(c *ui.Context) {
 					ui.Text(c, "目标策略").FontSize(11.5).TextColor(pal.Muted)
 					ui.Select(c, &a.extraRuleTarget, ruleTargets(groups, a.extraRuleTarget)).
 						Grow(1).MinWidth(0).Label("目标策略")
-					ui.Button(c, "添加到草稿").OnClick(a.appendExtraRule)
+					softButton(c, "添加到草稿").OnClick(a.appendExtraRule)
 				})
 				if a.extraRuleError != "" {
 					extensionError(c, a.extraRuleError)
@@ -179,8 +179,8 @@ func (a *App) extraRulesEditor(c *ui.Context) {
 					if a.showExtraRules {
 						label = "收起列表"
 					}
-					ui.Button(c, label).Disabled(len(lines) == 0).OnClick(func() { a.showExtraRules = !a.showExtraRules })
-					ui.Button(c, "清空草稿").Disabled(a.extraRulesDraft == "").OnClick(func() {
+					softButton(c, label).Disabled(len(lines) == 0).OnClick(func() { a.showExtraRules = !a.showExtraRules })
+					softButton(c, "清空草稿").Disabled(a.extraRulesDraft == "").OnClick(func() {
 						a.extraRulesDraft, a.extraRulesError, a.extraRulesStatus = "", "", ""
 					})
 				})
@@ -199,7 +199,7 @@ func (a *App) extraRulesEditor(c *ui.Context) {
 							ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 								ui.Text(c, fmt.Sprintf("%d", i+1)).Width(24).FontSize(11).TextColor(pal.Faint)
 								ui.Text(c, line).Grow(1).MinWidth(0).FontSize(11.5).TextColor(pal.Text)
-								ui.Button(c, "删除").Label(fmt.Sprintf("删除第 %d 条额外规则", i+1)).OnClick(func() {
+								softButton(c, "删除").Label(fmt.Sprintf("删除第 %d 条额外规则", i+1)).OnClick(func() {
 									a.extraRulesDraft = removeExtraRule(a.extraRulesDraft, index)
 									a.extraRulesError, a.extraRulesStatus = "", ""
 								})
@@ -240,7 +240,7 @@ func (a *App) mergeYAMLEditor(c *ui.Context) {
 				ui.Text(c, "持久化覆写配置").FontSize(13).Bold().TextColor(pal.Text)
 				ui.Text(c, "只写需要修改的字段，保存后会应用到当前及之后使用的订阅。").
 					FillWidth().FontSize(11.5).TextColor(pal.Muted)
-				ui.Text(c, "映射（map）递归合并，数组整体替换；“额外规则”始终排在最终 rules 的最前面。").
+				ui.Text(c, "映射（map）递归合并，数组整体替换；应用分流和额外规则依次排在最终 rules 前面。").
 					FillWidth().FontSize(11.5).TextColor(pal.Muted)
 				ui.Text(c, "例如 nameserver 数组会替换原列表；覆写 rules 也会替换订阅规则。").
 					FillWidth().FontSize(11).TextColor(pal.Faint)
@@ -255,8 +255,8 @@ func (a *App) mergeYAMLEditor(c *ui.Context) {
 					if a.showYAMLTemplate {
 						label = "收起模板"
 					}
-					ui.Button(c, label).OnClick(func() { a.showYAMLTemplate = !a.showYAMLTemplate })
-					ui.Button(c, "清空草稿").Disabled(a.mergeYAMLDraft == "").OnClick(func() {
+					softButton(c, label).OnClick(func() { a.showYAMLTemplate = !a.showYAMLTemplate })
+					softButton(c, "清空草稿").Disabled(a.mergeYAMLDraft == "").OnClick(func() {
 						a.mergeYAMLDraft, a.mergeYAMLError, a.mergeYAMLStatus = "", "", ""
 					})
 				})
@@ -274,7 +274,7 @@ func (a *App) mergeYAMLEditor(c *ui.Context) {
 						TextColor(pal.Muted).Selectable()
 					ui.Text(c, "插入只修改草稿，点击保存后才会应用；有内容时不会覆盖你的草稿。").
 						FillWidth().FontSize(11).TextColor(pal.Faint)
-					ui.Button(c, "插入模板到空白草稿").Disabled(strings.TrimSpace(a.mergeYAMLDraft) != "").OnClick(func() {
+					softButton(c, "插入模板到空白草稿").Disabled(strings.TrimSpace(a.mergeYAMLDraft) != "").OnClick(func() {
 						a.mergeYAMLDraft = mergeYAMLTemplate
 						a.mergeYAMLError, a.mergeYAMLStatus = "", ""
 					})
@@ -312,8 +312,8 @@ func extensionSaveBar(c *ui.Context, dirty bool, label string, reset, save func(
 		}
 		ui.Text(c, state).FontSize(11.5).TextColor(color)
 		ui.Spacer(c)
-		ui.Button(c, "放弃修改").Disabled(!dirty).OnClick(reset)
-		ui.PrimaryButton(c, label).Disabled(!dirty).OnClick(save)
+		softButton(c, "放弃修改").Disabled(!dirty).OnClick(reset)
+		softPrimaryButton(c, label).Disabled(!dirty).OnClick(save)
 	})
 }
 

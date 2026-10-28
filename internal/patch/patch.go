@@ -23,8 +23,9 @@ type Overrides struct {
 	TunStack    string `json:"tunStack"`
 	TunAutoRout bool   `json:"tunAutoRoute"`
 
-	ExtraRules []string `json:"extraRules,omitempty"`
-	MergeYAML  string   `json:"mergeYaml,omitempty"`
+	ExtraRules []string  `json:"extraRules,omitempty"`
+	MergeYAML  string    `json:"mergeYaml,omitempty"`
+	AppRules   []AppRule `json:"appRules,omitempty"`
 
 	// nil follows the subscription and YAML overrides; a non-nil value owns
 	// only the fields exposed by the corresponding settings page.
@@ -48,7 +49,8 @@ func Default() Overrides {
 }
 
 // Apply builds a runtime config without changing the subscription bytes. User
-// YAML is merged first, extra rules are prepended next, and app settings win last.
+// YAML is merged first; application rules precede extra rules, which precede
+// the merged profile rules. App-owned network settings win last.
 func Apply(raw []byte, ov Overrides) ([]byte, error) {
 	doc, err := readConfigMap(raw, "订阅配置")
 	if err != nil {
@@ -71,6 +73,9 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 		}
 	}
 	if err := prependExtraRules(doc, ov.ExtraRules); err != nil {
+		return nil, err
+	}
+	if err := prependAppRules(doc, ov.AppRules); err != nil {
 		return nil, err
 	}
 

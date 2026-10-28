@@ -205,11 +205,11 @@ func (a *App) featureSettingsPage(c *ui.Context, dns bool) {
 func featureSource(c *ui.Context, name string, source *int, enabled *bool, hint string) {
 	settingsGroup(c, name, func() {
 		settingsRow(c, "配置方式", "跟随配置时使用订阅与 YAML 覆写", func() {
-			ui.Segmented(c, source, "跟随配置", "自定义").Label(name + "配置方式")
+			softSegmented(c, source, "跟随配置", "自定义").Label(name + "配置方式")
 		})
 		hairline(c)
 		settingsRow(c, "启用"+name, hint, func() {
-			ui.Switch(c, enabled).Disabled(*source == 0).Label(name + "开关")
+			softSwitch(c, enabled).Disabled(*source == 0).Label(name + "开关")
 		})
 	})
 }
@@ -233,7 +233,7 @@ func (a *App) dnsSettingsFields(c *ui.Context) {
 		})
 		hairline(c)
 		settingsRow(c, "解析 IPv6", "允许 DNS 返回 IPv6 地址", func() {
-			ui.Switch(c, &d.IPv6).Disabled(disabled).Label("DNS IPv6 开关")
+			softSwitch(c, &d.IPv6).Disabled(disabled).Label("DNS IPv6 开关")
 		})
 	})
 	settingsGroup(c, "解析服务器", func() {
@@ -255,15 +255,15 @@ func (a *App) snifferSettingsFields(c *ui.Context) {
 	featureSource(c, "域名嗅探", &s.Source, &s.Enable, "从连接中识别域名，帮助规则准确分流")
 	settingsGroup(c, "嗅探行为", func() {
 		settingsRow(c, "覆盖连接地址", "使用识别出的域名作为实际连接目标", func() {
-			ui.Switch(c, &s.Override).Disabled(disabled).Label("覆盖连接地址")
+			softSwitch(c, &s.Override).Disabled(disabled).Label("覆盖连接地址")
 		})
 		hairline(c)
 		settingsRow(c, "对真实 IP 映射嗅探", "对 redir-host 映射的连接再次识别域名", func() {
-			ui.Switch(c, &s.Mapping).Disabled(disabled).Label("对真实 IP 映射嗅探")
+			softSwitch(c, &s.Mapping).Disabled(disabled).Label("对真实 IP 映射嗅探")
 		})
 		hairline(c)
 		settingsRow(c, "对未映射 IP 地址嗅探", "尝试识别尚未获取域名的连接", func() {
-			ui.Switch(c, &s.PureIP).Disabled(disabled).Label("对未映射 IP 地址嗅探")
+			softSwitch(c, &s.PureIP).Disabled(disabled).Label("对未映射 IP 地址嗅探")
 		})
 	})
 	settingsGroup(c, "协议与端口", func() {
@@ -367,11 +367,11 @@ func (a *App) overviewFeatures(c *ui.Context) {
 				color = paletteFor(c).Danger
 			}
 			overviewControlRow(c, feature.name, status, color, func() {
-				ui.Button(c, feature.name+" 设置").OnClick(func() {
+				softButton(c, feature.name+" 设置").OnClick(func() {
 					a.page, a.settingsTab = "settings", feature.tab
 				})
 				enabled := feature.enabled
-				ui.Switch(c, &enabled).Disabled(err != nil).Label("概览" + feature.name + "开关").
+				softSwitch(c, &enabled).Disabled(err != nil).Label("概览" + feature.name + "开关").
 					Tooltip("切换后使用自定义设置；可在设置中恢复跟随配置").OnChange(func() {
 					a.toggleNetworkFeature(feature.tab == 4, enabled)
 				})

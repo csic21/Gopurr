@@ -139,7 +139,6 @@ func card(c *ui.Context) ui.Element {
 		Padding(16).
 		Radius(12).
 		Background(pal.Surface).
-		Border(1, pal.Border).
 		Gap(10)
 }
 
@@ -229,8 +228,7 @@ func settingsGroup(c *ui.Context, title string, rows func()) {
 		if title != "" {
 			ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(pal.Muted).Margin(6, 0, 0, 4)
 		}
-		ui.Column(c).FillWidth().Radius(12).Background(pal.Surface).
-			Border(1, pal.Border).Children(rows)
+		ui.Column(c).FillWidth().Radius(12).Background(pal.Surface).Children(rows)
 	})
 }
 
@@ -269,7 +267,18 @@ func controlIcon(c *ui.Context, icon *ui.SVG) {
 
 func hairline(c *ui.Context) {
 	pal := paletteFor(c)
-	ui.Box(c).FillWidth().Height(1).Background(pal.Border)
+	ui.Box(c).FillWidth().Height(1).Background(pal.Grid)
+}
+
+func sectionHeading(c *ui.Context, title, detail string) {
+	pal := paletteFor(c)
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
+		ui.Text(c, title).FontSize(14).FontWeight(600).TextColor(pal.Text)
+		ui.Spacer(c)
+		if detail != "" {
+			ui.Text(c, detail).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(detail).FontSize(11).TextColor(pal.Faint)
+		}
+	})
 }
 
 // allAdapters is the "no filter" choice of the rules page.

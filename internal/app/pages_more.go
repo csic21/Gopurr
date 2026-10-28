@@ -3,193 +3,13 @@ package app
 import (
 	"fmt"
 	"math"
-	"net/url"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 
 	"gopurr/internal/core"
-	"gopurr/internal/profile"
 )
-
-// ---------- subscriptions ----------
-
-func (a *App) subsPage(c *ui.Context) {
-	pal := paletteFor(c)
-	busy, errText := a.subState()
-
-	var items []profile.Profile
-	activeName := "未选择"
-	if a.store != nil {
-		items = a.store.List()
-		active := a.store.ActiveID()
-		for _, p := range items {
-			if p.ID == active {
-				activeName = p.Name
-			}
-		}
-	}
-
-	running := a.k.Running()
-	a.pageHeader(c, "订阅", fmt.Sprintf("%d 个配置 · 当前 %s", len(items), activeName), func() {
-		a.kernelButton(c, running)
-	})
-
-	ui.Column(c).FillWidth().Padding(12, 16).Radius(12).Background(pal.Surface).
-		Border(1, pal.Border).Gap(8).Children(func() {
-		sectionLabel(c, "添加配置")
-		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
-				ui.Text(c, "订阅链接").FontSize(11).TextColor(pal.Muted)
-				ui.TextInput(c, &a.subURL).FillWidth().Label("订阅链接").
-					Placeholder("https://example.com/subscribe")
-			})
-			ui.Column(c).Width(150).Gap(6).Children(func() {
-				ui.Text(c, "备注名 · 可选").FontSize(11).TextColor(pal.Muted)
-				ui.TextInput(c, &a.subName).FillWidth().Label("订阅备注名").Placeholder("为配置起个名字")
-			})
-		})
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-			if errText != "" {
-				ui.Text(c, errText).FontSize(11).TextColor(pal.Danger)
-			} else {
-				ui.Text(c, "订阅从链接下载，本地文件直接读取；都不会上传。").
-					FontSize(11).TextColor(pal.Faint)
-			}
-			ui.Spacer(c)
-			ui.Button(c, "从文件导入…").Disabled(busy).OnClick(a.importLocalFile)
-			label := "添加"
-			if busy {
-				label = "下载中…"
-			}
-			ui.PrimaryButton(c, label).Disabled(busy).OnClick(a.addSubscription)
-		})
-	})
-
-	ui.Scroll(c).FillWidth().FillHeight().Children(func() {
-		ui.Column(c).FillWidth().Gap(8).Children(func() {
-			if len(items) == 0 {
-				emptyState(c, "还没有订阅", "把订阅链接粘贴到上面，点“添加”即可导入。")
-				return
-			}
-			active := ""
-			if a.store != nil {
-				active = a.store.ActiveID()
-			}
-			for _, p := range items {
-				a.subRow(c, p, p.ID == active, busy)
-			}
-		})
-	})
-	a.subscriptionEditor(c)
-}
-
-func (a *App) subRow(c *ui.Context, p profile.Profile, active, busy bool) {
-	pal := paletteFor(c)
-	item := p
-
-	border := pal.Border
-	if active {
-		border = pal.SelectedBorder
-	}
-	ui.Column(c).FillWidth().Padding(12, 16).Radius(12).Background(pal.Surface).
-		Border(1, border).Gap(8).Children(func() {
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
-			icon := iconSubs
-			if item.IsFile() {
-				icon = iconFile
-			}
-			controlIcon(c, icon)
-			ui.Text(c, item.Name).Grow(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(item.Name).
-				FontSize(13).FontWeight(600).TextColor(pal.Text)
-			if item.IsFile() {
-				pill(c, "本地", pal.Muted, pal.Muted.Alpha(0.10))
-			}
-			if active {
-				ui.Badge(c, "已选中")
-			}
-			ui.Text(c, "更新于 "+item.Updated.Format("01-02 15:04")).
-				FontSize(11).TextColor(pal.Faint)
-		})
-
-		source := subscriptionSource(item.URL)
-		if item.IsFile() {
-			source = item.Path
-			if source == "" {
-				source = "备份中的本地配置"
-			}
-		}
-		ui.Text(c, source).FillWidth().SingleLine().Ellipsis("…").Tooltip(source).FontSize(11).TextColor(pal.Faint)
-
-		if item.Info.Total > 0 {
-			used := float64(item.Info.Used()) / float64(item.Info.Total)
-			ui.Progress(c, used).Height(4)
-			ui.Text(c, fmt.Sprintf("已用 %s / %s%s", humanBytes(item.Info.Used()),
-				humanBytes(item.Info.Total), expiry(item.Info.Expire))).
-				FontSize(11).TextColor(pal.Muted)
-		}
-
-		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			if !active {
-				ui.Button(c, "启用").Disabled(busy).OnClick(func() { a.useSubscription(item.ID) })
-			}
-			label := "更新"
-			if item.IsFile() {
-				label = "重新读取"
-			}
-			if busy {
-				label = "…"
-			}
-			ui.Button(c, label).Disabled(busy).OnClick(func() { a.refreshSubscription(item.ID) })
-			ui.Spacer(c)
-			ui.Text(c, subscriptionUpdateLabel(item)).FontSize(11).TextColor(pal.Faint)
-			ui.Button(c, "编辑…").Disabled(busy).Label("编辑订阅 " + item.Name).OnClick(func() { a.openSubscriptionEditor(item) })
-			ui.Button(c, "删除").Disabled(busy || active).Tooltip("请先启用其他配置，再删除当前订阅").OnClick(func() {
-				a.deleteSubID, a.deleteSubName, a.showDeleteSub = item.ID, item.Name, true
-			})
-		})
-	})
-}
-
-func subscriptionSource(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Hostname() == "" {
-		return "订阅链接"
-	}
-	u.User, u.RawQuery, u.Fragment = nil, "", ""
-	u.Path, u.RawPath = "", ""
-	return u.String() + " · 访问凭据已隐藏"
-}
-
-func expiry(unix int64) string {
-	if unix <= 0 {
-		return ""
-	}
-	return " · 到期 " + time.Unix(unix, 0).Format("2006-01-02")
-}
-
-func humanBytes(n int64) string {
-	if n <= 0 {
-		return "0 B"
-	}
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	units := []string{"KB", "MB", "GB", "TB", "PB"}
-	v := float64(n)
-	i := -1
-	for v >= unit && i < len(units)-1 {
-		v /= unit
-		i++
-	}
-	if i < 0 {
-		return fmt.Sprintf("%d B", n)
-	}
-	return fmt.Sprintf("%.1f %s", v, units[i])
-}
 
 // ---------- rules ----------
 
@@ -239,7 +59,7 @@ func (a *App) rulesPage(c *ui.Context) {
 	}
 
 	a.pageHeader(c, "规则", fmt.Sprintf("%d 条生效 · 按顺序匹配，命中即停", len(rules)), nil)
-	ui.Segmented(c, &a.extensionTab, "生效规则", "额外规则", "YAML 覆写").AlignSelf(ui.Start).Label("规则视图")
+	softSegmented(c, &a.extensionTab, "生效规则", "应用分流", "额外规则", "YAML 覆写").AlignSelf(ui.Start).Label("规则视图")
 
 	// Separate keys keep the two editors' focus, selection and undo state
 	// from being reused for the other draft when switching tabs.
@@ -247,8 +67,10 @@ func (a *App) rulesPage(c *ui.Context) {
 		Children(func() {
 			switch a.extensionTab {
 			case 1:
-				a.extraRulesEditor(c)
+				a.applicationRulesPage(c)
 			case 2:
+				a.extraRulesEditor(c)
+			case 3:
 				a.mergeYAMLEditor(c)
 			default:
 				a.effectiveRules(c, rules)
@@ -281,33 +103,43 @@ func (a *App) effectiveRules(c *ui.Context, rules []core.Rule) {
 		return
 	}
 
-	ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
-		ui.Column(c).FillWidth().Radius(12).Background(pal.Surface).
-			Border(1, pal.Border).Children(func() {
-			for i, row := range shown {
-				if i > 0 {
-					hairline(c)
-				}
-				r := row.rule
-				n := row.number
-				ui.Row(c).FillWidth().Padding(9, 14).Gap(10).AlignItems(ui.Center).
-					Children(func() {
-						ui.Text(c, fmt.Sprintf("%d", n)).Width(34).
-							FontSize(11).TextColor(pal.Faint)
-						ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-							payload := r.Payload
-							if payload == "" {
-								payload = "全部流量"
-							}
-							ui.Text(c, payload).FillWidth().SingleLine().Tooltip(payload).
-								FontSize(13).FontWeight(500).TextColor(pal.Text)
-							ui.Text(c, r.Type).FontSize(11).TextColor(pal.Muted)
-						})
-						ui.Row(c).Width(150).Justify(ui.End).Children(func() {
-							pill(c, r.Adapter, adapterColor(c, r.Adapter), adapterColor(c, r.Adapter).Alpha(0.10)).Tooltip(r.Adapter)
-						})
-					})
+	identity := a.ruleQuery + "\x00" + a.ruleAdapter
+	if identity != a.ruleIdentity {
+		a.ruleList, a.ruleIdentity = ui.ListState{}, identity
+	}
+	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Children(func() {
+		ui.Row(c).FillWidth().Padding(12, 14).Gap(10).Children(func() {
+			ui.Text(c, "顺序").Width(34).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, "匹配条件").Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, "类型").Width(112).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, "出口").Width(128).FontSize(11).TextColor(pal.Faint)
+		})
+		hairline(c)
+		ui.List(c, &a.ruleList, len(shown)).FillWidth().Grow(1).MinHeight(0).
+			ItemKey(func(i int) any { return shown[i].number }).Rows(func(item ui.ListRow) {
+			c := item.Context
+			row := shown[item.Index]
+			r := row.rule
+			n := row.number
+			line := ui.Row(c).FillWidth().Height(44).Padding(10, 14).Gap(10).AlignItems(ui.Center).
+				BorderWidth(0, 0, 1, 0).BorderColor(pal.Grid)
+			if line.Hovered() {
+				line.Background(pal.Hover)
 			}
+			line.Children(func() {
+				ui.Text(c, fmt.Sprintf("%d", n)).Width(34).
+					FontSize(11).FontFeatures("tnum").TextColor(pal.Faint)
+				ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
+					payload := r.Payload
+					if payload == "" {
+						payload = "全部流量"
+					}
+					ui.Text(c, payload).FillWidth().SingleLine().Ellipsis("…").Tooltip(payload).
+						FontSize(13).TextColor(pal.Text).Selectable()
+				})
+				ui.Text(c, r.Type).Width(112).SingleLine().Ellipsis("…").Tooltip(r.Type).FontSize(11).TextColor(pal.Muted)
+				ui.Text(c, r.Adapter).Width(128).SingleLine().Ellipsis("…").Tooltip(r.Adapter).FontSize(12).TextColor(adapterColor(c, r.Adapter))
+			})
 		})
 	})
 }
@@ -389,23 +221,23 @@ func (a *App) logsPage(c *ui.Context) {
 		pending = len(live) - len(a.logFrozen)
 	}
 
-	shown := filterLogs(lines, a.logLevelIdx)
+	shown := searchLogs(filterLogs(lines, a.logLevelIdx), a.logQuery)
 
 	a.pageHeader(c, "日志", fmt.Sprintf("%d 行 · 内核输出", len(shown)), func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Segmented(c, &a.logLevelIdx, logLevelLabels...)
+			softButton(c, "复制日志").Disabled(len(shown) == 0).OnClick(func() { a.services().WriteClipboard(logText(shown)) })
 			if a.logPaused {
-				ui.PrimaryButton(c, "继续").OnClick(func() {
+				softPrimaryButton(c, "继续").OnClick(func() {
 					a.logPaused = false
 					a.logFrozen = nil
 				})
 			} else {
-				ui.Button(c, "暂停").OnClick(func() {
+				softButton(c, "暂停").OnClick(func() {
 					a.logPaused = true
 					a.logFrozen = live
 				})
 			}
-			ui.Button(c, "清空").OnClick(func() {
+			softButton(c, "清空").OnClick(func() {
 				a.k.ClearLogs()
 				a.logPaused = false
 				a.logFrozen = nil
@@ -413,16 +245,17 @@ func (a *App) logsPage(c *ui.Context) {
 		})
 	})
 
+	ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
+		searchRow(c, &a.logQuery, "搜索日志…").Grow(1).MinWidth(0)
+		softSegmented(c, &a.logLevelIdx, logLevelLabels...).Label("日志级别")
+	})
 	if len(shown) == 0 {
-		emptyState(c, "没有日志", "启动内核并访问网络后，这里会实时刷新。")
-		return
-	}
-
-	var max float32 = 200
-	for _, l := range shown {
-		if f := float32(len(l.Text)); f > max {
-			max = f
+		if a.logQuery != "" || a.logLevelIdx != 0 {
+			emptyState(c, "没有匹配的日志", "调整关键词或日志级别后重试。")
+		} else {
+			emptyState(c, "没有日志", "启动内核并访问网络后，这里会实时刷新。")
 		}
+		return
 	}
 
 	// Stick to the newest line unless the user scrolled away from the end.
@@ -444,29 +277,55 @@ func (a *App) logsPage(c *ui.Context) {
 			}
 			ui.Spacer(c)
 			if scrollable && away {
-				ui.Button(c, "回到底部").OnClick(func() {
+				softButton(c, "回到底部").OnClick(func() {
 					a.logScroll.ScrollTo(0, math.MaxFloat32, ui.Smooth)
 				})
 			}
 		})
 	}
 
-	ui.Scroll(c).FillWidth().FillHeight().TrackScroll(&a.logScroll).Children(func() {
-		ui.Column(c).FillWidth().Padding(10, 12).Radius(12).Background(pal.Surface).
-			Border(1, pal.Border).Gap(1).Children(func() {
-			for _, line := range shown {
-				l := line
-				ui.Row(c).FillWidth().Gap(10).PaddingX(4).PaddingY(2).Children(func() {
-					ui.Text(c, l.At.Format("15:04:05")).Width(62).
-						FontSize(11).TextColor(pal.Faint)
-					ui.Text(c, strings.ToUpper(l.Level)).Width(58).
-						FontSize(11).TextColor(levelColor(c, l.Level))
-					ui.Text(c, truncate(l.Text, 150)).Grow(1).
-						FontSize(11).TextColor(pal.Muted)
-				})
-			}
+	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Children(func() {
+		ui.Row(c).FillWidth().Padding(12, 16).Gap(12).Children(func() {
+			ui.Text(c, "时间").Width(64).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, "级别").Width(56).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, "消息").FontSize(11).TextColor(pal.Faint)
+		})
+		hairline(c)
+		ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).TrackScroll(&a.logScroll).Children(func() {
+			ui.Column(c).FillWidth().Padding(4, 16).Children(func() {
+				for _, line := range shown {
+					l := line
+					ui.Row(c).FillWidth().Gap(12).PaddingY(10).AlignItems(ui.Start).BorderWidth(0, 0, 1, 0).BorderColor(pal.Grid).Children(func() {
+						ui.Text(c, l.At.Format("15:04:05")).Width(64).Font("monospace").FontSize(11).TextColor(pal.Faint)
+						ui.Text(c, strings.ToUpper(l.Level)).Width(56).Font("monospace").FontSize(11).TextColor(levelColor(c, l.Level))
+						ui.Text(c, l.Text).Grow(1).MinWidth(0).Font("monospace").FontSize(12).TextColor(pal.Text).Selectable()
+					})
+				}
+			})
 		})
 	})
+}
+
+func searchLogs(lines []core.LogLine, query string) []core.LogLine {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return lines
+	}
+	var out []core.LogLine
+	for _, line := range lines {
+		if strings.Contains(strings.ToLower(line.Text+" "+line.Level), query) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func logText(lines []core.LogLine) string {
+	var out strings.Builder
+	for _, line := range lines {
+		fmt.Fprintf(&out, "%s [%s] %s\n", line.At.Format("15:04:05"), strings.ToUpper(line.Level), line.Text)
+	}
+	return out.String()
 }
 
 func levelColor(c *ui.Context, level string) ui.Color {
@@ -479,6 +338,6 @@ func levelColor(c *ui.Context, level string) ui.Color {
 	case "debug":
 		return pal.Faint
 	default:
-		return pal.Accent
+		return pal.Muted
 	}
 }

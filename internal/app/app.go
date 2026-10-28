@@ -60,8 +60,10 @@ type App struct {
 	softwareUpdates     *update.Controller
 	stopSoftwareUpdates context.CancelFunc
 	proxyState
+	overviewState
 	settingsState
 	extensionState
+	applicationRulesState
 	featureState
 	subscriptionEditState
 	connectionState
@@ -113,13 +115,16 @@ type App struct {
 	lanOn         bool
 	ipv6On        bool
 
-	ruleQuery   string
-	ruleAdapter string
+	ruleQuery    string
+	ruleAdapter  string
+	ruleList     ui.ListState
+	ruleIdentity string
 
 	logLevelIdx int
 	logPaused   bool
 	logFrozen   []core.LogLine
 	logScroll   ui.ScrollState
+	logQuery    string
 
 	showRaw     bool
 	rawDraft    string
@@ -141,8 +146,10 @@ type App struct {
 	deleteSubName string
 	showDeleteSub bool
 
-	subURL  string
-	subName string
+	subURL        string
+	subName       string
+	showAddSub    bool
+	subAddPending bool
 
 	dir string
 	k   *kernel.Kernel
@@ -336,6 +343,11 @@ func (a *App) View(c *ui.Context) {
 		a.reconcileSettings()
 	}
 	c.SetTheme(theme(appearanceDark(a.Prefs().Appearance, c.Theme().Dark)))
+	if c.Preferences().ReduceMotion {
+		c.DisableAnimations()
+	}
+	// Keep the overlay layer alive for inert dialog exit copies.
+	ui.Overlay(c, func() {})
 	pal := paletteFor(c)
 	if a.initErr != "" {
 		ui.Column(c).Fill().Background(pal.Bg).Padding(32).Justify(ui.Center).Gap(8).
@@ -477,11 +489,10 @@ func (a *App) sidebar(c *ui.Context) {
 			ui.Text(c, "Gopurr").FontSize(16).FontWeight(600).TextColor(pal.Text)
 		})
 
-		ui.Text(c, "工作区").FontSize(10.5).FontWeight(600).TextColor(pal.Faint).Margin(0, 0, 6, 20)
 		ui.Sidebar(c, &a.page, func() {
 			for _, it := range navItems {
 				if it.id == "settings" {
-					ui.Box(c).FillWidth().Height(1).Background(pal.Border).Margin(8)
+					ui.Box(c).FillWidth().Height(12)
 				}
 				itemTheme := *theme(c.Theme().Dark)
 				itemTheme.Accent = pal.Faint
@@ -490,7 +501,7 @@ func (a *App) sidebar(c *ui.Context) {
 				}
 				c.SetTheme(&itemTheme)
 				item := ui.SidebarItem(c, it.id, it.icon, it.label).
-					Height(36).Padding(8, 12).Gap(10).FontSize(13).TextColor(pal.Muted)
+					Height(36).Padding(8, 12).Gap(10).FontSize(13).TextColor(pal.Muted).Transition(colorMotion())
 				if a.page == it.id {
 					item.Background(pal.Selected).TextColor(pal.Text).FontWeight(600)
 				}
@@ -501,8 +512,7 @@ func (a *App) sidebar(c *ui.Context) {
 		ui.Spacer(c)
 
 		ui.Column(c).FillWidth().Padding(16).Children(func() {
-			ui.Column(c).FillWidth().Padding(12, 0, 0, 0).
-				BorderWidth(1, 0, 0, 0).BorderColor(pal.Border).Gap(6).Children(func() {
+			ui.Column(c).FillWidth().Padding(12, 0, 0, 0).Gap(6).Children(func() {
 				running := a.k.Running()
 				ui.Row(c).AlignItems(ui.Center).Gap(7).Children(func() {
 					dot := pal.Faint
@@ -533,19 +543,15 @@ func (a *App) main(c *ui.Context) {
 	ui.Column(c).Grow(1).FillHeight().MinWidth(0).
 		PaddingX(20).PaddingY(paddingY).
 		Children(func() {
-			// A new key makes the old page leave and the new one fade in, which
-			// is the cheapest way to stop page switches from feeling like a
-			// hard cut.
+			// Only the arriving page moves; the previous page's controls and
+			// polling leave immediately, so rapid navigation stays responsive.
 			ui.Column(c).FillWidth().Grow(1).MinHeight(0).Gap(12).Key(a.page).
-				Transition(ui.ElementTransition{
-					Duration: 160 * time.Millisecond,
-					Enter:    &ui.Motion{Y: 6, Opacity: 0},
-				}).
+				Transition(pageMotion()).
 				Children(func() {
 					if a.notice != "" {
-						ui.Row(c).FillWidth().Padding(12).Radius(10).Background(pal.Hover).Children(func() {
-							ui.Text(c, a.notice).FillWidth().FontSize(11).TextColor(pal.Text)
-							ui.Button(c, "关闭提示").OnClick(func() { a.notice = "" })
+						ui.Row(c).FillWidth().Padding(12).Gap(12).AlignItems(ui.Center).Radius(10).Background(pal.Hover).Children(func() {
+							ui.Text(c, a.notice).Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Text).ContentTransition(contentMotion())
+							softButton(c, "关闭提示").OnClick(func() { a.notice = "" })
 						})
 					}
 					a.pageBody(c)
@@ -571,7 +577,7 @@ func (a *App) pageBody(c *ui.Context) {
 		a.overviewPage(c)
 	}
 	if a.showDeleteSub {
-		idx := ui.AlertDialog(c, &a.showDeleteSub, "删除订阅？",
+		idx := softAlertDialog(c, &a.showDeleteSub, "删除订阅？",
 			"将从本机移除「"+a.deleteSubName+"」。如果正在使用此订阅，请先启用其他配置。", "取消", "删除")
 		if idx == 1 {
 			a.removeSubscription(a.deleteSubID)
@@ -584,7 +590,9 @@ func (a *App) pageHeader(c *ui.Context, title, subtitle string, trailing func())
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 			ui.Text(c, title).FontSize(22).FontWeight(650).TextColor(pal.Text)
-			ui.Text(c, subtitle).FontSize(12).TextColor(pal.Faint)
+			if subtitle != "" {
+				ui.Text(c, subtitle).FillWidth().SingleLine().Ellipsis("…").Tooltip(subtitle).FontSize(12).TextColor(pal.Faint)
+			}
 		})
 		if trailing != nil {
 			trailing()
@@ -598,161 +606,13 @@ func (a *App) kernelButton(c *ui.Context, running bool) {
 		pill(c, "运行中", pal.Success, pal.Success.Alpha(0.10))
 		return
 	}
-	ui.PrimaryButton(c, "启动内核").OnClick(a.toggle)
+	softPrimaryButton(c, "启动内核").OnClick(a.toggle)
 }
 
 // ---------- overview ----------
 
-func (a *App) overviewPage(c *ui.Context) {
-	pal := paletteFor(c)
-	snap, hist := a.snapshot()
-	running := a.k.Running()
-	_, windowHeight := c.Size()
-	compact := windowHeight < 660
-
-	a.pageHeader(c, "概览", a.statusLine(), func() {
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-			a.modeControl(c)
-			a.kernelButton(c, running)
-		})
-	})
-
-	if a.sysOn != a.sysApplied {
-		a.setSystemProxy(a.sysOn)
-	}
-
-	ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
-		ui.Column(c).FillWidth().Gap(12).Children(func() {
-			ui.Row(c).FillWidth().Radius(12).Background(pal.Surface).
-				Border(1, pal.Border).Children(func() {
-				a.statCard(c, iconDown, "下行速率", fmtRate(snap.DownNow), "累计 "+fmtBytes(snap.DownTotal), pal.Down)
-				statDivider(c)
-				a.statCard(c, iconUp, "上行速率", fmtRate(snap.UpNow), "累计 "+fmtBytes(snap.UpTotal), pal.Up)
-				statDivider(c)
-				a.statCard(c, iconActivity, "活跃连接", fmt.Sprintf("%d", snap.Conns), "实时会话", pal.Accent)
-				statDivider(c)
-				a.statCard(c, iconRules, "生效规则", fmt.Sprintf("%d", len(a.k.Rules())), "按顺序匹配", pal.Muted)
-			})
-
-			ui.Column(c).FillWidth().Padding(12, 16).Radius(12).Background(pal.Surface).
-				Border(1, pal.Border).Gap(8).Children(func() {
-				ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, "实时流量").FontSize(14).FontWeight(600).TextColor(pal.Text)
-						if !compact {
-							ui.Text(c, "最近 72 秒的网络活动").FontSize(11).TextColor(pal.Faint)
-						}
-					})
-					ui.Spacer(c)
-					ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, fmt.Sprintf("峰值 %s", fmtRate(trafficPeak(hist)))).FontSize(11).TextColor(pal.Faint)
-						for _, item := range []struct {
-							label string
-							color ui.Color
-						}{{"下行", pal.Down}, {"上行", pal.Up}} {
-							ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-								ui.Box(c).Size(6, 6).Radius(3).Background(item.color)
-								ui.Text(c, item.label).FontSize(11).TextColor(pal.Muted)
-							})
-						}
-					}).Tooltip("每秒采样")
-				})
-				a.chart(c, hist)
-			})
-
-			settingsGroup(c, "", func() {
-				proxyColor := pal.Faint
-				if a.sysErrText() != "" {
-					proxyColor = pal.Danger
-				}
-				overviewControlRow(c, "系统代理", a.sysProxyHint(), proxyColor, func() {
-					ui.Switch(c, &a.sysOn).Label("系统代理开关")
-				})
-				hairline(c)
-
-				installed, busy, svcErr := a.svcState()
-				root := a.k.IsRoot()
-				// A repaired service can take TUN back over in this session.
-				if a.tunWanted && root {
-					a.tunWanted = false
-					a.applyTun(true)
-					root = a.k.IsRoot()
-				}
-				tunColor := pal.Faint
-				if svcErr != "" || a.tunErrText() != "" {
-					tunColor = pal.Danger
-				}
-				overviewControlRow(c, "TUN 模式", a.tunHint(), tunColor, func() {
-					switch {
-					case busy:
-						ui.Text(c, "等待授权…").FontSize(11).TextColor(pal.Muted)
-					case !service.Available():
-						// Windows uses the normal user kernel and system proxy.
-					case !installed:
-						ui.Button(c, "安装服务…").FontSize(11).OnClick(func() { a.confirmInstall = true })
-					case !root || a.mgr.ServiceNeedsUpdate():
-						ui.Button(c, "重新安装…").FontSize(11).OnClick(func() { a.confirmInstall = true })
-					default:
-						ui.Button(c, "卸载服务").FontSize(11).OnClick(func() { a.confirmUninstall = true })
-					}
-					ui.Switch(c, &a.tunOn).Disabled(!root || busy).Label("TUN 模式")
-					if a.tunOn != a.ov.TunEnable {
-						a.applyTun(a.tunOn)
-					}
-				})
-				hairline(c)
-				a.overviewFeatures(c)
-			})
-		})
-	})
-
-	if a.confirmInstall {
-		idx := ui.AlertDialog(c, &a.confirmInstall, "安装 TUN 服务",
-			service.InstallDescription(),
-			"取消", "安装")
-		if idx == 1 {
-			a.installService()
-		}
-	}
-
-	if a.confirmUninstall {
-		idx := ui.AlertDialog(c, &a.confirmUninstall, "卸载 TUN 服务",
-			service.UninstallDescription(),
-			"取消", "卸载")
-		if idx == 1 {
-			a.uninstallService()
-		}
-	}
-}
-
-func (a *App) statCard(c *ui.Context, icon *ui.SVG, label, value, sub string, accent ui.Color) {
-	pal := paletteFor(c)
-	ui.Column(c).Grow(1).MinWidth(0).Padding(12, 16).Gap(4).Children(func() {
-		ui.Row(c).AlignItems(ui.Center).Gap(7).Children(func() {
-			ui.Icon(c, icon).Size(15, 15).TextColor(accent).Role(ui.RoleNone)
-			ui.Text(c, label).FontSize(11.5).TextColor(pal.Muted)
-		})
-		number, unit := value, ""
-		if i := strings.LastIndex(value, " "); i > 0 {
-			number, unit = value[:i], value[i+1:]
-		}
-		ui.Row(c).AlignItems(ui.Baseline).Gap(5).Children(func() {
-			ui.Text(c, number).FontSize(29).FontWeight(600).FontFeatures("tnum").TextColor(pal.Text)
-			if unit != "" {
-				ui.Text(c, unit).FontSize(12).TextColor(pal.Muted)
-			}
-		})
-		ui.Text(c, sub).FontSize(11).TextColor(pal.Faint)
-	})
-}
-
-func statDivider(c *ui.Context) {
-	pal := paletteFor(c)
-	ui.Box(c).Width(1).Height(48).AlignSelf(ui.Center).Background(pal.Border)
-}
-
 func trafficPeak(hist []sample) int64 {
-	peak := int64(48 * 1024)
+	var peak int64
 	for _, s := range hist {
 		if v := s.down + s.up; v > peak {
 			peak = v
@@ -764,9 +624,9 @@ func trafficPeak(hist []sample) int64 {
 func (a *App) chart(c *ui.Context, hist []sample) {
 	pal := paletteFor(c)
 	// All four network controls fit above the fold, including the minimum size.
-	height := float32(96)
+	height := float32(68)
 	if _, windowHeight := c.Size(); windowHeight < 660 {
-		height = 64
+		height = 40
 	}
 
 	if len(hist) < 2 {
@@ -777,20 +637,21 @@ func (a *App) chart(c *ui.Context, hist []sample) {
 		return
 	}
 
-	max := trafficPeak(hist)
+	scale := max(trafficPeak(hist), 48*1024)
 
 	n := len(hist)
 	xs := make([]float32, n)
 	down := make([]float32, n)
 	up := make([]float32, n)
 	zero := make([]float32, n)
+	graph := ui.Column(c).FillWidth().Height(height).Key("traffic-history")
 	for i, s := range hist {
 		xs[i] = float32(i) / float32(n-1)
-		down[i] = float32(s.down) / float32(max)
-		up[i] = float32(s.up) / float32(max)
+		down[i] = graph.AnimateTo(2*i, float32(s.down)/float32(scale), gentleData)
+		up[i] = graph.AnimateTo(2*i+1, float32(s.up)/float32(scale), gentleData)
 	}
 
-	ui.Column(c).FillWidth().Height(height).Draw(func(p *ui.Painter, r ui.Rect) {
+	graph.Draw(func(p *ui.Painter, r ui.Rect) {
 		for i := 0; i <= 4; i++ {
 			y := r.Y + r.H*float32(i)/4
 			p.Line(r.X, y, r.X+r.W, y, 1, pal.Grid)
@@ -859,11 +720,10 @@ func (a *App) rawConfigModal(c *ui.Context) {
 	width, height := c.Size()
 	editorHeight := min(float32(360), height-240)
 
-	ui.Modal(c, &a.showRaw, func() {
-		ui.Column(c).Width(min(float32(760), width-80)).Padding(20).Radius(14).Background(pal.Surface).
-			Border(1, pal.Border).Gap(12).Children(func() {
+	softModal(c, "raw-config", &a.showRaw, func() {
+		ui.Column(c).Width(min(float32(760), width-80)).Padding(20).Gap(12).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "运行配置").FontSize(14).Bold().TextColor(pal.Text)
+				ui.Text(c, "运行配置").FontSize(16).FontWeight(600).TextColor(pal.Text)
 				ui.Spacer(c)
 				if a.rawReadOnly {
 					pill(c, "只读 · 由订阅生成", pal.Muted, pal.Muted.Alpha(0.10))
@@ -876,21 +736,21 @@ func (a *App) rawConfigModal(c *ui.Context) {
 			}
 			ui.Text(c, hint).FontSize(11).TextColor(pal.Faint)
 
-			ui.TextArea(c, &a.rawDraft).FillWidth().Height(editorHeight).FontSize(11).
+			ui.TextArea(c, &a.rawDraft).FillWidth().Height(editorHeight).Font("monospace").FontSize(12).
 				ReadOnly(a.rawReadOnly).Label("运行配置内容")
 			if a.rawError != "" {
 				ui.Text(c, a.rawError).FillWidth().FontSize(11).TextColor(pal.Danger)
 			}
 
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				ui.Button(c, "复制").OnClick(func() {
+				softButton(c, "复制").OnClick(func() {
 					a.services().WriteClipboard(a.rawDraft)
 					a.notice = "配置已复制"
 				})
 				ui.Spacer(c)
-				ui.Button(c, "关闭").OnClick(func() { a.showRaw = false })
+				softButton(c, "关闭").OnClick(func() { a.showRaw = false })
 				if !a.rawReadOnly {
-					ui.PrimaryButton(c, "保存并应用").OnClick(a.saveLocalConfig)
+					softPrimaryButton(c, "保存并应用").OnClick(a.saveLocalConfig)
 				}
 			})
 		})

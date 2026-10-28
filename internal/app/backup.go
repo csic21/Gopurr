@@ -193,6 +193,8 @@ func (a *App) restoreBackup(s *backup.Snapshot) error {
 		hook(prefs)
 	}
 	a.settingsReady, a.extensionReady, a.dnsReady, a.snifferReady = false, false, false, false
+	a.appRulesReady, a.showAppPicker, a.showAppEditor = false, false, false
+	a.appRulesError, a.appRulesStatus = "", ""
 	a.showEditSub, a.showRaw, a.showDeleteSub = false, false, false
 	a.subAttempts = map[string]time.Time{}
 	a.proxyGroup = ""
@@ -213,11 +215,11 @@ func (a *App) backupSettings(c *ui.Context) {
 	busy, _ := a.subState()
 	settingsGroup(c, "本地备份", func() {
 		settingsRow(c, "备份与恢复", "保存订阅、规则、DNS 与偏好，便于迁移或恢复", func() {
-			ui.Button(c, "导出备份…").Disabled(busy).OnClick(a.exportBackupDialog)
+			softButton(c, "导出备份…").Disabled(busy).OnClick(a.exportBackupDialog)
 		})
 		hairline(c)
 		settingsRow(c, "从备份恢复", "恢复前可查看摘要；当前配置将被替换", func() {
-			ui.Button(c, "选择备份…").Disabled(busy).OnClick(a.importBackupDialog)
+			softButton(c, "选择备份…").Disabled(busy).OnClick(a.importBackupDialog)
 		})
 		if a.backupError != "" {
 			settingsFeedback(c, a.backupError, true)
@@ -280,7 +282,7 @@ func (a *App) importBackupDialog() {
 }
 func (a *App) restoreDialog(c *ui.Context) {
 	pal := paletteFor(c)
-	ui.Modal(c, &a.showRestore, func() {
+	softModal(c, "restore-backup", &a.showRestore, func() {
 		ui.Column(c).Width(480).Padding(20).Gap(14).Children(func() {
 			ui.Text(c, "恢复本地备份？").FontSize(16).Bold().TextColor(pal.Text)
 			ui.Text(c, a.restoreName).FillWidth().SingleLine().Ellipsis("…").Tooltip(a.restoreName).FontSize(12).TextColor(pal.Text)
@@ -295,8 +297,8 @@ func (a *App) restoreDialog(c *ui.Context) {
 				settingsFeedback(c, a.backupError, true)
 			}
 			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
-				ui.Button(c, "取消").OnClick(func() { a.showRestore = false })
-				ui.PrimaryButton(c, "恢复备份").OnClick(func() {
+				softButton(c, "取消").OnClick(func() { a.showRestore = false })
+				softPrimaryButton(c, "恢复备份").OnClick(func() {
 					if a.restorePreview == nil {
 						return
 					}

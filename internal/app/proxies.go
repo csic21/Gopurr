@@ -45,7 +45,7 @@ func modeIndex(token string) int {
 }
 
 func (a *App) modeControl(c *ui.Context) {
-	ui.Segmented(c, &a.modeIdx, "规则", "全局", "直连")
+	softSegmented(c, &a.modeIdx, "规则", "全局", "直连")
 	if a.modeIdx >= 0 && a.modeIdx < len(routeTokens) && routeTokens[a.modeIdx] != a.modeToken {
 		a.UseMode(routeTokens[a.modeIdx])
 	}
@@ -133,7 +133,7 @@ func (a *App) proxiesPage(c *ui.Context) {
 				a.kernelButton(c, false)
 				return
 			}
-			ui.PrimaryButton(c, "测试全部").Disabled(a.testingGroup() != "" || len(nodes) == 0).
+			softButton(c, "测试全部").Disabled(a.testingGroup() != "" || len(nodes) == 0).
 				OnClick(func() { a.testGroup("全部节点", nodes) })
 		})
 	})
@@ -152,21 +152,7 @@ func (a *App) proxiesPage(c *ui.Context) {
 		return
 	}
 
-	selected := groups[0]
-	if a.proxyGroup == "" {
-		for _, g := range groups {
-			if manualGroup(g) {
-				selected = g
-				break
-			}
-		}
-	}
-	for _, g := range groups {
-		if g.Name == a.proxyGroup {
-			selected = g
-			break
-		}
-	}
+	selected, _ := selectedProxyGroup(groups, a.proxyGroup)
 	a.proxyGroup = selected.Name
 	ui.Row(c).FillWidth().Grow(1).MinHeight(0).Gap(14).Children(func() {
 		ui.Column(c).Width(172).FillHeight().Gap(12).Children(func() {
@@ -177,17 +163,20 @@ func (a *App) proxiesPage(c *ui.Context) {
 					for _, item := range groups {
 						g := item
 						on := g.Name == selected.Name
-						bg, border := ui.Transparent, ui.Transparent
+						bg := ui.Transparent
 						if on {
-							bg, border = pal.Selected, pal.SelectedBorder
+							bg = pal.Selected
 						}
-						ui.Column(c).FillWidth().Padding(8, 12).Radius(10).Gap(4).
-							Background(bg).Border(1, border).Cursor(ui.CursorPointer).
-							Label("策略组 " + g.Name).Tooltip(g.Name + " → " + g.Now).
-							OnClick(func() { a.proxyGroup = g.Name }).Children(func() {
+						item := ui.Column(c).FillWidth().Padding(10, 12).Radius(8).Gap(4).
+							Background(bg).Transition(colorMotion()).Cursor(ui.CursorPointer).Focusable().Role(ui.RoleButton).
+							Label("策略组 " + g.Name).Tooltip(g.Name + " → " + g.Now + " · " + groupTypeLabel(g.Type)).
+							OnClick(func() { a.proxyGroup = g.Name })
+						if !on && item.Hovered() {
+							item.Background(pal.Hover)
+						}
+						item.Children(func() {
 							ui.Text(c, g.Name).FillWidth().MaxLines(1).Ellipsis("…").FontSize(13).FontWeight(600).TextColor(pal.Text)
 							ui.Text(c, g.Now).FillWidth().MaxLines(1).Ellipsis("…").FontSize(11.5).TextColor(pal.Muted)
-							ui.Text(c, fmt.Sprintf("%s · %d", groupTypeLabel(g.Type), len(g.Members))).FontSize(11).TextColor(pal.Faint)
 						})
 					}
 				})
@@ -195,22 +184,22 @@ func (a *App) proxiesPage(c *ui.Context) {
 		})
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Gap(10).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				ui.Text(c, selected.Name).Grow(1).MinWidth(0).MaxLines(1).Ellipsis("…").FontSize(16).FontWeight(600).TextColor(pal.Text)
-				pill(c, groupTypeLabel(selected.Type), pal.Muted, pal.Hover)
-				ui.Button(c, "测试本组").Disabled(a.testingGroup() != "").OnClick(func() {
+				ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
+					ui.Text(c, selected.Name).FillWidth().MaxLines(1).Ellipsis("…").Tooltip(selected.Name).FontSize(16).FontWeight(600).TextColor(pal.Text)
+					ui.Text(c, fmt.Sprintf("%s · %d 个成员", groupTypeLabel(selected.Type), len(selected.Members))).FontSize(11).TextColor(pal.Muted)
+				})
+				softPrimaryButton(c, "测试本组").Disabled(a.testingGroup() != "").OnClick(func() {
 					a.testGroup(selected.Name, selected.Members)
 				})
 			})
-			searchRow(c, &a.proxyQuery, "搜索此组的节点…")
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+				searchRow(c, &a.proxyQuery, "搜索节点…").Grow(1).MinWidth(0)
 				if a.proxySort == "" {
 					a.proxySort = "订阅顺序"
 				}
 				ui.Select(c, &a.proxySort, []string{"订阅顺序", "延迟优先", "名称排序"}).Width(108)
-				ui.Switch(c, &a.proxyOnlyLive)
+				softSwitch(c, &a.proxyOnlyLive).Label("仅显示可用节点")
 				ui.Text(c, "仅可用").FontSize(11).TextColor(pal.Muted)
-				ui.Spacer(c)
-				ui.Text(c, "延迟 / ms").FontSize(11).TextColor(pal.Faint)
 			})
 			if !manualGroup(selected) {
 				ui.Text(c, "此组由内核自动调度，勾选表示当前出口。").FontSize(11).TextColor(pal.Muted)
@@ -226,7 +215,7 @@ func (a *App) proxiesPage(c *ui.Context) {
 				a.listIdentity = identity
 			}
 			ui.List(c, &a.nodeList, len(members)).FillWidth().Grow(1).MinHeight(0).
-				Radius(10).Background(pal.Surface).Border(1, pal.Border).
+				Radius(10).Background(pal.Surface).
 				ItemKey(func(i int) any { return members[i] }).Rows(func(row ui.ListRow) {
 				a.nodeRow(row.Context, selected, members[row.Index])
 			})
@@ -293,23 +282,31 @@ func (a *App) sortedMembers(g core.Group) []string {
 }
 
 func (a *App) nodeRow(c *ui.Context, group core.Group, member string) {
+	a.nodeRowAction(c, group, member, nil)
+}
+
+func (a *App) nodeRowAction(c *ui.Context, group core.Group, member string, selected func()) {
 	pal := paletteFor(c)
 	on := member == group.Now
 	row := ui.Row(c).FillWidth().Height(56).Padding(8, 12).
-		Background(pal.Surface).BorderWidth(0, 0, 1, 0).BorderColor(pal.Border).AlignItems(ui.Center).Gap(12)
+		Background(pal.Surface).BorderWidth(0, 0, 1, 0).BorderColor(pal.Grid).AlignItems(ui.Center).Gap(12).Transition(colorMotion())
 	if on {
-		row.Background(pal.Selected).BorderColor(pal.SelectedBorder)
+		row.Background(pal.Selected)
+	} else if row.Hovered() {
+		row.Background(pal.Hover)
 	}
 	row.Children(func() {
 		mark, color := iconCircle, pal.Faint
 		if on {
 			mark, color = iconCheck, pal.Accent
 		}
-		ui.Icon(c, mark).Size(17, 17).TextColor(color).Role(ui.RoleNone)
-		name := ui.Column(c).Grow(1).MinWidth(0).Gap(3).Tooltip(member)
+		ui.Icon(c, mark).Size(17, 17).TextColor(color).Role(ui.RoleNone).ContentTransition(contentMotion())
+		name := ui.Column(c).Grow(1).MinWidth(0).Gap(3).Tooltip(member + " · " + group.MemberTypes[member])
 		if manualGroup(group) {
-			name.Cursor(ui.CursorPointer).Label("选择 " + member).OnClick(func() {
-				a.selectProxy(group.Name, member)
+			name.Cursor(ui.CursorPointer).Focusable().Role(ui.RoleButton).Label("选择 " + member).OnClick(func() {
+				if a.selectProxy(group.Name, member) && selected != nil {
+					selected()
+				}
 			})
 		}
 		name.Children(func() {
@@ -325,9 +322,10 @@ func (a *App) nodeRow(c *ui.Context, group core.Group, member string) {
 				kind = "代理节点"
 			}
 			if on {
-				kind += " · 当前使用"
+				ui.Text(c, "当前使用 · "+groupTypeLabel(kind)).FontSize(11).TextColor(pal.Muted)
+			} else if isBuiltin(member) || groupTypeLabel(kind) != kind {
+				ui.Text(c, groupTypeLabel(kind)).FontSize(11).TextColor(pal.Faint)
 			}
-			ui.Text(c, kind).FontSize(11).TextColor(pal.Faint)
 		})
 		d, known := a.memberDelay(group, member)
 		label, color := "未测试", pal.Faint
@@ -341,11 +339,7 @@ func (a *App) nodeRow(c *ui.Context, group core.Group, member string) {
 		errorText := a.delayErrors[member]
 		a.bmu.Unlock()
 		ui.Row(c).Width(72).Justify(ui.End).Tooltip(errorText).Children(func() {
-			if known {
-				pill(c, label, color, color.Alpha(0.10))
-			} else {
-				ui.Text(c, label).FontSize(11).TextColor(color)
-			}
+			ui.Text(c, label).FontSize(12).FontFeatures("tnum").TextColor(color).ContentTransition(contentMotion())
 		})
 		iconButton(c, iconRefresh, "测试 "+member).Disabled(a.testingGroup() != "" || (isBuiltin(member) && member != "DIRECT")).
 			Tooltip("测试 " + member + " 的连通性与延迟").OnClick(func() { a.testGroup(member, []string{member}) })
@@ -427,7 +421,7 @@ func (a *App) delayProgress(c *ui.Context) {
 			}
 			ui.Text(c, label).FillWidth().FontSize(11).TextColor(pal.Muted)
 			if name != "" {
-				ui.Button(c, "取消测试").OnClick(a.cancelDelayTest)
+				softButton(c, "取消测试").OnClick(a.cancelDelayTest)
 			}
 		})
 		if name != "" && total > 0 {

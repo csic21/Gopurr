@@ -4,18 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/png"
-	"math"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"gopurr/internal/applications"
 	"gopurr/internal/backup"
 	"gopurr/internal/core"
 	"gopurr/internal/profile"
@@ -47,12 +48,25 @@ func TestRenderPages(t *testing.T) {
 		a.delays = map[string]uint16{"香港 01": 42, "日本 02": 138, "新加坡 03": 410, "美国 04": 0}
 		a.bmu.Unlock()
 
-		// A local profile, so the subscriptions page shows both entry points.
+		// Local and remote metadata cover active, quota and switchable profiles.
+		// The remote entry is a fixture only; no public subscription is fetched.
 		local := filepath.Join(dir, "local-demo.yaml")
 		if err := os.WriteFile(local, []byte("mixed-port: 7890\nrules:\n  - MATCH,DIRECT\n"), 0o644); err == nil {
 			_, _ = a.store.AddFile(local, "本地演示配置")
 		}
+		a.store.Items[0].Updated = time.Date(2026, 10, 28, 9, 30, 0, 0, time.Local)
+		a.store.Items = append(a.store.Items, profile.Profile{
+			ID: "remote-demo", Name: "日常连接", Kind: profile.KindURL,
+			URL: "https://subscription.example.com/api/v1/subscribe?token=fixture", File: "remote-demo.yaml",
+			Updated: time.Date(2026, 10, 28, 10, 20, 0, 0, time.Local),
+			Info:    profile.Info{Download: 24 << 30, Upload: 3 << 30, Total: 200 << 30, Expire: time.Date(2026, 12, 1, 0, 0, 0, 0, time.Local).Unix()},
+		})
+		if err := os.WriteFile(filepath.Join(dir, "profiles", "remote-demo.yaml"), []byte("mixed-port: 7890\nrules:\n  - MATCH,DIRECT\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		a.store.Active = "remote-demo"
 	}
+	profiles, activeProfile := a.store.List(), a.store.ActiveID()
 	outDir := filepath.Join("..", "..", "docs")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -68,6 +82,17 @@ func TestRenderPages(t *testing.T) {
 		{"software-update-ready", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Ready) }},
 		{"software-update-error", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Failed) }},
 		{"overview", func() { a.page = "overview" }},
+		{"overview-global", func() { a.page, a.modeToken, a.modeIdx = "overview", "global", 1; fixtureOverviewTraffic(a) }},
+		{"overview-direct", func() { a.page, a.modeToken, a.modeIdx = "overview", "direct", 2 }},
+		{"overview-long-exit", func() {
+			a.page, a.proxyGroup = "overview", "漏网之鱼 · 工作与家庭共用的长名称策略组"
+		}},
+		{"overview-picker", func() { a.page, a.showOverviewNodes = "overview", true }},
+		{"overview-picker-auto", func() { a.page, a.proxyGroup, a.showOverviewNodes = "overview", "自动选择", true }},
+		{"overview-picker-error", func() {
+			a.page, a.showOverviewNodes = "overview", true
+			a.notice = "切换节点失败：内核暂时无法响应，请稍后重试。"
+		}},
 		{"overview-features", func() { a.page = "overview" }},
 		{"overview-proxy-error", func() {
 			a.page = "overview"
@@ -75,6 +100,17 @@ func TestRenderPages(t *testing.T) {
 			a.setSysErr("恢复系统代理失败，应用保持运行。请重新开启系统代理后重试。")
 		}},
 		{"subs", func() { a.page = "subs" }},
+		{"subs-empty", func() { a.page, a.store.Items, a.store.Active = "subs", nil, "" }},
+		{"subs-add", func() { a.page, a.showAddSub = "subs", true }},
+		{"subs-add-error", func() {
+			a.page, a.showAddSub = "subs", true
+			a.subURL = "https://subscription.example.com/subscribe"
+			a.setSubErr("订阅下载失败：服务器暂时无法访问，请检查链接后重试。")
+		}},
+		{"subs-long-name", func() {
+			a.page = "subs"
+			a.store.Items[0].Name = "工作与家庭共用的远程订阅配置 · 自动更新与备用线路 · 长名称示例"
+		}},
 		{"subs-compact", func() { a.page = "subs" }},
 		{"proxies", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
 		{"proxies-hover", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
@@ -148,18 +184,44 @@ func TestRenderPages(t *testing.T) {
 			a.ruleAdapter = "DIRECT"
 		}},
 		{"extra-rules", func() {
-			a.page, a.extensionTab = "rules", 1
+			a.page, a.extensionTab = "rules", 2
 			a.initExtensionDrafts()
 			a.extraRulesDraft = "DOMAIN-SUFFIX,example.com,DIRECT\nDOMAIN-SUFFIX,ads.example,REJECT\nIP-CIDR,192.168.0.0/16,DIRECT,no-resolve"
 		}},
-		{"extra-rules-compact", func() { a.page, a.extensionTab = "rules", 1 }},
+		{"extra-rules-compact", func() { a.page, a.extensionTab = "rules", 2 }},
 		{"yaml-override", func() {
-			a.page, a.extensionTab = "rules", 2
+			a.page, a.extensionTab = "rules", 3
 			a.mergeYAMLDraft = "# 为所有订阅开启并发连接\ntcp-concurrent: true\n\nprofile:\n  store-selected: true\n"
+		}},
+		{"application-rules", func() { fixtureApplicationRules(a) }},
+		{"application-rules-empty", func() { fixtureApplicationRules(a); a.appRulesDraft = nil }},
+		{"application-rules-global", func() { fixtureApplicationRules(a); a.ov.Mode = "global" }},
+		{"application-rules-error", func() {
+			fixtureApplicationRules(a)
+			a.appRulesError = "配置验证失败：代理组已被移除，请编辑应用分流并选择当前配置中的代理组。"
+		}},
+		{"application-picker", func() { fixtureApplicationRules(a); a.showAppPicker = true }},
+		{"application-picker-search", func() { fixtureApplicationRules(a); a.showAppPicker = true; a.appCatalogQuery = "browser" }},
+		{"application-picker-empty", func() { fixtureApplicationRules(a); a.showAppPicker = true; a.appCatalogQuery = "no-such-app" }},
+		{"application-picker-loading", func() { fixtureApplicationRules(a); a.showAppPicker = true; a.appCatalog, a.appCatalogBusy = nil, true }},
+		{"application-editor", func() {
+			fixtureApplicationRules(a)
+			a.openApplicationEditor(a.appCatalog[0])
+			a.appEditGroups, a.appEditKind, a.appEditGroup = []string{"节点选择", "自动选择", "漏网之鱼 · 工作与家庭共用的长名称策略组"}, 2, "漏网之鱼 · 工作与家庭共用的长名称策略组"
+		}},
+		{"application-editor-single", func() {
+			fixtureApplicationRules(a)
+			a.openApplicationEditor(applications.Application{Name: "独立更新程序", Path: "/usr/local/bin/work-updater", Executable: "/usr/local/bin/work-updater"})
+		}},
+		{"application-editor-missing-group", func() {
+			fixtureApplicationRules(a)
+			a.openApplicationEditor(a.appCatalog[0])
+			a.appEditGroups, a.appEditKind, a.appEditGroup = nil, 2, "已移除的代理组"
 		}},
 		{"logs", func() {
 			a.page = "logs"
 		}},
+		{"logs-search", func() { a.page, a.logQuery = "logs", "TLS" }},
 		{"logs-compact", func() { a.page = "logs" }},
 		{"logs-paused", func() {
 			a.page = "logs"
@@ -185,6 +247,11 @@ func TestRenderPages(t *testing.T) {
 			a.generalSettingsError = "设置保存失败：数据目录暂时不可写，请检查权限后重试。"
 		}},
 		{"settings-network", func() { a.page, a.settingsTab = "settings", 1 }},
+		{"settings-network-dirty", func() {
+			a.page, a.settingsTab = "settings", 1
+			a.initSettings()
+			a.mixedPortDraft = "7891"
+		}},
 		{"settings-network-compact", func() { a.page, a.settingsTab = "settings", 1 }},
 		{"settings-dns-follow", func() {
 			a.page, a.settingsTab = "settings", 4
@@ -246,17 +313,7 @@ func TestRenderPages(t *testing.T) {
 		{"conns-compact", func() { a.page = "conns" }},
 		{"overview-live", func() {
 			a.page = "overview"
-			a.mu.Lock()
-			a.hist = nil
-			for i := 0; i < bars; i++ {
-				base := float64(1 + 0.9*math.Sin(float64(i)/6))
-				a.hist = append(a.hist, sample{
-					down: int64(base * 900 * 1024),
-					up:   int64(base * 90 * 1024),
-				})
-			}
-			a.last = core.Sample{DownNow: 900 * 1024, UpNow: 90 * 1024, DownTotal: 812 << 20, UpTotal: 61 << 20}
-			a.mu.Unlock()
+			fixtureOverviewTraffic(a)
 		}},
 		{"overview-compact", func() { a.page = "overview" }},
 		{"install-dialog", func() { a.page = "overview"; a.confirmInstall = true }},
@@ -266,7 +323,7 @@ func TestRenderPages(t *testing.T) {
 			a.deleteSubName = "工作与家庭共用的远程订阅配置 · 长名称示例"
 		}},
 		{"yaml-error", func() {
-			a.page, a.extensionTab = "rules", 2
+			a.page, a.extensionTab = "rules", 3
 			a.mergeYAMLError = "YAML 格式错误：请检查缩进，修正后重新保存。"
 		}},
 		{"raw-config", func() {
@@ -303,15 +360,29 @@ func TestRenderPages(t *testing.T) {
 				a.bmu.Unlock()
 				a.confirmInstall, a.confirmUninstall, a.showDeleteSub, a.showRaw = false, false, false, false
 				a.logPaused, a.logLevelIdx, a.extensionTab = false, 0, 0
+				a.applicationRulesState = applicationRulesState{}
+				a.ov.AppRules, a.ov.Mode = nil, "rule"
 				a.ruleQuery, a.ruleAdapter = "", allAdapters
 				a.generalSettingsError, a.mergeYAMLError = "", ""
 				a.dnsError, a.snifferError = "", ""
 				a.rawError = ""
 				a.showConn, a.confirmCloseAll, a.showEditSub, a.showRestore = false, false, false, false
+				a.showOverviewNodes, a.showAddSub, a.subAddPending = false, false, false
+				a.overviewQuery, a.logQuery, a.subURL, a.subName, a.notice = "", "", "", "", ""
+				a.overviewList, a.ruleList, a.nodeList, a.connList = ui.ListState{}, ui.ListState{}, ui.ListState{}, ui.ListState{}
+				a.logScroll = ui.ScrollState{}
+				a.store.Items, a.store.Active = append([]profile.Profile(nil), profiles...), activeProfile
+				a.modeToken, a.modeIdx, a.proxyGroup = "rule", 0, "节点选择"
+				a.setSubErr("")
+				a.mu.Lock()
+				a.hist, a.last = nil, core.Sample{}
+				a.mu.Unlock()
 				a.pmu.Lock()
 				a.prefs.AutoLaunch, a.prefs.SilentStart = false, false
 				a.pmu.Unlock()
 				a.settingsReady = false
+				a.featureState = featureState{}
+				a.networkError, a.networkStatus, a.testSettingsError, a.testSettingsStatus = "", "", "", ""
 				a.connQuery, a.connError, a.backupError, a.backupStatus = "", "", "", ""
 				a.setSysErr("")
 				a.sysApplied, a.sysOn = false, false
@@ -334,8 +405,33 @@ func TestRenderPages(t *testing.T) {
 				tr := ui.NewTester(a.View, width, height)
 				tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
 				tr.SetDark(appearance == AppearanceDark)
-				tr.Advance(200 * time.Millisecond)
+				tr.Advance(400 * time.Millisecond)
 				tr.Frame()
+				if strings.HasPrefix(shot.name, "application-") {
+					controls := []string{"添加应用…", "保存应用分流"}
+					switch {
+					case strings.HasPrefix(shot.name, "application-picker"):
+						controls = []string{"搜索应用名称或路径…", "重新扫描", "选择文件…", "取消"}
+					case strings.HasPrefix(shot.name, "application-editor"):
+						controls = []string{"应用连接方式", "包含应用 Helper", "取消"}
+						if shot.name == "application-editor-single" {
+							controls = append(controls, "添加到草稿")
+						} else {
+							controls = append(controls, "更新草稿", "应用代理组")
+						}
+					}
+					for _, label := range controls {
+						r, ok := tr.Find(label)
+						if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
+							t.Fatalf("%s: control %q is missing or clipped: %+v (found=%v)", page, label, r, ok)
+						}
+					}
+					if shot.name == "application-picker" {
+						if r, ok := tr.Find("选择应用 Mail"); ok {
+							tr.Move(r.X+r.W/2, r.Y+r.H/2)
+						}
+					}
+				}
 				if shot.name == "overview" || shot.name == "overview-live" || shot.name == "overview-proxy-error" {
 					controls := []string{"系统代理开关", "TUN 模式", "概览DNS开关", "概览域名嗅探开关", "DNS 设置", "域名嗅探 设置"}
 					for _, label := range controls {
@@ -383,6 +479,9 @@ func TestRenderPages(t *testing.T) {
 				if strings.HasSuffix(shot.name, "-error") && shot.name != "raw-config-error" && shot.name != "backup-error" {
 					tr.Scroll(700, 420, 0, 1000)
 				}
+				// Stable fixtures show the settled hover/selection appearance;
+				// motion_test.go separately captures and checks transient frames.
+				tr.Advance(200 * time.Millisecond)
 				img := tr.Image()
 				if img == nil {
 					t.Fatalf("%s: nil image", page)
@@ -411,6 +510,19 @@ func TestRenderPages(t *testing.T) {
 			}
 		}
 	}
+}
+
+func fixtureOverviewTraffic(a *App) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	// A deterministic burst trace, with independent upload activity.
+	trace := []int64{48, 52, 40, 85, 220, 640, 530, 850, 1024, 1640, 1880, 1450, 740, 420, 530, 220, 70, 45, 55, 160, 390, 850, 1450, 930, 710, 220, 85, 70, 55, 310, 620, 1020, 880, 730, 920, 900}
+	a.hist = nil
+	for i := 0; i < bars; i++ {
+		a.hist = append(a.hist, sample{down: trace[i/2] * 1024, up: int64(18+(i*31)%100) * 1024})
+	}
+	a.last = core.Sample{DownNow: 900 * 1024, UpNow: a.hist[len(a.hist)-1].up, DownTotal: 812 << 20, UpTotal: 61 << 20, Conns: 4}
+	a.sysOn, a.sysApplied = true, true
 }
 
 func TestProxyPageFitsMinimumWindow(t *testing.T) {
@@ -466,6 +578,8 @@ func startFakeCore(t *testing.T, dir, secret string) {
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"version":"1.19.33","meta":true}`))
 	})
+	var selectionMu sync.Mutex
+	selected := map[string]string{}
 	mux.HandleFunc("/proxies", func(w http.ResponseWriter, r *http.Request) {
 		nodes := []string{"香港 01", "日本 02", "新加坡 03", "美国 04"}
 		proxies := map[string]any{
@@ -477,6 +591,7 @@ func startFakeCore(t *testing.T, dir, secret string) {
 		for i := 0; i < 180; i++ {
 			nodes = append(nodes, fmt.Sprintf("%s %02d · 高速专线", regions[i%len(regions)], i+5))
 		}
+		nodes[len(nodes)-1] = "德国 184 · 工作与家庭共用的低延迟优选线路 · 长名称示例"
 		for _, node := range nodes {
 			proxies[node] = map[string]any{"type": "Shadowsocks"}
 		}
@@ -496,9 +611,28 @@ func startFakeCore(t *testing.T, dir, secret string) {
 		global := append([]string{"DIRECT", "REJECT"}, nodes...)
 		global = append(global, groups...)
 		proxies["GLOBAL"] = map[string]any{"type": "Selector", "now": "节点选择", "all": global}
+		selectionMu.Lock()
+		for name, member := range selected {
+			if group, ok := proxies[name].(map[string]any); ok {
+				group["now"] = member
+			}
+		}
+		selectionMu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{"proxies": proxies})
 	})
 	mux.HandleFunc("/proxies/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			var body struct {
+				Name string `json:"name"`
+			}
+			if json.NewDecoder(r.Body).Decode(&body) != nil || body.Name == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			selectionMu.Lock()
+			selected[strings.TrimPrefix(r.URL.Path, "/proxies/")] = body.Name
+			selectionMu.Unlock()
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("/configs", func(w http.ResponseWriter, r *http.Request) {
@@ -548,6 +682,7 @@ func startFakeCore(t *testing.T, dir, secret string) {
 			`{"type":"info","payload":"[TCP] 127.0.0.1:5412 --> api.github.com:443 match DomainSuffix(github.com) using 节点选择[香港 01]"}`,
 			`{"type":"warning","payload":"[TCP] dial 美国 04 error: connection refused"}`,
 			`{"type":"debug","payload":"[DNS] resolve api.github.com from udp://114.114.114.114:53"}`,
+			`{"type":"error","payload":"[TCP] dial 节点选择 error: TLS handshake failed for a-very-long-service-name.api.production.example.internal.example.com:443; retry exhausted after 3 attempts; check the upstream certificate and DNS resolution. This complete diagnostic remains selectable and can be copied."}`,
 		} {
 			_, _ = w.Write([]byte(line + "\n"))
 			flusher.Flush()

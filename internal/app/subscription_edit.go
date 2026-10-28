@@ -67,7 +67,7 @@ func (a *App) saveSubscriptionEditor() {
 }
 func (a *App) subscriptionEditor(c *ui.Context) {
 	pal := paletteFor(c)
-	ui.Modal(c, &a.showEditSub, func() {
+	softModal(c, "subscription-edit", &a.showEditSub, func() {
 		busy, _ := a.subState()
 		ui.Column(c).Width(540).Padding(20).Gap(12).Children(func() {
 			ui.Text(c, "编辑订阅").FontSize(16).Bold().TextColor(pal.Text)
@@ -81,14 +81,14 @@ func (a *App) subscriptionEditor(c *ui.Context) {
 						ui.Text(c, "User-Agent · 留空使用默认值").FontSize(11).TextColor(pal.Muted)
 						ui.TextInput(c, &a.editSub.UserAgent).FillWidth().Placeholder("clash.meta/mihomo").Label("订阅 User-Agent")
 						ui.Text(c, "自动更新").FontSize(11).TextColor(pal.Muted)
-						ui.Segmented(c, &a.editSubPolicy, "跟随全局", "关闭", "自定义").AlignSelf(ui.Start).Label("订阅自动更新方式")
+						softSegmented(c, &a.editSubPolicy, "跟随全局", "关闭", "自定义").AlignSelf(ui.Start).Label("订阅自动更新方式")
 						if a.editSubPolicy == 2 {
 							ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 								ui.TextInput(c, &a.editSubHours).Width(100).Label("订阅更新间隔小时")
 								ui.Text(c, "小时").FontSize(12).TextColor(pal.Muted)
 							})
 						}
-						settingsRow(c, "使用 Gopurr 代理更新", "需要内核运行；关闭时直接下载", func() { ui.Switch(c, &a.editSub.UseProxy).Label("使用代理更新订阅") })
+						settingsRow(c, "使用 Gopurr 代理更新", "需要内核运行；关闭时直接下载", func() { softSwitch(c, &a.editSub.UseProxy).Label("使用代理更新订阅") })
 					} else {
 						ui.Text(c, "本地配置只在点击“重新读取”时更新。").FontSize(11).TextColor(pal.Faint)
 					}
@@ -98,8 +98,8 @@ func (a *App) subscriptionEditor(c *ui.Context) {
 				settingsFeedback(c, a.editSubError, true)
 			}
 			ui.Row(c).FillWidth().Justify(ui.End).Gap(8).Children(func() {
-				ui.Button(c, "取消").OnClick(func() { a.showEditSub = false })
-				ui.PrimaryButton(c, "保存订阅设置").Disabled(busy).OnClick(a.saveSubscriptionEditor)
+				softButton(c, "取消").OnClick(func() { a.showEditSub = false })
+				softPrimaryButton(c, "保存订阅设置").Disabled(busy).OnClick(a.saveSubscriptionEditor)
 			})
 		})
 	})

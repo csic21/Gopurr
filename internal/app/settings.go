@@ -90,97 +90,85 @@ func (a *App) settingsPage(c *ui.Context) {
 	a.initSettings()
 	a.reconcileSettings()
 	a.pageHeader(c, "设置", "偏好自动保存；网络与测试设置确认后应用", nil)
-	ui.Segmented(c, &a.settingsTab, "常规", "网络", "延迟测试", "维护", "DNS", "域名嗅探").AlignSelf(ui.Start).Label("设置分类")
+	softSegmented(c, &a.settingsTab, "常规", "网络", "延迟测试", "维护", "DNS", "域名嗅探").AlignSelf(ui.Start).Label("设置分类")
 	if a.settingsTab == 4 || a.settingsTab == 5 {
 		a.featureSettingsPage(c, a.settingsTab == 4)
 		a.rawConfigModal(c)
 		return
 	}
 
-	ui.Scroll(c).Key(a.settingsTab).FillWidth().FillHeight().Children(func() {
+	ui.Scroll(c).Key(a.settingsTab).FillWidth().Grow(1).MinHeight(0).Transition(pageMotion()).Children(func() {
 		ui.Column(c).FillWidth().Gap(16).Padding(0, 0, 12, 0).Children(func() {
 			if a.settingsTab == 0 {
 				settingsGroup(c, "外观", func() {
 					settingsRow(c, "主题", "窗口与内容统一配色，切换后立即生效", func() {
-						ui.Segmented(c, &a.appearanceIdx, "跟随系统", "浅色", "深色").Label("外观主题")
+						softSegmented(c, &a.appearanceIdx, "跟随系统", "浅色", "深色").Label("外观主题")
 					})
 					if runtime.GOOS == "darwin" {
 						hairline(c)
 						settingsRow(c, "显示程序坞图标", dockVisibilityDescription(a.settingsPrefs.DockVisibility), func() {
-							ui.Segmented(c, &a.dockIdx, "隐藏", "跟随窗口", "显示").Label("程序坞图标显示方式")
+							softSegmented(c, &a.dockIdx, "隐藏", "跟随窗口", "显示").Label("程序坞图标显示方式")
 						})
 					}
 				})
-				settingsGroup(c, "常规", func() {
+				settingsGroup(c, "启动行为", func() {
 					settingsRow(c, "登录时启动 Gopurr", "登录电脑后自动运行，无需手动打开", func() {
-						ui.Switch(c, &a.autoLaunchOn).Label("登录自启开关")
+						softSwitch(c, &a.autoLaunchOn).Label("登录自启开关")
 					})
 					hairline(c)
 					settingsRow(c, "静默启动", "启动后仅驻留菜单栏或托盘，可随时打开窗口", func() {
-						ui.Switch(c, &a.silentStartOn).Label("静默启动开关")
+						softSwitch(c, &a.silentStartOn).Label("静默启动开关")
 					})
-					hairline(c)
-					settingsRow(c, "内核自动运行", "随应用启动，无需手动开启；关窗后仍可继续代理", nil)
 					hairline(c)
 					settingsRow(c, "启动时开启系统代理", "内核就绪后，将系统网络请求交给 Gopurr", func() {
-						ui.Switch(c, &a.restoreProxyOn).Label("启动时系统代理开关")
+						softSwitch(c, &a.restoreProxyOn).Label("启动时系统代理开关")
 					})
-					hairline(c)
+				})
+				ui.Text(c, "内核自动运行，关窗后仍可继续代理。").Label("内核自动运行").FontSize(11).TextColor(pal.Faint).PaddingX(4)
+				settingsGroup(c, "运行与更新", func() {
 					settingsRow(c, "轻量模式", "关窗后释放界面资源，代理继续运行", func() {
-						ui.Switch(c, &a.lightOn).Label("轻量模式开关")
+						softSwitch(c, &a.lightOn).Label("轻量模式开关")
 					})
 					hairline(c)
 					settingsRow(c, "界面释放等待", "仅轻量模式开启时生效", func() {
-						ui.Segmented(c, &a.lightDelayIdx, "30 秒", "1 分钟", "5 分钟").
+						softSegmented(c, &a.lightDelayIdx, "30 秒", "1 分钟", "5 分钟").
 							Disabled(!a.lightOn).Label("界面释放等待")
 					})
 					hairline(c)
 					settingsRow(c, "自动更新订阅", "作为订阅的默认周期，可在各订阅中单独调整", func() {
-						ui.Segmented(c, &a.autoIdx, "关闭", "6 小时", "12 小时", "24 小时").Label("自动更新订阅")
+						softSegmented(c, &a.autoIdx, "关闭", "6 小时", "12 小时", "24 小时").Label("自动更新订阅")
 					})
-					if a.generalSettingsError != "" {
-						settingsFeedback(c, a.generalSettingsError, true)
-					}
 				})
 			}
 
 			if a.settingsTab == 1 {
-				settingsGroup(c, "网络", func() {
+				settingsGroup(c, "网络接入", func() {
 					settingsRow(c, "混合代理端口", "HTTP 与 SOCKS 共用，范围 1–65535", func() {
 						ui.TextInput(c, &a.mixedPortDraft).Width(112).Placeholder("7890").Label("编辑混合代理端口").
 							OnSubmit(func() { a.saveNetworkSettings() })
 					})
 					hairline(c)
 					settingsRow(c, "允许局域网连接", "允许同一网络中的设备使用本机代理", func() {
-						ui.Switch(c, &a.lanOn).Label("局域网访问开关")
+						softSwitch(c, &a.lanOn).Label("局域网访问开关")
 					})
 					hairline(c)
 					settingsRow(c, "IPv6", "允许 IPv6 解析与出站连接", func() {
-						ui.Switch(c, &a.ipv6On).Label("IPv6 开关")
+						softSwitch(c, &a.ipv6On).Label("IPv6 开关")
 					})
-					hairline(c)
+				})
+				settingsGroup(c, "路由与测试", func() {
 					settingsRow(c, "统一延迟 · Unified", "排除握手开销，便于比较不同协议的节点", func() {
-						ui.Switch(c, &a.unifiedOn).Label("统一延迟")
+						softSwitch(c, &a.unifiedOn).Label("统一延迟")
 					})
 					hairline(c)
 					settingsRow(c, "TUN 协议栈", "推荐 mixed；启用 TUN 时使用此设置", func() {
 						ui.Select(c, &a.tunStackPick, settingsOptions(settingsTunStacks, a.tunStackPick)).
 							Width(140).Label("TUN 协议栈")
 					})
-					hairline(c)
-					if a.networkError != "" {
-						settingsFeedback(c, a.networkError, true)
-					} else if a.networkStatus != "" && !a.networkSettingsDirty() {
-						settingsFeedback(c, a.networkStatus, false)
-					}
+				})
+				settingsGroup(c, "连接行为 · 即时保存", func() {
 					settingsRow(c, "切换节点时断开原连接", "立即保存；只断开经过该策略组的连接", func() {
-						ui.Switch(c, &a.closeOnSwitchOn).Label("切换节点时断开原连接开关")
-					})
-					hairline(c)
-					settingsRow(c, "应用网络设置", "保存后热重载内核，已有连接可能受影响", func() {
-						ui.PrimaryButton(c, "保存网络设置").Disabled(!a.networkSettingsDirty()).OnClick(func() {
-							a.saveNetworkSettings()
-						})
+						softSwitch(c, &a.closeOnSwitchOn).Label("切换节点时断开原连接开关")
 					})
 				})
 			}
@@ -204,15 +192,6 @@ func (a *App) settingsPage(c *ui.Context) {
 						ui.Select(c, &a.testConcurrencyPick, settingsOptions(settingsConcurrencyOptions, a.testConcurrencyPick)).
 							Width(140).Label("测试并发数")
 					})
-					hairline(c)
-					if a.testSettingsError != "" {
-						settingsFeedback(c, a.testSettingsError, true)
-					} else if a.testSettingsStatus != "" && !a.testSettingsDirty() {
-						settingsFeedback(c, a.testSettingsStatus, false)
-					}
-					settingsRow(c, "应用测试设置", "下次在代理页测速时使用", func() {
-						ui.PrimaryButton(c, "保存测试设置").Disabled(!a.testSettingsDirty()).OnClick(a.saveTestSettings)
-					})
 				})
 			}
 
@@ -221,23 +200,56 @@ func (a *App) settingsPage(c *ui.Context) {
 				a.softwareUpdateSettings(c)
 				settingsGroup(c, "配置与维护", func() {
 					settingsRow(c, "当前配置", a.configSource(), func() {
-						ui.Button(c, "查看运行配置…").OnClick(a.openRawConfig)
+						softButton(c, "查看运行配置…").OnClick(a.openRawConfig)
 					})
 					hairline(c)
 					settingsRow(c, "数据目录", "订阅、覆写与偏好保存在本机", func() {
-						ui.Button(c, "打开文件夹").OnClick(a.revealDataDir)
+						softButton(c, "打开文件夹").OnClick(a.revealDataDir)
 					})
 					ui.Text(c, a.dir).FillWidth().Padding(0, 16, 14).FontSize(11).
 						TextColor(pal.Faint).MaxLines(2).Selectable().Tooltip(a.dir)
 					hairline(c)
 					settingsRow(c, "重载内核", "重新应用当前配置；无需手动启动内核", func() {
-						ui.Button(c, "重载内核").Disabled(a.k == nil).OnClick(a.reloadSettingsKernel)
+						softButton(c, "重载内核").Disabled(a.k == nil).OnClick(a.reloadSettingsKernel)
 					})
 				})
 			}
 		})
 	})
+	if a.generalSettingsError != "" {
+		settingsFeedback(c, a.generalSettingsError, true)
+	}
+	if a.settingsTab == 1 {
+		if a.networkError != "" {
+			settingsFeedback(c, a.networkError, true)
+		} else if a.networkStatus != "" && !a.networkSettingsDirty() {
+			settingsFeedback(c, a.networkStatus, false)
+		}
+		settingsSaveBar(c, "网络设置", "保存后应用到当前内核", a.networkSettingsDirty(), "保存网络设置", func() { a.saveNetworkSettings() })
+	}
+	if a.settingsTab == 2 {
+		if a.testSettingsError != "" {
+			settingsFeedback(c, a.testSettingsError, true)
+		} else if a.testSettingsStatus != "" && !a.testSettingsDirty() {
+			settingsFeedback(c, a.testSettingsStatus, false)
+		}
+		settingsSaveBar(c, "测试设置", "用于下次节点延迟测试", a.testSettingsDirty(), "保存测试设置", a.saveTestSettings)
+	}
 	a.rawConfigModal(c)
+}
+
+func settingsSaveBar(c *ui.Context, title, hint string, dirty bool, label string, save func()) {
+	pal := paletteFor(c)
+	ui.Row(c).FillWidth().Padding(12, 16).Radius(10).Background(pal.Surface).Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
+			if dirty {
+				title += " · 有未应用更改"
+			}
+			ui.Text(c, title).FontSize(12).FontWeight(500).TextColor(pal.Text)
+			ui.Text(c, hint).FontSize(11).TextColor(pal.Muted)
+		})
+		softPrimaryButton(c, label).Disabled(!dirty).OnClick(save)
+	})
 }
 
 // reconcileSettings commits only fields the user actually changed. All edits
@@ -461,5 +473,5 @@ func settingsFeedback(c *ui.Context, message string, failed bool) {
 	if failed {
 		color = pal.Danger
 	}
-	ui.Text(c, message).FillWidth().Padding(10, 16).FontSize(11).TextColor(color)
+	ui.Text(c, message).FillWidth().Padding(10, 16).FontSize(11).TextColor(color).ContentTransition(contentMotion())
 }

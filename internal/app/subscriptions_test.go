@@ -8,7 +8,63 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
+
+func TestSubscriptionAddDialogRetainsErrorsAndClosesAfterSuccess(t *testing.T) {
+	a := subscriptionTestApp(t)
+	if _, err := a.store.Add(startSubscriptionSource(t), "已有配置"); err != nil {
+		t.Fatal(err)
+	}
+	a.booted, a.ticking, a.page = true, true, "subs"
+	tr := ui.NewTester(a.View, 840, 560)
+	tr.Advance(200 * time.Millisecond)
+	if err := tr.Click("添加订阅"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Click("添加"); err != nil {
+		t.Fatal(err)
+	}
+	tr.Frame()
+	_, message := a.subState()
+	if message == "" || !a.showAddSub {
+		t.Fatal("validation error dismissed the add dialog")
+	}
+	if err := tr.Click("取消"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Click("添加订阅"); err != nil {
+		t.Fatal(err)
+	}
+	tr.Frame()
+	if !a.showAddSub {
+		t.Fatal("a previous failed attempt prevents reopening")
+	}
+	a.subURL, a.subName = startSubscriptionSource(t), "第二个配置"
+	tr.Frame()
+	if err := tr.Click("添加"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		busy, message := a.subState()
+		if !busy {
+			if message != "" {
+				t.Fatal(message)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("subscription download did not finish")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	tr.Frame()
+	if a.showAddSub || len(a.store.List()) != 2 || !tr.HasText("第二个配置") {
+		t.Fatal("successful addition did not return to the configuration list")
+	}
+}
 
 func subscriptionTestApp(t *testing.T) *App {
 	t.Helper()

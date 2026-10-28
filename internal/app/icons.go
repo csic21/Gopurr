@@ -54,7 +54,7 @@ func iconButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 			bg, fg = pal.Hover, pal.Text
 		}
 	}
-	return b.Background(bg).Children(func() {
+	return b.Background(bg).Transition(colorMotion()).Children(func() {
 		ui.Icon(c, icon).Size(15, 15).TextColor(fg).Role(ui.RoleNone)
 	})
 }
