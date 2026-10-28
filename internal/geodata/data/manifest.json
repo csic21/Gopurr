@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/MetaCubeX/meta-rules-dat",
+  "commit": "f57214884b79e6e6770d753950b81242dd7f2541",
+  "sha256": {
+    "ASN.mmdb": "4f480469576dba3e84b1f5c17313059982b70a62b8d35fb1ed225e39109b0531",
+    "GeoIP.dat": "a6271d3c96361d96156e6d3f7cf1550ef21b00d2f951deb772f464db91e89ac5",
+    "GeoSite.dat": "ba8968847bfb82a4f9b0c33da77b6d95f4f8fe1d7d3bb241a7ebac6c23b71631",
+    "geoip.metadb": "63d7fa98f4ad57ee42e266836364f12d06fe124887f864937c7128bc4a0ad903"
+  }
+}

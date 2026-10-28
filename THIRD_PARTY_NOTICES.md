@@ -4,6 +4,10 @@ Gopurr is distributed under the GNU General Public License, version 3 or later.
 The complete source and build instructions are at https://github.com/csic21/Gopurr.
 
 - mihomo: https://github.com/MetaCubeX/mihomo — GPL-3.0.
+- Offline GeoIP/GeoSite/ASN baseline: https://github.com/MetaCubeX/meta-rules-dat
+  — GPL-3.0; see licenses/meta-rules-dat.txt. Source commit and database SHA-256
+  hashes are recorded in internal/geodata/data/manifest.json. Upstream data
+  sources and build scripts are published in that repository.
 - mygo: https://github.com/egoist/mygo — MIT; its native runtime bundles the
   libraries and licenses supplied by the framework.
 - Lucide icons: https://lucide.dev — ISC; see internal/app/icons/LICENSE.

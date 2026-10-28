@@ -88,6 +88,15 @@ func run() error {
 			return errors.New("release needs the MYGO_UPDATER_PRIVATE_KEY GitHub Actions secret")
 		}
 	}
+	if *release {
+		// Every published installer carries a current offline baseline. Runtime
+		// updates remain independent of application releases.
+		refresh := exec.Command("go", "run", "./scripts/update-geodata")
+		refresh.Env, refresh.Stdout, refresh.Stderr = env, os.Stdout, os.Stderr
+		if err := refresh.Run(); err != nil {
+			return fmt.Errorf("refresh bundled geodata: %w", err)
+		}
+	}
 	args := []string{"run", "github.com/egoist/mygo/cmd/mygo", "build", "-platform", *platform, "-skip-notarize", "-o", *output}
 	if *skipDMG {
 		args = append(args, "-skip-dmg")

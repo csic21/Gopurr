@@ -64,6 +64,12 @@ allow-lan: false
 mode: rule
 log-level: info
 ipv6: false
+geo-auto-update: false
+geox-url:
+  mmdb: http://127.0.0.1:1/unavailable
+  geoip: http://127.0.0.1:1/unavailable
+  geosite: http://127.0.0.1:1/unavailable
+  asn: http://127.0.0.1:1/unavailable
 dns:
   enable: false
 tun:
@@ -73,6 +79,9 @@ tun:
   auto-route: false
   auto-detect-interface: true
 rules:
+  - GEOIP,CN,DIRECT,no-resolve
+  - GEOSITE,cn,DIRECT
+  - IP-ASN,13335,DIRECT,no-resolve
   - MATCH,DIRECT
 `, port)
 	if err := os.WriteFile(manager.ConfigPath(), []byte(config), 0o600); err != nil {

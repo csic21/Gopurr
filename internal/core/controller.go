@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"gopurr/internal/controllerconfig"
+	"gopurr/internal/geodata"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -22,7 +23,7 @@ import (
 // Mihomo intentionally omits authentication on Unix sockets. Its socket stays
 // in a private daemon-owned directory; only this authenticated gateway is
 // exposed to the UI. Debug, UI and executable upgrade routes are not exposed.
-func serveController(socket, backend, secret string) (*http.Server, error) {
+func serveController(socket, backend, secret string, geo *geoUpdater) (*http.Server, error) {
 	listener, err := listenController(socket, filepath.Dir(backend))
 	if err != nil {
 		return nil, err
@@ -33,6 +34,15 @@ func serveController(socket, backend, secret string) (*http.Server, error) {
 	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "localhost"})
 	proxy.Transport = transport
 	proxy.FlushInterval = -1
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.Request.Method == http.MethodPut && strings.TrimSuffix(resp.Request.URL.Path, "/") == "/configs" && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			select {
+			case geo.wake <- struct{}{}:
+			default:
+			}
+		}
+		return nil
+	}
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+secret)) != 1 {
@@ -55,6 +65,8 @@ func serveController(socket, backend, secret string) (*http.Server, error) {
 			return
 		}
 		if r.Method == http.MethodPut && path == "/configs" {
+			geo.mu.Lock()
+			defer geo.mu.Unlock()
 			if err := sanitizeReload(r); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -95,6 +107,7 @@ func sanitizeReload(r *http.Request) error {
 		return fmt.Errorf("配置不能为空")
 	}
 	controllerconfig.Strip(doc)
+	geodata.Defaults(doc)
 	data, err := yaml.Marshal(doc)
 	if err != nil {
 		return err

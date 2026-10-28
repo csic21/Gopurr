@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"gopurr/internal/buildinfo"
 	"gopurr/internal/controllerconfig"
+	"gopurr/internal/geodata"
 	"gopurr/internal/process"
 	"gopurr/internal/securefs"
 
@@ -68,6 +70,9 @@ func RunDaemon(opts DaemonOptions) error {
 		}
 		C.SetHomeDir(home)
 	}
+	if err := geodata.Ensure(C.Path.HomeDir()); err != nil {
+		return fmt.Errorf("准备规则数据库: %w", err)
+	}
 
 	raw, err := os.ReadFile(opts.ConfigPath)
 	if err != nil {
@@ -91,10 +96,8 @@ func RunDaemon(opts DaemonOptions) error {
 	}
 	backend := filepath.Join(backendDir, "c.sock")
 	controllerconfig.Strip(doc)
+	geodata.Defaults(doc)
 	doc["external-controller-unix"] = backend
-	if opts.Home != "" {
-		doc["geodata-mode"] = false
-	}
 
 	secret := opts.Secret
 	if secret == "" && opts.SecretFile != "" {
@@ -130,7 +133,8 @@ func RunDaemon(opts DaemonOptions) error {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	controller, err := serveController(opts.Socket, backend, secret)
+	geo := newGeoUpdater(C.Path.HomeDir())
+	controller, err := serveController(opts.Socket, backend, secret, geo)
 	if err != nil {
 		return err
 	}
@@ -151,6 +155,16 @@ func RunDaemon(opts DaemonOptions) error {
 		return err
 	}
 	defer stopSignals()
+	ctx, cancel := context.WithCancel(context.Background())
+	geoDone := make(chan struct{})
+	go func() {
+		defer close(geoDone)
+		geo.run(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-geoDone
+	}()
 	done := make(chan struct{})
 	defer close(done)
 

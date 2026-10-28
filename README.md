@@ -107,9 +107,13 @@ macOS 菜单栏图标左键直接显示主窗口，右键打开菜单，在菜�
 
 可通过 `GOPURR_HOME` 指定其他数据目录。目录包含界面偏好、订阅索引与内容、本地配置、规则覆写、运行配置及 mihomo 缓存；这些数据保存在应用包之外。
 
+首次启动会自动准备随安装包提供的 GeoIP／GeoSite／ASN 基础数据库，普通内核与 TUN 服务均可直接使用，无需手动下载文件。内核就绪后默认每天在后台检查所需数据库，通过当前分流线路下载并校验后替换；下载失败或内容无效时保留本地版本，一小时后重试。成功检查时间会保存，重启应用不会重复下载；切换数据库来源后会立即检查。订阅或 YAML 中显式设置的 `geo-auto-update`、`geo-update-interval` 和 `geox-url` 继续生效。
+
 ## 开发与构建
 
 使用 Go 1.27.3。界面由 [mygo](https://github.com/egoist/mygo) 原生渲染，mihomo 内核在独立进程中运行，应用通过本地控制器 socket 与内核通信。
+
+离线数据库的来源提交与校验和记录在 `internal/geodata/data/manifest.json`；`make update-geodata` 从 MetaCubeX 的最新 release 分支刷新快照。正式发布会自动执行刷新，已安装应用的数据库更新独立于软件发布。
 
 ```sh
 git clone https://github.com/csic21/Gopurr.git

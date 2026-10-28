@@ -12,10 +12,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"gopurr/internal/core"
+	"gopurr/internal/geodata"
 	"gopurr/internal/kernel"
 	"gopurr/internal/patch"
 )
@@ -36,6 +39,14 @@ func TestDaemonHelperProcess(t *testing.T) {
 }
 
 func TestDaemonLoadsSubscription(t *testing.T) {
+	for _, datMode := range []bool{false, true} {
+		t.Run(fmt.Sprintf("geodata-mode=%t", datMode), func(t *testing.T) {
+			testDaemonLoadsSubscription(t, datMode)
+		})
+	}
+}
+
+func testDaemonLoadsSubscription(t *testing.T, datMode bool) {
 	// A short pathname also works within macOS's unix socket path limit.
 	dir, err := os.MkdirTemp("", "gp-")
 	if err != nil {
@@ -56,14 +67,24 @@ func TestDaemonLoadsSubscription(t *testing.T) {
 socks-port: 0
 mode: rule
 log-level: warning
+geo-auto-update: false
+geodata-mode: %t
+geox-url:
+  mmdb: http://127.0.0.1:1/unavailable
+  geoip: http://127.0.0.1:1/unavailable
+  geosite: http://127.0.0.1:1/unavailable
+  asn: http://127.0.0.1:1/unavailable
 proxies: []
 proxy-groups:
   - name: subscription
     type: select
     proxies: [DIRECT]
 rules:
+  - GEOIP,CN,subscription,no-resolve
+  - GEOSITE,cn,subscription
+  - IP-ASN,13335,subscription,no-resolve
   - MATCH,subscription
-`, port))
+`, port, datMode))
 	ov := patch.Default()
 	ov.MixedPort = port
 	cfg, err := patch.Apply(raw, ov)
@@ -163,6 +184,109 @@ rules:
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusNoContent {
 			t.Fatalf("HTTP proxy status = %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("background_database_updates", func(t *testing.T) {
+		working, err := os.ReadFile(filepath.Join(opts.Home, "GeoSite.dat"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var attempts atomic.Int32
+		failed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts.Add(1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("not a database"))
+		}))
+		defer failed.Close()
+		reload := func(source string) {
+			t.Helper()
+			doc := strings.ReplaceAll(string(cfg), "http://127.0.0.1:1/unavailable", source)
+			doc = strings.ReplaceAll(doc, "geo-auto-update: false", "geo-auto-update: true")
+			if err := os.WriteFile(opts.ConfigPath, []byte(doc), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Reload(opts.ConfigPath); err != nil {
+				t.Fatal(err)
+			}
+		}
+		wait := func(condition func() bool) {
+			t.Helper()
+			deadline := time.Now().Add(10 * time.Second)
+			for !condition() {
+				if time.Now().After(deadline) {
+					logs, _ := os.ReadFile(logFile.Name())
+					t.Fatalf("database updater timed out: %s", logs)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+		reload(failed.URL)
+		wait(func() bool { return attempts.Load() >= 3 })
+		// All three enabled databases failed validation; the proxy still serves
+		// requests and none of the last working files was replaced.
+		got, err := os.ReadFile(filepath.Join(opts.Home, "GeoSite.dat"))
+		if err != nil || string(got) != string(working) {
+			t.Fatal("invalid update replaced working database")
+		}
+		if err := r.Probe(context.Background()); err != nil {
+			t.Fatalf("failed update stopped proxy: %v", err)
+		}
+		// Append a valid protobuf unknown field to make the new GeoSite file
+		// different while keeping the original rule categories available.
+		updated := append(append([]byte(nil), working...), 0x80, 0x06, 0x01)
+		good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			name := strings.TrimPrefix(r.URL.Path, "/")
+			if name == "GeoSite.dat" {
+				_, _ = w.Write(updated)
+				return
+			}
+			data, err := geodata.Bundled(name)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			// MMDB readers allow trailing bytes. Change the file hash without
+			// changing its records to exercise mmap close, atomic save and reopen.
+			if name == "geoip.metadb" || name == "ASN.mmdb" {
+				data = append(data, 0)
+			}
+			_, _ = w.Write(data)
+		}))
+		defer good.Close()
+		doc := strings.ReplaceAll(string(cfg), "geo-auto-update: false", "geo-auto-update: true")
+		for key, name := range map[string]string{"mmdb": "geoip.metadb", "geoip": "GeoIP.dat", "geosite": "GeoSite.dat", "asn": "ASN.mmdb"} {
+			doc = strings.ReplaceAll(doc, key+": http://127.0.0.1:1/unavailable", key+": "+good.URL+"/"+name)
+		}
+		if err := os.WriteFile(opts.ConfigPath, []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Reload(opts.ConfigPath); err != nil {
+			t.Fatal(err)
+		}
+		wait(func() bool { _, err := os.Stat(filepath.Join(opts.Home, ".geo-updates.json")); return err == nil })
+		got, err = os.ReadFile(filepath.Join(opts.Home, "GeoSite.dat"))
+		if err != nil || string(got) != string(updated) {
+			t.Fatal("valid database update was not installed")
+		}
+		for _, name := range []string{"ASN.mmdb", "geoip.metadb"} {
+			if datMode && name == "geoip.metadb" {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(opts.Home, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := geodata.Bundled(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != string(append(baseline, 0)) {
+				t.Fatalf("%s was not atomically replaced", name)
+			}
+		}
+		if err := r.Probe(context.Background()); err != nil {
+			t.Fatalf("update stopped proxy: %v", err)
 		}
 	})
 }

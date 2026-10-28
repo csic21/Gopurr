@@ -11,7 +11,7 @@ export GOFLAGS ?= -tags=with_gvisor
 
 BIN := bin/Gopurr
 
-.PHONY: run build bundle brand-master icons preview-icons dev tidy clean autostart test test-native
+.PHONY: run build bundle brand-master icons preview-icons dev tidy clean autostart test test-native update-geodata
 
 build:
 	go build -o $(BIN) .
@@ -19,6 +19,10 @@ build:
 # A macOS app bundle with the application icon in Finder as well as the Dock.
 bundle:
 	go run ./scripts/release -platform darwin/arm64 -skip-dmg
+
+# Refresh the first-launch baseline; installed apps update independently.
+update-geodata:
+	go run ./scripts/update-geodata
 
 # Runtime sizes and the black-and-transparent menu-bar template.
 icons:
