@@ -262,11 +262,11 @@ func (a *App) overviewNetworkControls(c *ui.Context) {
 			ui.Text(c, "等待授权…").FontSize(11).TextColor(pal.Muted)
 		case !service.Available():
 		case !installed:
-			softButton(c, "安装服务…").FontSize(11).OnClick(func() { a.confirmInstall = true })
+			softButton(c, "安装服务…").OnClick(func() { a.confirmInstall = true })
 		case !root || a.mgr.ServiceNeedsUpdate():
-			softButton(c, "重新安装…").FontSize(11).OnClick(func() { a.confirmInstall = true })
+			softButton(c, "重新安装…").OnClick(func() { a.confirmInstall = true })
 		default:
-			softButton(c, "卸载服务").FontSize(11).OnClick(func() { a.confirmUninstall = true })
+			softButton(c, "卸载服务").OnClick(func() { a.confirmUninstall = true })
 		}
 		softSwitch(c, &a.tunOn).Disabled(!root || busy).Label("TUN 模式")
 		if a.tunOn != a.ov.TunEnable {

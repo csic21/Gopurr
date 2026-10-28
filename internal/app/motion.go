@@ -28,11 +28,17 @@ func contentMotion() ui.ContentTransition {
 }
 
 func softButton(c *ui.Context, label string) ui.Element {
-	return ui.Button(c, label).Transition(colorMotion())
+	return actionButton(ui.Button(c, label))
 }
 
 func softPrimaryButton(c *ui.Context, label string) ui.Element {
-	return ui.PrimaryButton(c, label).Transition(colorMotion())
+	return actionButton(ui.PrimaryButton(c, label))
+}
+
+// Primary and secondary actions share geometry, including their border space.
+func actionButton(button ui.Element) ui.Element {
+	return button.Height(actionButtonHeight).Padding(0, actionButtonPaddingX).
+		FontSize(controlFontSize).Transition(colorMotion())
 }
 
 // SwitchBase retains native accessibility, keyboard handling and Changed.

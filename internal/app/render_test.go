@@ -90,6 +90,7 @@ func TestRenderPages(t *testing.T) {
 		{"software-update-ready", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Ready) }},
 		{"software-update-error", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Failed) }},
 		{"overview", func() { a.page = "overview" }},
+		{"overview-service-update", func() { a.page, a.svcInstalled = "overview", true }},
 		{"overview-global", func() { a.page, a.modeToken, a.modeIdx = "overview", "global", 1; fixtureOverviewTraffic(a) }},
 		{"overview-direct", func() { a.page, a.modeToken, a.modeIdx = "overview", "direct", 2 }},
 		{"overview-long-exit", func() {
@@ -394,6 +395,7 @@ func TestRenderPages(t *testing.T) {
 				a.connQuery, a.connError, a.backupError, a.backupStatus = "", "", "", ""
 				a.setSysErr("")
 				a.sysApplied, a.sysOn = false, false
+				a.svcInstalled = false
 				if a.softwareUpdates != nil {
 					a.softwareUpdates.Hide()
 				}
@@ -476,6 +478,11 @@ func TestRenderPages(t *testing.T) {
 				if shot.name == "proxies-hover" {
 					if r, ok := tr.Find("选择 日本 02"); ok {
 						tr.Move(r.X+20, r.Y+r.H/2)
+					}
+				}
+				if shot.name == "overview-service-update" {
+					if r, ok := tr.Find("重新安装…"); ok {
+						tr.Move(r.X+r.W/2, r.Y+r.H/2)
 					}
 				}
 				if shot.name == "proxies-groups-scrolled" {

@@ -6,7 +6,12 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-const sidebarWidth = 184
+const (
+	sidebarWidth         = 184
+	controlFontSize      = 12.5
+	actionButtonHeight   = 30
+	actionButtonPaddingX = 12
+)
 
 // Both appearances share semantic tokens. Resolve them from the frame, never
 // by mutating package globals: draw callbacks may outlive a theme switch.
@@ -111,7 +116,7 @@ func theme(dark bool) *ui.Theme {
 	t.Scrollbar = pal.Muted.Alpha(0.35)
 	t.Radius = 8
 	t.Spacing = 4
-	t.FontSize = 12.5
+	t.FontSize = controlFontSize
 	return t
 }
 
