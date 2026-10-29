@@ -55,14 +55,16 @@ func TestNavigationLayouts(t *testing.T) {
 				}
 				click("收起侧栏")
 				tr.Advance(time.Second)
-				if !a.Prefs().SidebarCollapsed || find("展开侧栏") != toggle {
-					t.Fatal("collapse was lost or its toggle moved")
+				compactToggle := find("展开侧栏")
+				if !a.Prefs().SidebarCollapsed || compactToggle.X >= toggle.X ||
+					compactToggle.Y != toggle.Y || compactToggle.W != toggle.W || compactToggle.H != toggle.H {
+					t.Fatal("collapse was lost or its toggle did not move left into the compact layout")
 				}
 				nav, brand := find("页面导航"), find("Gopurr")
 				if math.Abs(float64(nav.X+nav.W/2)-float64(size[0])/2) > 1 {
 					t.Fatalf("navigation is not centered on the window: %+v", nav)
 				}
-				if gap := toggle.X - (brand.X + brand.W); gap < 4 || gap > 8 {
+				if gap := compactToggle.X - (brand.X + brand.W); gap < 4 || gap > 8 {
 					t.Fatalf("brand and toggle spacing is not compact: %v", gap)
 				}
 				if r := find("连接状态与实时网络活动"); contentStart.X-r.X != sidebarWidth {
@@ -156,6 +158,9 @@ func TestNavigationTogglePaint(t *testing.T) {
 						}
 						name := fmt.Sprintf("toggle-%v-%d-left%v-%v", dark, size[0], bar.Left, collapsed)
 						saveSelectionFrame(t, name, tr.Image())
+						if !collapsed && r.X < sidebarWidth+8 {
+							t.Fatalf("%s sits on the sidebar boundary: %+v", label, r)
+						}
 						ink := image.Rectangle{}
 						img := tr.Image()
 						for y := int(r.Y) + 7; y < int(r.Y+r.H)-7; y++ {

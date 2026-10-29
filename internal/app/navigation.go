@@ -39,9 +39,10 @@ func (a *App) windowChrome(c *ui.Context) {
 func (a *App) navigationTitleBar(c *ui.Context, collapsed bool, progress float32, moving bool) {
 	pal, bar := paletteFor(c), c.TitleBar()
 	height := max(bar.Height, 38)
-	// The toggle stays in one place in both layouts. Native window controls
-	// keep their full reserved area; blank toolbar space still drags the window.
-	leading := navigationLeading(c)
+	// Keep the expanded toggle inside the workspace, then bring it back beside
+	// the compact brand using the existing layout transition.
+	compactLeading := navigationLeading(c)
+	leading := max(compactLeading, sidebarWidth+8)*(1-progress) + compactLeading*progress
 	navX, _ := a.topNavigationBounds(c)
 	sidebar := sidebarWidth * (1 - progress)
 	ui.Row(c).FillWidth().Height(height).Shrink(0).AlignItems(ui.Center).
