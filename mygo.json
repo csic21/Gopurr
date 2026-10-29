@@ -2,7 +2,7 @@
   "name": "Gopurr",
   "slug": "gopurr",
   "identifier": "io.github.gopurr.app",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "icon": "internal/brand/logo.png",
   "out": "bin",
   "publisher": "Gopurr",

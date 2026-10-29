@@ -42,14 +42,15 @@ func (a *App) navigationTitleBar(c *ui.Context, collapsed bool, progress float32
 	// The toggle stays in one place in both layouts. Native window controls
 	// keep their full reserved area; blank toolbar space still drags the window.
 	leading := navigationLeading(c)
+	navX, _ := a.topNavigationBounds(c)
 	sidebar := sidebarWidth * (1 - progress)
 	ui.Row(c).FillWidth().Height(height).Shrink(0).AlignItems(ui.Center).
 		DragWindow().Label("窗口标题栏").Children(func() {
 		if sidebar > 0 {
 			ui.Box(c).Absolute().Left(0).Top(0).Bottom(0).Width(sidebar).
-				Background(pal.Side).BorderWidth(0, 1, 0, 0).BorderColor(pal.Border)
+				Background(pal.Side).BorderWidth(0, 1, 0, 0).BorderColor(pal.Border).PassThrough()
 		}
-		brand := ui.Row(c.Key("toolbar-brand")).Width(leading).Shrink(0).Padding(0, 8, 0, bar.Left+8).
+		brand := ui.Row(c.Key("toolbar-brand")).Width(leading).Shrink(0).Padding(0, 0, 0, bar.Left+8).
 			AlignItems(ui.Center).Gap(6)
 		if moving {
 			brand.Opacity(0)
@@ -60,14 +61,15 @@ func (a *App) navigationTitleBar(c *ui.Context, collapsed bool, progress float32
 				ui.Text(c, "Gopurr").FontSize(13).FontWeight(600).SingleLine().TextColor(pal.Text)
 			}
 		})
-		ui.Row(c).PaddingX(8).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).PaddingX(4).AlignItems(ui.Center).Children(func() {
 			label := "收起侧栏"
 			if collapsed {
 				label = "展开侧栏"
 			}
 			iconButton(c, iconSidebar, label).OnClick(a.toggleSidebar)
 		})
-		ui.Row(c.Key("navigation-center")).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.Center).Justify(ui.Center).
+		ui.Row(c.Key("navigation-center")).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.Center).
+			Padding(0, 0, 0, navX-leading-38).
 			Children(func() {
 				if collapsed {
 					nav := a.topNavigation(c.Key("top-navigation")).Disabled(moving)
@@ -116,7 +118,22 @@ func (a *App) topNavigation(c *ui.Context) ui.Element {
 }
 
 func navigationLeading(c *ui.Context) float32 {
-	return max(float32(sidebarWidth), c.TitleBar().Left+96)
+	brand, _ := c.MeasureText(0, ui.Span{Text: "Gopurr", Size: 13, Weight: 600})
+	return c.TitleBar().Left + 8 + 24 + 6 + brand
+}
+
+// Center against the window, independently of the unequal brand/status widths.
+// Reserve native controls on either side when a narrow window needs more room.
+func (a *App) topNavigationBounds(c *ui.Context) (x, width float32) {
+	for _, w := range topNavigationWidths(c) {
+		width += w + 2
+	}
+	width -= 2
+	viewport, _ := c.Size()
+	status, _ := c.MeasureText(0, ui.Span{Text: a.navigationStatus(), Size: 11})
+	left := navigationLeading(c) + 38 + 12
+	right := c.TitleBar().Right + 32 + 5 + 6 + status
+	return max(left, min((viewport-width)/2, viewport-right-width)), width
 }
 
 func topNavigationWidths(c *ui.Context) []float32 {
@@ -142,16 +159,9 @@ func (a *App) navigationStatus() string {
 func (a *App) navigationFlight(c *ui.Context, progress float32) {
 	pal, bar := paletteFor(c), c.TitleBar()
 	height := max(bar.Height, 38)
-	width, _ := c.Size()
 	widths := topNavigationWidths(c)
-	var total float32
-	for _, w := range widths {
-		total += w + 2
-	}
-	total -= 2
-	status, _ := c.MeasureText(0, ui.Span{Text: a.navigationStatus(), Size: 11})
-	left, right := navigationLeading(c)+46, bar.Right+32+5+6+status
-	x, y := left+(width-left-right-total)/2, height+64
+	x, _ := a.topNavigationBounds(c)
+	y := height + 64
 	lerp := func(a, b float32) float32 { return a + (b-a)*progress }
 	for i, it := range navItems {
 		if it.id == "settings" {

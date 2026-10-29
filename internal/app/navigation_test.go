@@ -58,6 +58,13 @@ func TestNavigationLayouts(t *testing.T) {
 				if !a.Prefs().SidebarCollapsed || find("展开侧栏") != toggle {
 					t.Fatal("collapse was lost or its toggle moved")
 				}
+				nav, brand := find("页面导航"), find("Gopurr")
+				if math.Abs(float64(nav.X+nav.W/2)-float64(size[0])/2) > 1 {
+					t.Fatalf("navigation is not centered on the window: %+v", nav)
+				}
+				if gap := toggle.X - (brand.X + brand.W); gap < 4 || gap > 8 {
+					t.Fatalf("brand and toggle spacing is not compact: %v", gap)
+				}
 				if r := find("连接状态与实时网络活动"); contentStart.X-r.X != sidebarWidth {
 					t.Fatal("collapsed sidebar did not release its full content width")
 				}
@@ -133,6 +140,9 @@ func TestNavigationPreservesDraftAndFailedSave(t *testing.T) {
 	if a.page != "rules" || a.extensionTab != 3 || a.mergeYAMLDraft != "# unsaved draft\nrules: []\n" {
 		t.Fatal("navigation layout discarded the editor draft")
 	}
+	if !a.Prefs().SidebarCollapsed {
+		t.Fatal("sidebar toggle did not collapse the layout")
+	}
 	a.showDeleteSub, a.deleteSubName = true, "测试配置"
 	tr.Frame()
 	if _, ok := tr.Find("删除订阅？"); !ok {
@@ -140,7 +150,7 @@ func TestNavigationPreservesDraftAndFailedSave(t *testing.T) {
 	}
 	tr.Key(ui.Cmd, ui.KeyBackslash)
 	if !a.showDeleteSub || !a.Prefs().SidebarCollapsed {
-		t.Fatal("sidebar shortcut escaped the modal's focus scope")
+		t.Fatalf("sidebar shortcut escaped the modal's focus scope: dialog=%v collapsed=%v", a.showDeleteSub, a.Prefs().SidebarCollapsed)
 	}
 	tr.Key(0, ui.KeyEscape)
 	// A regular file as the parent is an unambiguous write failure, even when
