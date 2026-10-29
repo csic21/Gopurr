@@ -14,6 +14,7 @@ var (
 	gentleText      = ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut}
 	gentleData      = ui.Animation{Duration: 400 * time.Millisecond, Ease: ui.EaseOut}
 	gentleSelection = ui.Animation{Duration: 240 * time.Millisecond, Ease: ui.EaseOut}
+	navigationMorph = ui.Animation{Duration: 320 * time.Millisecond, Ease: ui.CubicBezier(.42, 0, .58, 1)}
 )
 
 func colorMotion() ui.ElementTransition {
@@ -134,6 +135,56 @@ func softSegmented(c *ui.Context, selected *int, labels ...string) ui.Element {
 
 type selectionHover int
 type selectionPress int
+
+// Toolbar destinations share native radio/arrow-key behavior with segmented
+// controls. A single quiet selection surface moves beneath stationary labels.
+func softTopNavigation(c *ui.Context, selected *int) ui.Element {
+	pal := paletteFor(c)
+	parts := ui.SegmentedBase(c, selected, len(navItems))
+	track := parts.Track.Height(30).Gap(2).AlignItems(ui.Stretch)
+	widths := topNavigationWidths(c)
+	hovers := make([]ui.Color, len(navItems))
+	track.Children(func() {
+		for i, it := range navItems {
+			item := parts.Segment(i).Width(widths[i]).Radius(8).Label(it.label)
+			hover := float32(0)
+			if i != *selected && (item.Hovered() || item.Pressed()) {
+				hover = 1
+			}
+			hovers[i] = pal.Hover.Alpha(track.AnimateTo(selectionHover(i), hover,
+				ui.Animation{Duration: 140 * time.Millisecond}))
+			fg := pal.Muted
+			if i == *selected {
+				fg = pal.Accent
+			}
+			item.Children(func() {
+				ui.Text(c, it.label).FontSize(controlFontSize).SingleLine().TextColor(fg)
+			})
+		}
+	})
+	var target float32
+	for i := 0; i < *selected; i++ {
+		target += widths[i] + 2
+	}
+	x := track.AnimateTo("selection-x", target, gentleSelection)
+	w := track.AnimateTo("selection-width", widths[*selected], gentleSelection)
+	rtl := c.Direction() == ui.RightToLeft
+	track.Draw(func(p *ui.Painter, r ui.Rect) {
+		box := func(x, width float32) ui.Rect {
+			if rtl {
+				x = r.W - x - width
+			}
+			return ui.Rect{X: r.X + x, Y: r.Y, W: width, H: r.H}
+		}
+		var at float32
+		for i, width := range widths {
+			p.Fill(box(at, width), hovers[i], 8)
+			at += width + 2
+		}
+		p.Fill(box(x, w), pal.Selected, 8)
+	})
+	return track
+}
 
 func softSidebar(c *ui.Context, selected *string) ui.Element {
 	pal := paletteFor(c)

@@ -123,22 +123,6 @@ func theme(dark bool) *ui.Theme {
 	return t
 }
 
-// Keep the native traffic lights and resize behavior, painting the band below
-// them with exactly the same surfaces as the rest of the window. Full screen
-// and ordinary framed test surfaces have no title bar to reserve.
-func windowTitleBar(c *ui.Context) {
-	bar := c.TitleBar()
-	if bar.Height <= 0 {
-		return
-	}
-	pal := paletteFor(c)
-	ui.Row(c).FillWidth().Height(bar.Height).Shrink(0).DragWindow().Label("窗口标题栏").Children(func() {
-		ui.Box(c).Width(sidebarWidth).FillHeight().Background(pal.Side).
-			BorderWidth(0, 1, 0, 0).BorderColor(pal.Border)
-		ui.Box(c).Grow(1).FillHeight().Background(pal.Bg)
-	})
-}
-
 // card is the one surface used for grouped content.
 func card(c *ui.Context) ui.Element {
 	pal := paletteFor(c)

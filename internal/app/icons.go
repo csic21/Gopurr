@@ -31,6 +31,8 @@ var (
 	iconClose    = mustIcon("x")
 	iconRefresh  = mustIcon("refresh-cw")
 	iconFile     = mustIcon("file-text")
+	iconSidebar  = mustIcon("panel-left")
+	iconChevron  = mustIcon("chevron-right")
 )
 
 func mustIcon(name string) *ui.SVG {

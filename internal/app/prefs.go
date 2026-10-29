@@ -23,6 +23,8 @@ type Prefs struct {
 	CheckAppUpdates bool `json:"checkAppUpdates"`
 	// Appearance controls both the native window and its content.
 	Appearance string `json:"appearance"`
+	// SidebarCollapsed moves the same destinations into the window toolbar.
+	SidebarCollapsed bool `json:"sidebarCollapsed"`
 	// DockVisibility controls the macOS Dock independently of window release.
 	DockVisibility string `json:"dockVisibility"`
 	// LightMode releases the interface after the window is closed, the way

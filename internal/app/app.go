@@ -370,13 +370,7 @@ func (a *App) View(c *ui.Context) {
 	a.setServices(c.Services())
 	a.StartBackground()
 
-	ui.Column(c).Fill().Background(pal.Bg).Children(func() {
-		windowTitleBar(c)
-		ui.Row(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
-			a.sidebar(c)
-			a.main(c)
-		})
-	})
+	a.windowChrome(c)
 	if a.shutdownPending.Load() || a.shutdown.err != "" {
 		a.shutdownModal(c)
 	} else {
@@ -533,20 +527,28 @@ func (a *App) snapshot() (core.Sample, []sample) {
 
 // ---------- chrome ----------
 
-func (a *App) sidebar(c *ui.Context) {
+func (a *App) sidebar(c *ui.Context, progress float32, moving bool) {
 	pal := paletteFor(c)
-	ui.Column(c).Width(sidebarWidth).FillHeight().Background(pal.Side).
+	ui.Column(c).Width(sidebarWidth).Shrink(0).FillHeight().Background(pal.Side).
+		Translate(-sidebarWidth*progress, 0).
 		BorderWidth(0, 1, 0, 0).BorderColor(pal.Border).Children(func() {
-		ui.Row(c).Padding(16, 20).AlignItems(ui.Center).Gap(8).Children(func() {
+		brand := ui.Row(c).Padding(16, 20).AlignItems(ui.Center).Gap(8)
+		if moving {
+			brand.Opacity(0)
+		}
+		brand.Children(func() {
 			ui.Image(c, brandLogo).Size(32, 32).Label("Gopurr 蜷睡猫标记")
 			ui.Text(c, "Gopurr").FontSize(16).FontWeight(600).TextColor(pal.Text)
 		})
 
-		softSidebar(c, &a.page)
+		nav := softSidebar(c, &a.page)
+		if moving {
+			nav.Opacity(0)
+		}
 
 		ui.Spacer(c)
 
-		ui.Column(c).FillWidth().Padding(16).Children(func() {
+		ui.Column(c).FillWidth().Padding(16).Opacity(1 - progress).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 0, 0, 0).Gap(6).Children(func() {
 				running := a.k.Running()
 				ui.Row(c).AlignItems(ui.Center).Gap(7).Children(func() {
