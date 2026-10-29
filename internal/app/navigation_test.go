@@ -23,7 +23,7 @@ func TestNavigationLayouts(t *testing.T) {
 					a.prefs.Appearance = AppearanceDark
 				}
 				tr := ui.NewTester(a.View, size[0], size[1])
-				tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
+				tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 80})
 				tr.Advance(time.Second)
 				find := func(label string) ui.Rect {
 					r, ok := tr.Find(label)
@@ -127,6 +127,70 @@ func TestNavigationLayouts(t *testing.T) {
 	}
 }
 
+// Bounds and successful clicks do not prove that a control is visible: an
+// absolute, pointer-transparent decoration can still paint over its icon.
+func TestNavigationTogglePaint(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		for _, size := range [][2]int{{1060, 720}, {840, 560}} {
+			for _, bar := range []ui.TitleBar{{Height: 38, Left: 80}, {Height: 38, Left: 88}, {Height: 38, Right: 138}} {
+				t.Run(fmt.Sprintf("%v-%d-left%v-right%v", dark, size[0], bar.Left, bar.Right), func(t *testing.T) {
+					a := subscriptionTestApp(t)
+					a.booted, a.ticking = true, true
+					a.prefs.Appearance = AppearanceLight
+					if dark {
+						a.prefs.Appearance = AppearanceDark
+					}
+					tr := ui.NewTester(a.View, size[0], size[1])
+					tr.SetTitleBar(bar)
+					pal := paletteForDark(dark)
+					for _, collapsed := range []bool{false, true} {
+						tr.Move(float32(size[0]-20), 45)
+						tr.Advance(time.Second)
+						label := "收起侧栏"
+						if collapsed {
+							label = "展开侧栏"
+						}
+						r, ok := tr.Find(label)
+						if !ok {
+							t.Fatalf("missing %q", label)
+						}
+						name := fmt.Sprintf("toggle-%v-%d-left%v-%v", dark, size[0], bar.Left, collapsed)
+						saveSelectionFrame(t, name, tr.Image())
+						ink := image.Rectangle{}
+						img := tr.Image()
+						for y := int(r.Y) + 7; y < int(r.Y+r.H)-7; y++ {
+							for x := int(r.X) + 7; x < int(r.X+r.W)-7; x++ {
+								p := img.RGBAAt(x, y)
+								if math.Abs(float64(p.R)-float64(pal.Muted.R)) < 48 &&
+									math.Abs(float64(p.G)-float64(pal.Muted.G)) < 48 &&
+									math.Abs(float64(p.B)-float64(pal.Muted.B)) < 48 {
+									ink = ink.Union(image.Rect(x, y, x+1, y+1))
+								}
+							}
+						}
+						if ink.Dx() < 11 || ink.Dy() < 11 {
+							t.Fatalf("%s icon is obscured: visible ink %v in %+v", label, ink, r)
+						}
+						tr.Move(r.X+r.W/2, r.Y+r.H/2)
+						tr.Advance(200 * time.Millisecond)
+						saveSelectionFrame(t, name+"-hover", tr.Image())
+						for _, x := range []float32{r.X + 4, r.X + r.W - 4} {
+							p := tr.Image().RGBAAt(int(x), int(r.Y+r.H/2))
+							if p.R != pal.Hover.R || p.G != pal.Hover.G || p.B != pal.Hover.B {
+								t.Fatalf("%s hover is covered at x=%v: %v", label, x, p)
+							}
+						}
+						tr.ClickAt(r.X+4, r.Y+r.H/2)
+						if a.Prefs().SidebarCollapsed == collapsed {
+							t.Fatalf("%s left edge did not accept a click", label)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestNavigationPreservesDraftAndFailedSave(t *testing.T) {
 	a := subscriptionTestApp(t)
 	a.booted, a.ticking, a.page = true, true, "rules"
@@ -182,7 +246,7 @@ func TestNavigationMorphPaint(t *testing.T) {
 					a.prefs.Appearance = AppearanceDark
 				}
 				tr := ui.NewTester(a.View, size[0], size[1])
-				tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
+				tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 80})
 				tr.Advance(time.Second)
 				painted := func() image.Rectangle {
 					img, fill := tr.Image(), paletteForDark(dark).Selected
@@ -272,7 +336,7 @@ func TestNavigationMorphFrames(t *testing.T) {
 				a.prefs.Appearance = AppearanceDark
 			}
 			tr := ui.NewTester(a.View, size[0], size[1])
-			tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
+			tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 80})
 			tr.Advance(time.Second)
 			for _, direction := range []string{"collapse", "expand"} {
 				tr.Key(ui.Cmd, ui.KeyBackslash)

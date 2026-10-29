@@ -432,7 +432,7 @@ func TestRenderPages(t *testing.T) {
 						page = "light-" + page
 					}
 					tr := ui.NewTester(a.View, width, height)
-					tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
+					tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 80})
 					tr.SetDark(appearance == AppearanceDark)
 					tr.Advance(400 * time.Millisecond)
 					tr.Frame()
@@ -591,7 +591,7 @@ func TestProxyPageFitsMinimumWindow(t *testing.T) {
 	a.page, a.proxyGroup = "proxies", "节点选择"
 	a.booted, a.ticking = true, true
 	tr := ui.NewTester(a.View, 840, 560)
-	tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
+	tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 80})
 	tr.Advance(200 * time.Millisecond)
 	tr.Frame()
 	r, ok := tr.Find("节点列表统计")

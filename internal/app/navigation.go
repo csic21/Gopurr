@@ -45,11 +45,15 @@ func (a *App) navigationTitleBar(c *ui.Context, collapsed bool, progress float32
 	navX, _ := a.topNavigationBounds(c)
 	sidebar := sidebarWidth * (1 - progress)
 	ui.Row(c).FillWidth().Height(height).Shrink(0).AlignItems(ui.Center).
-		DragWindow().Label("窗口标题栏").Children(func() {
-		if sidebar > 0 {
-			ui.Box(c).Absolute().Left(0).Top(0).Bottom(0).Width(sidebar).
-				Background(pal.Side).BorderWidth(0, 1, 0, 0).BorderColor(pal.Border).PassThrough()
-		}
+		Draw(func(p *ui.Painter, r ui.Rect) {
+			// Absolute children paint above flow controls, even with PassThrough.
+			// Keep this decoration below the toggle; the sidebar's divider starts
+			// below the toolbar so it cannot run through the button either.
+			if sidebar > 0 {
+				r.W = sidebar
+				p.Fill(r, pal.Side, 0)
+			}
+		}).DragWindow().Label("窗口标题栏").Children(func() {
 		brand := ui.Row(c.Key("toolbar-brand")).Width(leading).Shrink(0).Padding(0, 0, 0, bar.Left+8).
 			AlignItems(ui.Center).Gap(6)
 		if moving {
