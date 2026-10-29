@@ -536,25 +536,7 @@ func (a *App) sidebar(c *ui.Context) {
 			ui.Text(c, "Gopurr").FontSize(16).FontWeight(600).TextColor(pal.Text)
 		})
 
-		ui.Sidebar(c, &a.page, func() {
-			for _, it := range navItems {
-				if it.id == "settings" {
-					ui.Box(c).FillWidth().Height(12)
-				}
-				itemTheme := *theme(c.Theme().Dark)
-				itemTheme.Accent = pal.Faint
-				if a.page == it.id {
-					itemTheme.Accent, itemTheme.AccentText = pal.Accent, pal.Accent
-				}
-				c.SetTheme(&itemTheme)
-				item := ui.SidebarItem(c, it.id, it.icon, it.label).
-					Height(36).Padding(8, 12).Gap(10).FontSize(13).TextColor(pal.Muted).Transition(colorMotion())
-				if a.page == it.id {
-					item.Background(pal.Selected).TextColor(pal.Text).FontWeight(600)
-				}
-			}
-			c.SetTheme(theme(c.Theme().Dark))
-		}).FillWidth().Padding(0, 10).Gap(2).Background(pal.Side)
+		softSidebar(c, &a.page)
 
 		ui.Spacer(c)
 

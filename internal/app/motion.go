@@ -10,9 +10,10 @@ import (
 // operation delays, or bouncing controls; the desktop's Reduce Motion setting
 // is handled by MyGo's animation channels and transitions.
 var (
-	gentlePanel = ui.Animation{Duration: 280 * time.Millisecond, Ease: ui.EaseOut}
-	gentleText  = ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut}
-	gentleData  = ui.Animation{Duration: 400 * time.Millisecond, Ease: ui.EaseOut}
+	gentlePanel     = ui.Animation{Duration: 280 * time.Millisecond, Ease: ui.EaseOut}
+	gentleText      = ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut}
+	gentleData      = ui.Animation{Duration: 400 * time.Millisecond, Ease: ui.EaseOut}
+	gentleSelection = ui.Animation{Duration: 240 * time.Millisecond, Ease: ui.EaseOut}
 )
 
 func colorMotion() ui.ElementTransition {
@@ -69,30 +70,110 @@ func softSwitch(c *ui.Context, on *bool) ui.Element {
 func softSegmented(c *ui.Context, selected *int, labels ...string) ui.Element {
 	t := c.Theme()
 	parts := ui.SegmentedBase(c, selected, len(labels))
-	track := parts.Track.AlignItems(ui.Stretch).Padding(t.Space(0.5)).Gap(t.Space(0.5)).
+	inset, gap, padding := t.Space(0.5), t.Space(0.5), t.Space(3)
+	track := parts.Track.AlignItems(ui.Stretch).Padding(inset).Gap(gap).
 		Radius(t.Radius).Background(t.Surface).Border(1, t.Border)
+	widths := make([]float32, len(labels))
+	hovers := make([]ui.Color, len(labels))
 	track.Children(func() {
 		for i, label := range labels {
-			s := parts.Segment(i).Padding(t.Space(1), t.Space(3)).Radius(max(t.Radius-t.Space(0.5), 0)).TextColor(t.Text).
-				Transition(colorMotion())
-			bg := ui.Transparent
-			if s.Hovered() {
-				bg = t.SurfaceHover
+			w, _ := c.MeasureText(0, ui.Span{Text: label, Size: t.FontSize})
+			widths[i] = w + 2*padding
+			s := parts.Segment(i).Padding(t.Space(1), padding).TextColor(t.Text).Label(label)
+			hover, pressed := float32(0), float32(0)
+			if i != *selected && (s.Hovered() || s.Pressed()) {
+				hover = 1
 			}
-			if s.Pressed() {
-				bg = t.SurfacePressed
+			if i != *selected && s.Pressed() {
+				pressed = 1
 			}
-			if i == *selected {
-				bg = t.Background
-				if t.Dark {
-					bg = t.SurfacePressed
-				}
-				s.Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.12))
-			}
-			s.Background(bg).Children(func() { ui.Text(c, label).SingleLine() })
+			// Scalar channels also stop immediately when reduced motion is
+			// enabled during a hover fade, including an unchanged target.
+			a := ui.Animation{Duration: 140 * time.Millisecond}
+			opacity := track.AnimateTo(selectionHover(i), hover, a)
+			press := track.AnimateTo(selectionPress(i), pressed, a)
+			hovers[i] = t.SurfaceHover.Mix(t.SurfacePressed, press).Alpha(opacity)
+			s.Children(func() { ui.Text(c, label).FontSize(t.FontSize).SingleLine() })
 		}
 	})
+	if len(labels) == 0 {
+		return track
+	}
+	var target float32
+	for i := 0; i < *selected; i++ {
+		target += widths[i] + gap
+	}
+	x := track.AnimateTo("selection-x", target, gentleSelection)
+	w := track.AnimateTo("selection-width", widths[*selected], gentleSelection)
+	fill := t.Background
+	if t.Dark {
+		fill = t.SurfacePressed
+	}
+	rtl := c.Direction() == ui.RightToLeft
+	// Paint beneath every label; only the shared background moves. Native
+	// segments keep their real positions, focus, hit targets and radio state.
+	track.Draw(func(p *ui.Painter, r ui.Rect) {
+		at := inset + 1 // the border belongs to the track, not the segments
+		radius := max(t.Radius-inset, 0)
+		box := func(x, w float32) ui.Rect {
+			if rtl {
+				x = r.W - x - w
+			}
+			return ui.Rect{X: r.X + x, Y: r.Y + inset + 1, W: w, H: r.H - 2*(inset+1)}
+		}
+		for i, width := range widths {
+			p.Fill(box(at, width), hovers[i], radius)
+			at += width + gap
+		}
+		pill := box(inset+1+x, w)
+		p.Shadow(pill, radius, 0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.12))
+		p.Fill(pill, fill, radius)
+	})
 	return track
+}
+
+type selectionHover int
+type selectionPress int
+
+func softSidebar(c *ui.Context, selected *string) ui.Element {
+	pal := paletteFor(c)
+	positions := make(map[string]float32, len(navItems))
+	nav := ui.Sidebar(c, selected, func() {
+		var y float32
+		for _, it := range navItems {
+			if it.id == "settings" {
+				ui.Box(c).FillWidth().Height(12)
+				y += 12 + navigationGap
+			}
+			positions[it.id] = y
+			y += navigationRowHeight + navigationGap
+			itemTheme := *theme(c.Theme().Dark)
+			itemTheme.Accent = pal.Faint
+			if *selected == it.id {
+				itemTheme.Accent, itemTheme.AccentText = pal.Accent, pal.Accent
+			}
+			c.SetTheme(&itemTheme)
+			item := ui.SidebarItem(c, it.id, it.icon, it.label).
+				Height(navigationRowHeight).Padding(8, 12).Gap(10).FontSize(13).
+				Background(ui.Transparent).TextColor(pal.Muted).Label(it.label)
+			if !c.Preferences().ReduceMotion {
+				item.Transition(colorMotion())
+			}
+			if *selected == it.id {
+				item.TextColor(pal.Text).FontWeight(600)
+			}
+		}
+		c.SetTheme(theme(c.Theme().Dark))
+	}).FillWidth().Padding(0, navigationPaddingX).Gap(navigationGap).Background(pal.Side)
+	target, valid := positions[*selected] // Sidebar also handles keyboard input.
+	y := nav.AnimateTo("selection-y", target, gentleSelection)
+	if valid {
+		nav.Draw(func(p *ui.Painter, r ui.Rect) {
+			p.Fill(ui.Rect{X: r.X + navigationPaddingX, Y: r.Y + y,
+				W: r.W - 2*navigationPaddingX, H: navigationRowHeight}, pal.Selected, 8)
+		})
+	}
+	return nav
 }
 
 func modalBackdrop(back ui.Element) {

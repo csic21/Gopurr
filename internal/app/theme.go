@@ -11,6 +11,9 @@ const (
 	controlFontSize      = 12.5
 	actionButtonHeight   = 30
 	actionButtonPaddingX = 12
+	navigationRowHeight  = 36
+	navigationGap        = 2
+	navigationPaddingX   = 10
 )
 
 // Both appearances share semantic tokens. Resolve them from the frame, never
