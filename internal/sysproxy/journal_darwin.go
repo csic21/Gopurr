@@ -3,10 +3,12 @@
 package sysproxy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"golang.org/x/sys/unix"
 	"gopurr/internal/securefs"
@@ -35,18 +37,38 @@ type leaseJournal struct {
 // Serialize a surviving watcher with a newly launched UI. The ownership check
 // and OS restore must be one operation, so the old watcher cannot race takeover.
 func lockJournal(path string) (func(), error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return lockJournalContext(ctx, path)
+}
+
+func lockJournalContext(ctx context.Context, path string) (func(), error) {
 	if path == "" {
 		return func() {}, nil
 	}
-	fd, err := unix.Open(path+".lock", unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW, 0600)
+	// Enable starts the recovery watcher while holding this lock. Inheriting
+	// its descriptor would keep the lock alive after the UI closes its copy,
+	// making Restore wait for the watcher that is itself waiting for UI exit.
+	fd, err := unix.Open(path+".lock", unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
 	if err != nil {
 		return nil, err
 	}
-	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
-		unix.Close(fd)
-		return nil, err
+	for {
+		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			return func() { _ = unix.Close(fd) }, nil
+		}
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EINTR) {
+			unix.Close(fd)
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			unix.Close(fd)
+			return nil, fmt.Errorf("等待系统代理恢复操作超时，请稍后重试: %w", ctx.Err())
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
-	return func() { _ = unix.Close(fd) }, nil
 }
 
 func (l *proxyLeases) persist() error {

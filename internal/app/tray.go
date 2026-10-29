@@ -13,6 +13,9 @@ import (
 // TrayMenu takes a new snapshot when the menu opens. It does not depend on
 // window services, which may have been released by light mode.
 func (a *App) TrayMenu(openWindow func()) *mygo.Menu {
+	if a.ShuttingDown() {
+		return mygo.NewMenu([]*mygo.MenuItem{{Label: "正在结束当前会话…", Disabled: true}})
+	}
 	running := a.k != nil && a.k.Running()
 	var groups []core.Group
 	if running {

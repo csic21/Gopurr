@@ -75,7 +75,7 @@ func TestShutdownPreservesRecoveryStateAndKernelOnRestoreFailure(t *testing.T) {
 			if gotPort != a.mixedPort() {
 				t.Fatalf("restore port = %d, want %d", gotPort, a.mixedPort())
 			}
-			if got != previous {
+			if got == nil || *got != *previous {
 				t.Fatal("previous proxy was discarded before restore")
 			}
 			if fail {

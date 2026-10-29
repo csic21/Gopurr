@@ -4,12 +4,85 @@ package sysproxy
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 )
+
+// A long-lived child models the watcher launched inside Enable's critical
+// section. It must not keep the parent's journal lock alive across exec.
+func TestJournalLockNotInheritedByWatcher(t *testing.T) {
+	if os.Getenv("GOPURR_TEST_LOCK_CHILD") == "1" {
+		_, _ = os.Stdout.Write([]byte("ready"))
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
+	}
+	path := filepath.Join(t.TempDir(), "recovery.json")
+	unlock, err := lockJournal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
+	child := exec.Command(os.Args[0], "-test.run=^TestJournalLockNotInheritedByWatcher$")
+	child.Env = append(os.Environ(), "GOPURR_TEST_LOCK_CHILD=1")
+	stdin, err := child.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stdin.Close(); _ = child.Process.Kill(); _ = child.Wait() }()
+	ready := make([]byte, 5)
+	if _, err := io.ReadFull(stdout, ready); err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	unlock = nil
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	release, err := lockJournalContext(ctx, path)
+	if err != nil {
+		t.Fatalf("watcher inherited the journal lock: %v", err)
+	}
+	release()
+}
+
+func TestJournalLockWaitCanTimeOutAndRetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "recovery.json")
+	unlock, err := lockJournal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	release, err := lockJournalContext(ctx, path)
+	unlock()
+	if release != nil {
+		release()
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("contended lock did not time out: %v", err)
+	}
+	release, err = lockJournal(path)
+	if err != nil {
+		t.Fatalf("released lock cannot be retried: %v", err)
+	}
+	release()
+}
 
 func TestDirectProxyCrashRecoveryPreservesEveryProtocolAndBypass(t *testing.T) {
 	network := newNetworkFixture()

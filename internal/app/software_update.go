@@ -179,7 +179,7 @@ func (a *App) softwareUpdateModal(c *ui.Context) {
 					softPrimaryButton(c, "下载并安装").OnClick(a.softwareUpdates.Install)
 				case update.Ready:
 					softButton(c, "稍后重启").OnClick(a.softwareUpdates.Hide)
-					softPrimaryButton(c, "立即重启").OnClick(mygo.App.Relaunch)
+					softPrimaryButton(c, "立即重启").OnClick(func() { a.requestQuit(true) })
 				default:
 					softButton(c, "关闭").OnClick(a.softwareUpdates.Hide)
 					if s.Enabled {

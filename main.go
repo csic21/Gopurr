@@ -104,19 +104,7 @@ func main() {
 	mygo.App.SetName("Gopurr")
 	mygo.App.SetVersion(buildinfo.Version)
 
-	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
-		// mygo closes every window as part of quitting, and a window that
-		// prevents its close cancels the whole quit. Remember why we are
-		// closing so OnClose lets it through this time.
-		quitting.Store(true)
-		cancelRelease()
-		if err := a.Shutdown(); err != nil {
-			e.PreventDefault()
-			quitting.Store(false)
-			log.Printf("quit canceled: %v", err)
-			showWindow(a)
-		}
-	})
+	installQuitLifecycle(a)
 
 	mygo.App.WhenReady(func() {
 		if err := mygo.App.Dock.SetIcon(brand.IconPNG); err != nil {
@@ -135,6 +123,32 @@ func main() {
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func installQuitLifecycle(a *app.App) {
+	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
+		cancelRelease()
+		if a.ShutdownReady() {
+			// Only the final quit may close windows. Until cleanup completes,
+			// keep AppKit dispatching frames and events instead of waiting on
+			// proxy file locks, networksetup or daemon termination here.
+			quitting.Store(true)
+			return
+		}
+		e.PreventDefault()
+		a.ShutdownAsync(func(err error) {
+			if err != nil {
+				log.Printf("quit canceled: %v", err)
+				showWindow(a)
+				return
+			}
+			if a.RelaunchRequested() {
+				mygo.App.Relaunch()
+			} else {
+				mygo.App.Quit()
+			}
+		})
+	})
 }
 
 func openInitialWindow(a *app.App, trayReady bool) {
@@ -239,6 +253,9 @@ func newMainWindow(a *app.App) *mygo.Window {
 		}
 		// Closing the window parks the app in the menu bar instead of quitting.
 		e.PreventDefault()
+		if a.ShuttingDown() {
+			return
+		}
 		w.Hide()
 		applyDockVisibility(a.Prefs(), false)
 		scheduleRelease(a)
@@ -251,7 +268,7 @@ func newMainWindow(a *app.App) *mygo.Window {
 func scheduleRelease(a *app.App) {
 	cancelRelease()
 	p := a.Prefs()
-	if quitting.Load() || !p.LightMode || windowVisible() || mainWin == nil || mainWin.IsDestroyed() {
+	if quitting.Load() || a.ShuttingDown() || !p.LightMode || windowVisible() || mainWin == nil || mainWin.IsDestroyed() {
 		return
 	}
 

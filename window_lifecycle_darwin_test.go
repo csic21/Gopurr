@@ -13,6 +13,7 @@ import (
 
 	"github.com/ebitengine/purego/objc"
 	"github.com/egoist/mygo"
+	"golang.org/x/sys/unix"
 
 	"gopurr/internal/app"
 )
@@ -82,11 +83,7 @@ func runWindowTests(m *testing.M) int {
 	defer srv.Close()
 	mygo.App.SetName("Gopurr Window Tests")
 	mygo.App.SetPath(mygo.PathUserData, dir)
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
-		quitting.Store(true)
-		cancelRelease()
-		lifecycleApp.Shutdown()
-	})
+	installQuitLifecycle(lifecycleApp)
 	result := make(chan int, 1)
 	mygo.App.WhenReady(func() {
 		installWindowLifecycle(lifecycleApp)
@@ -245,4 +242,60 @@ func TestNativeWindowIgnoresStaleRelease(t *testing.T) {
 	if state := windowState(); state.window != w || state.visible {
 		t.Fatalf("disabling light mode did not cancel release: %+v", state)
 	}
+}
+
+func TestNativeShutdownKeepsMainThreadResponsiveWhileJournalLocked(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GOPURR_HOME", dir)
+	a := app.New()
+	journal := filepath.Join(dir, "sysproxy-recovery.json")
+	// An outstanding recovery record makes Close acquire the lock. All dirty
+	// flags are false, so this fixture never reads or changes OS proxy settings.
+	if err := os.WriteFile(journal, []byte(fmt.Sprintf(`{"OwnerPID":%d,"Services":{"Wi-Fi":{}}}`, os.Getpid())), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := unix.Open(journal+".lock", unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if fd >= 0 {
+			_ = unix.Close(fd)
+		}
+	}()
+	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	mygo.RunOnMain(func() { a.ShutdownAsync(func(err error) { done <- err }) })
+	heartbeat := make(chan bool, 1)
+	go mygo.RunOnMain(func() { heartbeat <- a.ShuttingDown() && !a.ShutdownReady() })
+	select {
+	case pending := <-heartbeat:
+		if !pending {
+			t.Fatal("cleanup bypassed the held recovery lock")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("proxy cleanup blocked the native UI thread")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("cleanup completed before unlocking: %v", err)
+	default:
+	}
+	_ = unix.Close(fd)
+	fd = -1
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cleanup did not resume after unlocking")
+	}
+	mygo.RunOnMain(func() {
+		if !a.ShutdownReady() {
+			t.Error("cleanup did not authorize the final quit")
+		}
+	})
 }

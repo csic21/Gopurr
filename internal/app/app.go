@@ -58,6 +58,8 @@ var navItems = []navItem{
 // App is the whole UI state. Every field is read on the UI goroutine and
 // written on it or under mu by the sampler.
 type App struct {
+	shutdown            shutdownState
+	shutdownPending     atomic.Bool
 	softwareUpdates     *update.Controller
 	stopSoftwareUpdates context.CancelFunc
 	proxyState
@@ -375,13 +377,17 @@ func (a *App) View(c *ui.Context) {
 			a.main(c)
 		})
 	})
-	a.softwareUpdateModal(c)
-	a.restoreDialog(c)
+	if a.shutdownPending.Load() || a.shutdown.err != "" {
+		a.shutdownModal(c)
+	} else {
+		a.softwareUpdateModal(c)
+		a.restoreDialog(c)
+	}
 }
 
 // StartBackground starts the proxy and maintenance loops without creating a window.
 func (a *App) StartBackground() {
-	if a.initErr != "" || a.k == nil {
+	if a.shutdownPending.Load() || a.initErr != "" || a.k == nil {
 		return
 	}
 	if !a.ticking {
@@ -499,7 +505,7 @@ func (a *App) SetWindowVisible(visible bool) {
 }
 
 func (a *App) recoverFailedKernel() {
-	if a.k == nil || a.k.Running() || !a.sysApplied {
+	if a.shutdownPending.Load() || a.k == nil || a.k.Running() || !a.sysApplied {
 		return
 	}
 	a.setSystemProxy(false)
@@ -984,35 +990,12 @@ func (a *App) savePrevProxy() {
 	}
 }
 
-// Shutdown puts the machine back the way it was. The window calls it on quit.
+// Shutdown is the synchronous cleanup path for callers without an event loop.
+// Native quit/relaunch handlers must use ShutdownAsync instead.
 func (a *App) Shutdown() error {
-	// A failed restore must leave the listener and recovery record available
-	// for retry, rather than quitting with a dead system proxy.
-	if a.sysApplied {
-		a.setSystemProxy(false)
-		if a.sysApplied {
-			a.page = "overview"
-			return fmt.Errorf("无法恢复系统代理，应用保持运行: %s", a.sysErrText())
-		}
-	}
-	if a.proxy != nil {
-		if err := a.proxy.Close(); err != nil {
-			a.setSysErr(err.Error())
-			a.page = "overview"
-			return err
-		}
-	}
-	if a.stopSoftwareUpdates != nil {
-		a.stopSoftwareUpdates()
-	}
-	if a.softwareUpdates != nil {
-		a.softwareUpdates.Close()
-	}
-	a.cancelDelayTest()
-	if a.k != nil {
-		a.k.Shutdown()
-	}
-	return nil
+	result := a.shutdownWork()()
+	a.applyShutdownResult(result)
+	return result.err
 }
 
 func (a *App) setSysErr(msg string) {
@@ -1221,7 +1204,7 @@ func (a *App) addSubscription() {
 	}
 
 	a.bmu.Lock()
-	if a.subBusy {
+	if a.subBusy || a.shutdownPending.Load() {
 		a.bmu.Unlock()
 		return
 	}
@@ -1482,7 +1465,7 @@ func (a *App) maybeAutoUpdate() {
 		return
 	}
 	a.bmu.Lock()
-	if a.subBusy {
+	if a.subBusy || a.shutdownPending.Load() {
 		a.bmu.Unlock()
 		return
 	}

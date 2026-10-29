@@ -88,6 +88,16 @@ func TestRenderPages(t *testing.T) {
 		{"software-update", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Available) }},
 		{"software-update-downloading", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Downloading) }},
 		{"software-update-ready", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Ready) }},
+		{"software-update-restarting", func() {
+			a.page = "overview"
+			a.shutdown.relaunch = true
+			a.shutdownPending.Store(true)
+		}},
+		{"software-update-restart-error", func() {
+			a.page = "overview"
+			a.shutdown.relaunch = true
+			a.shutdown.err = "无法恢复系统代理，应用保持运行: 等待系统代理恢复操作超时，请稍后重试: context deadline exceeded"
+		}},
 		{"software-update-error", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Failed) }},
 		{"overview", func() { a.page = "overview" }},
 		{"overview-service-update", func() { a.page, a.svcInstalled = "overview", true }},
@@ -364,6 +374,8 @@ func TestRenderPages(t *testing.T) {
 			}
 			for _, size := range [][2]int{{1060, 720}, {840, 560}} {
 				page := shot.name
+				a.shutdown = shutdownState{}
+				a.shutdownPending.Store(false)
 				a.bmu.Lock()
 				a.testing = ""
 				a.bmu.Unlock()
@@ -417,6 +429,21 @@ func TestRenderPages(t *testing.T) {
 				tr.SetDark(appearance == AppearanceDark)
 				tr.Advance(400 * time.Millisecond)
 				tr.Frame()
+				if strings.HasPrefix(shot.name, "software-update-restart") {
+					controls := []string{"正在重启…"}
+					if shot.name == "software-update-restart-error" {
+						controls = []string{"返回应用", "重试重启"}
+					}
+					for _, label := range controls {
+						r, ok := tr.Find(label)
+						if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
+							t.Fatalf("%s: control %q is missing or clipped: %+v", page, label, r)
+						}
+						if label == "重试重启" {
+							tr.Move(r.X+r.W/2, r.Y+r.H/2)
+						}
+					}
+				}
 				if strings.HasPrefix(shot.name, "application-") {
 					controls := []string{"添加应用…", "保存应用分流"}
 					switch {
