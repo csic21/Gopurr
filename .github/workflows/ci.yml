@@ -37,7 +37,9 @@ jobs:
           "TEMP=C:\gp-tmp" >> $env:GITHUB_ENV
           "TMP=C:\gp-tmp" >> $env:GITHUB_ENV
       - name: Test
-        run: go test ./...
+        # The full theme/navigation/window screenshot matrix exceeds Go's
+        # default 10-minute package timeout on shared macOS runners.
+        run: go test -timeout=20m ./...
       - name: Check reachable dependency vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Build
