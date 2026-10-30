@@ -96,6 +96,65 @@ func fixtureMesh(a *App) *meshFixture {
 	return f
 }
 
+func TestMeshInviteOpensOfficialUsersPageWithoutChangingAccess(t *testing.T) {
+	for _, running := range []bool{false, true} {
+		t.Run(fmt.Sprint(running), func(t *testing.T) {
+			a := subscriptionTestApp(t)
+			f := fixtureMesh(a)
+			f.snap.Status.Running = running
+			if !running {
+				f.snap.Managed, f.snap.Status.State = false, "Stopped"
+			}
+			tr := ui.NewTester(func(c *ui.Context) { c.SetTheme(theme(false)); a.meshPage(c) }, 840, 560)
+			tr.Frame()
+			if err := tr.Click("邀请成员"); err != nil {
+				t.Fatal(err)
+			}
+			tr.Advance(time.Second)
+			if !a.meshInvite || len(tr.OpenedURLs()) != 0 {
+				t.Fatal("invitation guidance was skipped")
+			}
+			if err := tr.Click("打开邀请页面"); err != nil {
+				t.Fatal(err)
+			}
+			if urls := tr.OpenedURLs(); len(urls) != 1 || urls[0] != mesh.InviteURL {
+				t.Fatalf("wrong invitation destination: %v", urls)
+			}
+			if len(f.calls) != 0 || !f.snap.Status.ShieldsUp {
+				t.Fatal("invitation changed local network or service access")
+			}
+			if err := tr.Click("关闭"); err != nil {
+				t.Fatal(err)
+			}
+			if a.meshInvite {
+				t.Fatal("invitation guidance did not close")
+			}
+		})
+	}
+}
+
+func TestMeshInviteBrowserFailureCanRecoverByCopyingAddress(t *testing.T) {
+	a := subscriptionTestApp(t)
+	fixtureMesh(a)
+	a.meshInvite = true
+	tr := ui.NewTester(func(c *ui.Context) { c.SetTheme(theme(false)); a.meshPage(c) }, 840, 560)
+	tr.FailOpenURL(errors.New("browser unavailable"))
+	tr.Frame()
+	if err := tr.Click("打开邀请页面"); err != nil {
+		t.Fatal(err)
+	}
+	tr.Frame()
+	if a.meshInviteError == "" {
+		t.Fatal("browser failure was hidden")
+	}
+	if err := tr.Click("复制控制台地址"); err != nil {
+		t.Fatal(err)
+	}
+	if tr.Clipboard() != mesh.InviteURL {
+		t.Fatal("invitation fallback copied the wrong address")
+	}
+}
+
 func TestMeshOpeningRequiresConfirmationClosingDoesNot(t *testing.T) {
 	a := subscriptionTestApp(t)
 	f := fixtureMesh(a)
@@ -213,6 +272,39 @@ func TestMeshEmbeddedOnboardingDoesNotRequireAnotherClient(t *testing.T) {
 	}
 	if len(f.calls) != 1 || f.calls[0] != "connect" || len(tr.OpenedURLs()) != 0 {
 		t.Fatal("embedded enrollment did not start")
+	}
+}
+
+func TestMeshGuideConnectShowsProgressAndCanCancel(t *testing.T) {
+	a := subscriptionTestApp(t)
+	f := fixtureMesh(a)
+	f.snap.Status.Running, f.snap.Status.State = false, "NeedsLogin"
+	a.meshGuide = true
+	tr := ui.NewTester(func(c *ui.Context) { c.SetTheme(theme(false)); a.meshPage(c) }, 840, 560)
+	tr.Frame()
+	if err := tr.Click("连接并登录"); err != nil {
+		t.Fatal(err)
+	}
+	f.snap.Busy, f.snap.Action = true, "connect"
+	tr.Advance(time.Second)
+	if _, ok := tr.Find("正在连接…"); !ok {
+		t.Fatal("connection progress is hidden behind the modal")
+	}
+	_ = tr.Click("正在连接…")
+	if len(f.calls) != 1 {
+		t.Fatal("pending login can be started twice")
+	}
+	if err := tr.Click("取消连接"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.calls) != 2 || f.calls[1] != "disconnect" || a.meshOpenAuth {
+		t.Fatal("cancel did not stop enrollment and browser opening")
+	}
+	f.snap.Busy, f.snap.Action = false, ""
+	f.snap.Status.AuthURL = "https://login.tailscale.com/a/late-result"
+	tr.Frame()
+	if len(tr.OpenedURLs()) != 0 {
+		t.Fatal("canceled connection opened a late login link")
 	}
 }
 

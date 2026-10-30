@@ -41,6 +41,8 @@ type meshState struct {
 	meshEditServices                                              bool
 	meshAdvancedServices                                          bool
 	meshGuide, meshGuideAfterServices                             bool
+	meshInvite                                                    bool
+	meshInviteError                                               string
 	meshPrepareConfirm, meshPreparePending                        bool
 	meshPrepareError, meshAuthError, meshOpenedAuthURL            string
 	meshPrepareReturn                                             string
@@ -181,6 +183,7 @@ func (a *App) meshPage(c *ui.Context) {
 	s := snap.Status
 	pal := paletteFor(c)
 	a.pageHeader(c, "组网", "通过 Tailscale 连接自己的电脑、手机和服务器", func() {
+		softButton(c, "邀请成员").OnClick(func() { a.meshInvite, a.meshInviteError = true, "" })
 		softButton(c, "连接设置").OnClick(func() { a.meshGuide = true })
 		softButton(c, "刷新组网").Disabled(snap.Busy).OnClick(a.meshClient.Refresh)
 	})
@@ -489,6 +492,10 @@ func (a *App) meshSecurity(c *ui.Context, snap mesh.Snapshot) {
 }
 
 func (a *App) meshDialogs(c *ui.Context, snap mesh.Snapshot) {
+	if a.meshInvite {
+		a.meshInviteDialog(c, snap)
+		return
+	}
 	a.meshPreparationDialog(c)
 	if a.meshPrepareConfirm {
 		return

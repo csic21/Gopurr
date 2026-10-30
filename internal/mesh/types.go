@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	InviteURL   = "https://console.tailscale.com/admin/users"
 	DevicesURL  = "https://login.tailscale.com/admin/machines"
 	PolicyURL   = "https://login.tailscale.com/admin/acls"
 	ApprovalURL = "https://login.tailscale.com/admin/settings/device-management"

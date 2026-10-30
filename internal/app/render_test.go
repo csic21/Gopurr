@@ -146,6 +146,22 @@ func TestRenderPages(t *testing.T) {
 		{"proxies-compact", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
 		{"conns", func() { a.page = "conns" }},
 		{"mesh", func() { fixtureMesh(a) }},
+		{"mesh-invite", func() { fixtureMesh(a); a.meshInvite = true }},
+		{"mesh-invite-long-network", func() {
+			f := fixtureMesh(a)
+			f.snap.Status.Tailnet = "工作与家庭共用的协作网络 · 设计开发与远程维护 · 很长的网络名称@example.com"
+			a.meshInvite = true
+		}},
+		{"mesh-invite-offline", func() {
+			f := fixtureMesh(a)
+			f.snap.Status = mesh.Status{Installed: true, Official: true, ShieldsKnown: true, ShieldsUp: true, State: "Stopped"}
+			a.meshInvite = true
+		}},
+		{"mesh-invite-browser-error", func() {
+			fixtureMesh(a)
+			a.meshInvite = true
+			a.meshInviteError = "未能打开浏览器，请复制控制台地址后手动访问。"
+		}},
 		{"mesh-open", func() { f := fixtureMesh(a); f.snap.Status.ShieldsUp = false }},
 		{"mesh-visits", func() { f := fixtureMesh(a); a.meshTab = 1; f.snap.Status.ShieldsUp = false }},
 		{"mesh-monitor-error", func() {
@@ -194,6 +210,18 @@ func TestRenderPages(t *testing.T) {
 			a.meshGuide = true
 		}},
 		{"mesh-guide-ready", func() { f := fixtureMesh(a); meshTestPrepared(a); f.snap.AutoConnect = true; a.meshGuide = true }},
+		{"mesh-guide-connecting", func() {
+			f := fixtureMesh(a)
+			f.snap.Status.Running, f.snap.Status.State = false, "NeedsLogin"
+			f.snap.Busy, f.snap.Action = true, "connect"
+			a.meshGuide = true
+		}},
+		{"mesh-guide-timeout", func() {
+			f := fixtureMesh(a)
+			f.snap.Status.Running, f.snap.Status.State = false, "Stopped"
+			f.snap.Error = "连接 Tailscale 超时，请检查网络或代理设置后重试"
+			a.meshGuide = true
+		}},
 		{"mesh-guide-error", func() {
 			f := fixtureMesh(a)
 			f.snap.Error = "连接失败，请检查网络后重试"
@@ -541,8 +569,10 @@ func TestRenderPages(t *testing.T) {
 					tr.Advance(400 * time.Millisecond)
 					tr.Frame()
 					if strings.HasPrefix(shot.name, "mesh") {
-						controls := []string{"刷新组网", "允许组网访问本机", "断开组网"}
+						controls := []string{"邀请成员", "刷新组网", "允许组网访问本机", "断开组网"}
 						switch shot.name {
+						case "mesh-invite", "mesh-invite-long-network", "mesh-invite-offline", "mesh-invite-browser-error":
+							controls = []string{"复制控制台地址", "关闭", "打开邀请页面"}
 						case "mesh-setup":
 							controls = []string{"连接内置组网"}
 						case "mesh-allow-dialog":
@@ -557,6 +587,10 @@ func TestRenderPages(t *testing.T) {
 							controls = []string{"复制虚拟 IP", "在控制台管理", "完成"}
 						case "mesh-guide-first", "mesh-guide-ready", "mesh-guide-error", "mesh-guide-services":
 							controls = []string{"稍后设置", "完成设置", "组网启动自动连接"}
+						case "mesh-guide-connecting":
+							controls = []string{"正在连接…", "取消连接", "稍后设置", "完成设置", "组网启动自动连接"}
+						case "mesh-guide-timeout":
+							controls = []string{"连接并登录", "稍后设置", "完成设置", "组网启动自动连接"}
 						case "mesh-quick-ssh", "mesh-quick-rdp", "mesh-quick-vnc", "mesh-quick-unprepared", "mesh-quick-checked", "mesh-quick-error", "mesh-quick-handshake":
 							controls = []string{"关闭", "复制地址", "检测连接", "打开客户端"}
 						case "mesh-quick-checking":

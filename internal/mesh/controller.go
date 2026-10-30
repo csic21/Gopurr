@@ -270,6 +270,9 @@ func (c *Controller) perform(ctx context.Context, action string) error {
 	}
 	s, err := c.backend.Read(ctx)
 	if ctx.Err() != nil {
+		if actionErr != nil {
+			return actionErr
+		}
 		return ctx.Err()
 	}
 	c.mu.Lock()

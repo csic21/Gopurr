@@ -191,6 +191,14 @@ func (b *Embedded) Connect(ctx context.Context) (auth string, retErr error) {
 	nctx, cancel := context.WithCancel(context.Background())
 	n := &nodeSession{ctx: nctx, cancel: cancel, peers: map[netip.Addr]bool{}, self: map[netip.Addr]bool{}, sockets: map[*trackedConn]bool{}}
 	n.server = &tsnet.Server{Dir: b.dir, Store: store, Hostname: clean(host) + "-gopurr", ControlURL: controlURL,
+		// This userspace node has no system Tailscale interface to bypass.
+		// Follow the system's working network (including Gopurr TUN) instead
+		// of tsnet's default sockets bound to the physical interface.
+		SystemDialer:         (&net.Dialer{}).DialContext,
+		SystemPacketListener: (&net.ListenConfig{}).ListenPacket,
+		LookupHook: func(ctx context.Context, host string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		},
 		Logf: func(string, ...any) {}, UserLogf: func(string, ...any) {}}
 	n.server.RegisterFallbackTCPHandler(func(src, dst netip.AddrPort) (func(net.Conn), bool) {
 		return func(c net.Conn) { b.forward(n, "tcp", src, dst, c) }, true
@@ -206,11 +214,14 @@ func (b *Embedded) Connect(ctx context.Context) (auth string, retErr error) {
 	}()
 	lc, err := n.server.LocalClient()
 	if err != nil {
-		return "", errors.New("内置组网内核启动失败")
+		return "", fmt.Errorf("内置组网内核启动失败：%w", err)
 	}
 	n.lc = lc
 	if _, err := lc.EditPrefs(ctx, safePrefs(true, true)); err != nil {
-		return "", errors.New("内置组网防护初始化失败")
+		return "", fmt.Errorf("内置组网防护初始化失败：%w", err)
+	}
+	if err := waitForLogin(ctx, lc); err != nil {
+		return "", err
 	}
 	n.dial = n.server.Dial
 	if err := b.startBridge(n); err != nil {

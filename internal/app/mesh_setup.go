@@ -210,6 +210,13 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 									if snap.Status.AuthURL != "" {
 										label = "浏览器登录"
 									}
+									if snap.Busy && snap.Action == "connect" {
+										label = "正在连接…"
+										softButton(c, "取消连接").OnClick(func() {
+											a.meshOpenAuth = false
+											a.meshClient.Do("disconnect")
+										})
+									}
 									softButton(c, label).Disabled(snap.Busy).OnClick(func() {
 										if snap.Status.AuthURL != "" && snap.Managed && snap.Status.ShieldsKnown && snap.Status.ShieldsUp {
 											a.openMeshAuth(c, snap.Status.AuthURL)
@@ -220,6 +227,9 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 								}
 							})
 							ui.Text(c, "两台设备分别用官方账号加入同一网络，无需互填配对码。首次登录在浏览器完成。").FillWidth().FontSize(11.5).TextColor(pal.Muted)
+							if snap.Busy && snap.Action == "connect" {
+								ui.Text(c, "正在获取官方登录链接，成功后会自动打开浏览器；最多等待 30 秒。").FillWidth().FontSize(11.5).TextColor(pal.Muted)
+							}
 							if snap.Status.State == "NeedsMachineAuth" {
 								ui.Text(c, "正在等待网络管理员批准此设备").FillWidth().FontSize(11.5).TextColor(pal.Warn)
 							}
