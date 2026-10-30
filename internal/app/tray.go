@@ -108,6 +108,7 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 		mygo.Separator(),
 		&mygo.MenuItem{ID: "routing-mode", Label: "路由模式", Submenu: modes},
 		&mygo.MenuItem{ID: "select-node", Label: "选择节点", Submenu: nodes},
+		&mygo.MenuItem{ID: "mesh", Label: "设备组网", Submenu: a.meshTrayItems(openPage)},
 		mygo.Separator(),
 		&mygo.MenuItem{
 			ID: "reload", Label: reloadLabel, Disabled: a.k == nil || svcBusy,

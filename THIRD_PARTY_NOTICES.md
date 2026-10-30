@@ -4,6 +4,9 @@ Gopurr is distributed under the GNU General Public License, version 3 or later.
 The complete source and build instructions are at https://github.com/csic21/Gopurr.
 
 - mihomo: https://github.com/MetaCubeX/mihomo — GPL-3.0.
+- Tailscale / tsnet (MetaCubeX fork): https://github.com/MetaCubeX/tailscale
+  — BSD-3-Clause; see licenses/tailscale.txt. Vendored goupnp and oauth2 notices
+  are included in licenses/tailscale-goupnp.txt and licenses/tailscale-oauth2.txt.
 - Offline GeoIP/GeoSite/ASN baseline: https://github.com/MetaCubeX/meta-rules-dat
   — GPL-3.0; see licenses/meta-rules-dat.txt. Source commit and database SHA-256
   hashes are recorded in internal/geodata/data/manifest.json. Upstream data

@@ -17,6 +17,7 @@ func TestNavigationLayouts(t *testing.T) {
 		for _, size := range [][2]int{{1060, 720}, {840, 560}} {
 			t.Run(fmt.Sprintf("%v-%dx%d", dark, size[0], size[1]), func(t *testing.T) {
 				a := subscriptionTestApp(t)
+				a.meshClient = &meshFixture{}
 				a.booted, a.ticking = true, true
 				a.prefs.Appearance = AppearanceLight
 				if dark {

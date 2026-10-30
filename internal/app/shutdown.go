@@ -48,6 +48,7 @@ func (a *App) beginShutdown(dispatch func(func()), done func(error)) {
 	if !a.shutdownPending.CompareAndSwap(false, true) {
 		return
 	}
+	a.cancelMeshProbe()
 	a.shutdown.err = ""
 	work := a.shutdownWork()
 	a.invalidate()
@@ -77,6 +78,7 @@ func (a *App) shutdownWork() func() shutdownResult {
 		previous = &copy
 	}
 	kernel, updates, stopUpdates := a.k, a.softwareUpdates, a.stopSoftwareUpdates
+	meshClient := a.meshClient
 	return func() (result shutdownResult) {
 		if applied {
 			if err := proxy.Restore(port, previous); err != nil {
@@ -87,6 +89,12 @@ func (a *App) shutdownWork() func() shutdownResult {
 		}
 		if proxy != nil {
 			if result.err = proxy.Close(); result.err != nil {
+				return
+			}
+		}
+		if meshClient != nil {
+			if err := meshClient.Shutdown(); err != nil {
+				result.err = fmt.Errorf("无法关闭组网入站访问，应用保持运行: %w", err)
 				return
 			}
 		}

@@ -145,9 +145,17 @@ func topNavigationWidths(c *ui.Context) []float32 {
 	widths := make([]float32, len(navItems))
 	for i, it := range navItems {
 		w, _ := c.MeasureText(0, ui.Span{Text: it.label, Size: controlFontSize})
-		widths[i] = w + 24
+		widths[i] = w + 2*topNavigationPadding(c)
 	}
 	return widths
+}
+
+func topNavigationPadding(c *ui.Context) float32 {
+	width, _ := c.Size()
+	if width < 900 {
+		return 10
+	}
+	return 12
 }
 
 func (a *App) navigationStatus() string {
@@ -176,7 +184,7 @@ func (a *App) navigationFlight(c *ui.Context, progress float32) {
 		// and its gap dissolve while the vertical list fans into a row.
 		row := ui.Row(c.Key(it.id)).Absolute().Left(lerp(navigationPaddingX, x)).
 			Top(lerp(y, (height-30)/2)).Width(lerp(sidebarWidth-1-2*navigationPaddingX, widths[i])).
-			Height(lerp(navigationRowHeight, 30)).PaddingX(12).AlignItems(ui.Center).
+			Height(lerp(navigationRowHeight, 30)).PaddingX(lerp(12, topNavigationPadding(c))).AlignItems(ui.Center).
 			Gap(10 * (1 - progress)).Radius(8).Role(ui.RoleNone)
 		fg, icon := pal.Muted, pal.Faint
 		weight := 400

@@ -23,6 +23,7 @@ import (
 
 	"gopurr/internal/core"
 	"gopurr/internal/kernel"
+	"gopurr/internal/mesh"
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
 	"gopurr/internal/service"
@@ -50,6 +51,7 @@ var navItems = []navItem{
 	{"subs", "订阅", iconSubs},
 	{"proxies", "代理", iconProxies},
 	{"conns", "连接", iconConns},
+	{"mesh", "组网", iconNetwork},
 	{"rules", "规则", iconRules},
 	{"logs", "日志", iconLogs},
 	{"settings", "设置", iconSettings},
@@ -71,6 +73,7 @@ type App struct {
 	subscriptionEditState
 	connectionState
 	backupState
+	meshState
 
 	mu   sync.Mutex
 	hist []sample
@@ -190,6 +193,7 @@ func New() *App {
 		ov:        patch.Default(),
 		delays:    map[string]uint16{},
 	}
+	a.meshClient = mesh.New(mesh.NewEmbedded(filepath.Join(dir, "tailnet"), func(port uint16) bool { return uint32(port) == a.meshReservedPort.Load() }), filepath.Join(dir, "mesh.json"), a.invalidate)
 	switch {
 	case err != nil:
 		a.initErr = "数据目录不可用: " + err.Error()
@@ -243,6 +247,7 @@ func New() *App {
 			a.proxy = sysproxy.NewControllerAt(filepath.Join(dir, "sysproxy-recovery.json"))
 		}
 	}
+	a.meshReservedPort.Store(uint32(a.mixedPort()))
 	return a
 }
 
@@ -341,7 +346,10 @@ func (a *App) configBytes() ([]byte, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("没有可用的配置")
 	}
-	return patch.Apply(raw, a.ov)
+	ov := a.ov
+	a.meshReservedPort.Store(uint32(a.mixedPort()))
+	ov.MeshIPs, ov.MeshProxyAddress, ov.MeshProxyPassword = a.meshRuntimeRoutes()
+	return patch.Apply(raw, ov)
 }
 
 // View is the window's root.
@@ -390,6 +398,9 @@ func (a *App) StartBackground() {
 	}
 	if !a.booted {
 		a.booted = true
+		if a.meshClient != nil && a.meshClient.Snapshot().Managed {
+			a.meshClient.Start()
+		}
 		a.k.WatchLogs()
 		go a.autoUpdateLoop()
 		a.startSoftwareUpdates()
@@ -454,6 +465,7 @@ func (a *App) sampleLoop() {
 	for range t.C {
 		tick++
 		if tick%3 == 0 {
+			mygo.RunOnMain(func() { a.reconcileMeshRoutes(); a.reconcileMeshPreparation() })
 			if a.k.Running() {
 				missed = 0
 			} else {
@@ -602,6 +614,8 @@ func (a *App) pageBody(c *ui.Context) {
 		a.proxiesPage(c)
 	case "conns":
 		a.connsPage(c)
+	case "mesh":
+		a.meshPage(c)
 	case "subs":
 		a.subsPage(c)
 	case "rules":

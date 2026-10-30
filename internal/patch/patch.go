@@ -25,6 +25,12 @@ type Overrides struct {
 	TunStack    string `json:"tunStack"`
 	TunAutoRout bool   `json:"tunAutoRoute"`
 
+	// Ephemeral, authenticated tailnet destinations. Never imported from a
+	// subscription, persisted as user overrides, or exported in a backup.
+	MeshIPs           []string `json:"-"`
+	MeshProxyAddress  string   `json:"-"`
+	MeshProxyPassword string   `json:"-"`
+
 	ExtraRules []string  `json:"extraRules,omitempty"`
 	MergeYAML  string    `json:"mergeYaml,omitempty"`
 	AppRules   []AppRule `json:"appRules,omitempty"`
@@ -126,6 +132,9 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 		}
 	}
 	doc["tun"] = tun
+	if err := applyMeshRoutes(doc, ov); err != nil {
+		return nil, err
+	}
 	if err := applyNetworkFeatures(doc, ov); err != nil {
 		return nil, err
 	}

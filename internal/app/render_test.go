@@ -19,6 +19,7 @@ import (
 	"gopurr/internal/applications"
 	"gopurr/internal/backup"
 	"gopurr/internal/core"
+	"gopurr/internal/mesh"
 	"gopurr/internal/profile"
 	"gopurr/internal/update"
 )
@@ -144,6 +145,104 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"proxies-compact", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
 		{"conns", func() { a.page = "conns" }},
+		{"mesh", func() { fixtureMesh(a) }},
+		{"mesh-open", func() { f := fixtureMesh(a); f.snap.Status.ShieldsUp = false }},
+		{"mesh-visits", func() { f := fixtureMesh(a); a.meshTab = 1; f.snap.Status.ShieldsUp = false }},
+		{"mesh-monitor-error", func() {
+			f := fixtureMesh(a)
+			a.meshTab = 1
+			f.snap.MonitorError = "内置组网访问记录暂不可用，请刷新或断开组网"
+		}},
+		{"mesh-monitor-scope", func() {
+			f := fixtureMesh(a)
+			a.meshTab = 1
+			f.snap.Status.ShieldsUp = false
+			f.snap.MonitorScope = "内置组网实际接收的 TCP / UDP 服务连接；账号来自加密网络的设备身份"
+		}},
+		{"mesh-security", func() { fixtureMesh(a); a.meshTab = 2 }},
+		{"mesh-setup", func() { f := fixtureMesh(a); f.snap.Status = mesh.Status{} }},
+		{"mesh-login", func() {
+			f := fixtureMesh(a)
+			f.snap.Status.Running = false
+			f.snap.Status.State = "NeedsLogin"
+			f.snap.Status.AuthURL = "https://login.tailscale.com/a/render-fixture"
+		}},
+		{"mesh-error", func() {
+			f := fixtureMesh(a)
+			f.snap.Status.ShieldsKnown = false
+			f.snap.Error = "无法确认内置组网防护状态，请断开后重试"
+		}},
+		{"mesh-detail", func() { f := fixtureMesh(a); a.meshShowDevice = true; a.meshSelected = f.snap.Status.Peers[5] }},
+		{"mesh-allow-dialog", func() { fixtureMesh(a); a.meshConfirmAllow = true; a.meshServicesDraft = "22/tcp, 3389/tcp" }},
+		{"mesh-ports-dialog", func() {
+			fixtureMesh(a)
+			a.meshEditServices = true
+			a.meshAdvancedServices = true
+			a.meshServicesDraft = "22/tcp, 3389/tcp, 5353/udp"
+		}},
+		{"mesh-blocked-device", func() {
+			f := fixtureMesh(a)
+			a.meshShowDevice = true
+			a.meshSelected = f.snap.Status.Peers[4]
+			f.snap.Status.Blocked = []string{a.meshSelected.ID}
+		}},
+		{"mesh-connect-dialog", func() { fixtureMesh(a); a.meshGuide = true }},
+		{"mesh-guide-first", func() {
+			f := fixtureMesh(a)
+			f.snap.Status.Running = false
+			f.snap.Status.State = "Stopped"
+			a.meshGuide = true
+		}},
+		{"mesh-guide-ready", func() { f := fixtureMesh(a); meshTestPrepared(a); f.snap.AutoConnect = true; a.meshGuide = true }},
+		{"mesh-guide-error", func() {
+			f := fixtureMesh(a)
+			f.snap.Error = "连接失败，请检查网络后重试"
+			a.meshGuide = true
+		}},
+		{"mesh-guide-services", func() { f := fixtureMesh(a); f.snap.Status.ShieldsUp = false; a.meshGuide = true }},
+		{"mesh-quick-ssh", func() {
+			f := fixtureMesh(a)
+			meshTestPrepared(a)
+			a.openMeshQuick(f.snap.Status.Peers[2])
+			a.meshQuickUser = "ubuntu"
+		}},
+		{"mesh-quick-rdp", func() { f := fixtureMesh(a); meshTestPrepared(a); a.openMeshQuick(f.snap.Status.Peers[1]) }},
+		{"mesh-quick-vnc", func() { f := fixtureMesh(a); meshTestPrepared(a); a.openMeshQuick(f.snap.Status.Peers[0]) }},
+		{"mesh-quick-unprepared", func() { f := fixtureMesh(a); a.openMeshQuick(f.snap.Status.Peers[2]) }},
+		{"mesh-quick-checked", func() {
+			f := fixtureMesh(a)
+			meshTestPrepared(a)
+			a.openMeshQuick(f.snap.Status.Peers[2])
+			a.meshProbeResult = mesh.ProbeResult{State: "verified", Message: "SSH 服务有响应；登录仍由客户端验证"}
+		}},
+		{"mesh-quick-checking", func() {
+			f := fixtureMesh(a)
+			meshTestPrepared(a)
+			a.openMeshQuick(f.snap.Status.Peers[2])
+			a.meshProbeBusy = true
+		}},
+		{"mesh-quick-handshake", func() {
+			f := fixtureMesh(a)
+			meshTestPrepared(a)
+			a.openMeshQuick(f.snap.Status.Peers[1])
+			a.meshProbeResult = mesh.ProbeResult{State: "connected", Message: "TCP 端口已连接；尚未验证服务类型、授权或登录"}
+		}},
+		{"mesh-quick-error", func() {
+			f := fixtureMesh(a)
+			meshTestPrepared(a)
+			a.openMeshQuick(f.snap.Status.Peers[1])
+			a.meshQuickError = "未能打开客户端；请确认已安装对应客户端，也可复制地址手动连接"
+		}},
+		{"mesh-prepare-dialog", func() { fixtureMesh(a); a.meshPrepareConfirm = true }},
+		{"mesh-prepare-error", func() { fixtureMesh(a); a.meshPrepareError = "系统授权被取消，请重试准备访问" }},
+		{"mesh-recent", func() {
+			f := fixtureMesh(a)
+			meshTestPrepared(a)
+			a.meshShortcutsReady = true
+			a.meshShortcuts = map[string]mesh.Shortcut{f.snap.Status.Peers[2].ID: {Kind: "ssh", Port: 22, User: "ubuntu", LastUsed: time.Now()}, f.snap.Status.Peers[1].ID: {Kind: "rdp", Port: 3389, LastUsed: time.Now().Add(-time.Hour)}}
+		}},
+		{"mesh-working", func() { f := fixtureMesh(a); f.snap.Busy = true; f.snap.Action = "block" }},
+		{"mesh-long-name", func() { fixtureMesh(a); a.meshQuery = "工作站" }},
 		{"conns-filtered", func() { a.page = "conns"; a.refreshConnections(); a.connQuery = "Browser" }},
 		{"conns-empty", func() { a.page = "conns"; a.connQuery = "no-match.example" }},
 		{"connection-detail", func() { a.page = "conns"; a.refreshConnections(); a.connSelected = a.connRows[0]; a.showConn = true }},
@@ -371,6 +470,9 @@ func TestRenderPages(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, shot := range shots {
+				if only := os.Getenv("GOPURR_RENDER_ONLY"); only != "" && !strings.HasPrefix(shot.name, only) {
+					continue
+				}
 				// Every fixture is checked at both sizes; legacy compact entries are
 				// covered by the matching full-size fixture below.
 				if strings.HasSuffix(shot.name, "-compact") {
@@ -386,6 +488,8 @@ func TestRenderPages(t *testing.T) {
 					a.confirmInstall, a.confirmUninstall, a.showDeleteSub, a.showRaw = false, false, false, false
 					a.logPaused, a.logLevelIdx, a.extensionTab = false, 0, 0
 					a.applicationRulesState = applicationRulesState{}
+					a.meshState = meshState{meshClient: &meshFixture{}}
+					a.tunOn, a.ov.TunEnable, a.ov.TunAutoRout = false, false, true
 					a.ov.AppRules, a.ov.Mode = nil, "rule"
 					a.ruleQuery, a.ruleAdapter = "", allAdapters
 					a.generalSettingsError, a.mergeYAMLError = "", ""
@@ -436,6 +540,39 @@ func TestRenderPages(t *testing.T) {
 					tr.SetDark(appearance == AppearanceDark)
 					tr.Advance(400 * time.Millisecond)
 					tr.Frame()
+					if strings.HasPrefix(shot.name, "mesh") {
+						controls := []string{"刷新组网", "允许组网访问本机", "断开组网"}
+						switch shot.name {
+						case "mesh-setup":
+							controls = []string{"连接内置组网"}
+						case "mesh-allow-dialog":
+							controls = []string{"取消", "允许访问本机"}
+						case "mesh-ports-dialog":
+							controls = []string{"取消", "保存并关闭访问", "授权端口"}
+						case "mesh-blocked-device":
+							controls = []string{"解除本机封禁", "复制虚拟 IP", "完成"}
+						case "mesh-connect-dialog":
+							controls = []string{"稍后设置", "完成设置", "组网启动自动连接"}
+						case "mesh-detail":
+							controls = []string{"复制虚拟 IP", "在控制台管理", "完成"}
+						case "mesh-guide-first", "mesh-guide-ready", "mesh-guide-error", "mesh-guide-services":
+							controls = []string{"稍后设置", "完成设置", "组网启动自动连接"}
+						case "mesh-quick-ssh", "mesh-quick-rdp", "mesh-quick-vnc", "mesh-quick-unprepared", "mesh-quick-checked", "mesh-quick-error", "mesh-quick-handshake":
+							controls = []string{"关闭", "复制地址", "检测连接", "打开客户端"}
+						case "mesh-quick-checking":
+							controls = []string{"关闭", "取消检测", "打开客户端"}
+						case "mesh-prepare-dialog":
+							controls = []string{"取消", "安装并准备"}
+						case "mesh-login":
+							controls = append(controls, "继续登录 Tailscale")
+						}
+						for _, label := range controls {
+							r, ok := tr.Find(label)
+							if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
+								t.Fatalf("%s: mesh control %q missing or clipped: %+v", page, label, r)
+							}
+						}
+					}
 					if strings.HasPrefix(shot.name, "software-update-restart") {
 						controls := []string{"正在重启…"}
 						if shot.name == "software-update-restart-error" {
