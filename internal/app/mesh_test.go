@@ -238,6 +238,8 @@ func TestMeshEmptyPortAuthorizationCannotOpenAccess(t *testing.T) {
 func TestMeshDeviceBanIsAvailableInsideIdentityDetails(t *testing.T) {
 	a := subscriptionTestApp(t)
 	f := fixtureMesh(a)
+	// Find the target explicitly; native font metrics can move its sorted row below the viewport.
+	a.meshQuery = f.snap.Status.Peers[0].Name
 	tr := ui.NewTester(func(c *ui.Context) { c.SetTheme(theme(false)); a.meshPage(c) }, 840, 560)
 	tr.Frame()
 	if err := tr.Click("组网设备详情 device-0"); err != nil {

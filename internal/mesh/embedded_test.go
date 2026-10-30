@@ -88,10 +88,7 @@ func TestExplicitServicesPersistButOpenAccessNeverSurvivesRestart(t *testing.T) 
 	if err != nil || !s.ShieldsUp || len(s.Services) != 3 || len(s.Blocked) != 1 {
 		t.Fatalf("restart policy: %+v %v", s, err)
 	}
-	info, _ := os.Stat(filepath.Join(dir, "access.json"))
-	if info.Mode().Perm() != 0600 {
-		t.Fatal("public policy file")
-	}
+	assertPrivateMeshFile(t, filepath.Join(dir, "access.json"))
 	if err := b.SetServices(context.Background(), "7890"); err == nil {
 		t.Fatal("exposed own proxy")
 	}
@@ -120,10 +117,7 @@ func TestPrivateIdentityStorePreservesKeysAndRejectsLinksAndCorruption(t *testin
 	if string(value) != "private-key-test" {
 		t.Fatal("identity not persisted")
 	}
-	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0600 {
-		t.Fatal("public identity file")
-	}
+	assertPrivateMeshFile(t, path)
 	link := filepath.Join(filepath.Dir(path), "link")
 	if os.Symlink(path, link) == nil {
 		if _, err := newPrivateStore(link); err == nil {

@@ -76,10 +76,7 @@ func TestManagedStartupClosesAccessAndPersistsPrivately(t *testing.T) {
 	if s := waitIdle(t, c); s.Status.ShieldsUp || !s.Managed {
 		t.Fatalf("allow failed: %+v", s)
 	}
-	st, err := os.Stat(path)
-	if err != nil || st.Mode().Perm() != 0600 {
-		t.Fatalf("private state: %v %v", st, err)
-	}
+	assertPrivateMeshFile(t, path)
 	// Simulate an unclean exit: the next instance always starts protected.
 	next := New(b, path, nil)
 	next.Start()
