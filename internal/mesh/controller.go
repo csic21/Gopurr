@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -214,6 +215,16 @@ type policyBackend interface {
 func (c *Controller) saveLocked() error {
 	if c.path == "" {
 		return nil
+	}
+	// Atomic replacements inherit their directory's Windows DACL. Tighten it
+	// before creating the first journal, including when used without App.New.
+	// Preserve the fail-closed behavior when the data directory is unavailable.
+	dir := filepath.Dir(c.path)
+	if _, err := os.Stat(dir); err != nil {
+		return err
+	}
+	if err := securefs.PrivateDir(dir); err != nil {
+		return err
 	}
 	b, err := json.Marshal(diskState{Managed: c.s.Managed, Visits: c.s.Visits, AutoConnect: c.s.AutoConnect})
 	if err != nil {
