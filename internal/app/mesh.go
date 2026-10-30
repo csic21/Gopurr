@@ -70,16 +70,25 @@ func (a *App) meshRuntimeRoutes() ([]string, string, string) {
 		return nil, "", ""
 	}
 	s := a.meshClient.Snapshot()
-	if !s.Managed || !s.Status.Official || !s.Status.Running {
+	if !s.Managed || !s.Status.Official {
 		return nil, "", ""
 	}
 	var ips []string
-	for _, d := range s.Status.Peers {
-		for _, ip := range d.IPs {
-			ips = append(ips, ip.String())
+	for _, ip := range s.Status.RouteIPs {
+		ips = append(ips, ip.String())
+	}
+	if s.Status.Running {
+		for _, d := range s.Status.Peers {
+			for _, ip := range d.IPs {
+				ips = append(ips, ip.String())
+			}
 		}
 	}
+	if len(ips) == 0 {
+		return nil, "", ""
+	}
 	sort.Strings(ips)
+	ips = slices.Compact(ips)
 	return ips, s.Status.ProxyAddress, s.Status.ProxyPassword
 }
 

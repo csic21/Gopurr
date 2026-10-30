@@ -351,6 +351,47 @@ func meshTestPrepared(a *App) {
 	a.modeToken, a.ov.Mode = "rule", "rule"
 }
 
+func TestMeshOutageKeepsSessionRoutesWithoutChangingOrdinarySettings(t *testing.T) {
+	a, reloads := newSettingsTestApp(t, nil)
+	f := fixtureMesh(a)
+	f.snap.Status.Peers = nil
+	f.snap.Status.ProxyAddress, f.snap.Status.ProxyPassword = "127.0.0.1:42123", strings.Repeat("a", 64)
+	f.snap.Status.Running = false
+	a.reconcileMeshRoutes()
+	if len(reloads()) != 0 {
+		t.Fatal("login without device routes reloaded ordinary networking")
+	}
+	f.snap.Status.Running = true
+	f.snap.Status.RouteIPs = []netip.Addr{netip.MustParseAddr("100.70.0.2"), netip.MustParseAddr("fd7a:115c:a1e0::2")}
+	before, err := json.Marshal(a.ov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.reconcileMeshRoutes()
+	key := a.meshRouteKey
+	if len(reloads()) != 1 || key == "" || !strings.Contains(reloads()[0], "__GOPURR_TAILNET__") {
+		t.Fatalf("session routes not applied: %s", a.meshRouteError)
+	}
+	f.snap.Status.Running, f.snap.Status.State = false, "Stopped"
+	a.reconcileMeshRoutes()
+	f.snap.Status.ShieldsKnown = false
+	f.snap.Error = "temporary status failure"
+	a.reconcileMeshRoutes()
+	if a.meshRouteKey != key || len(reloads()) != 1 {
+		t.Fatal("temporary outage removed guarded routes or reloaded ordinary networking")
+	}
+	f.snap.Status.RouteIPs = nil
+	f.snap.Status.ProxyAddress, f.snap.Status.ProxyPassword = "", ""
+	a.reconcileMeshRoutes()
+	if a.meshRouteKey != "" || len(reloads()) != 2 || strings.Contains(reloads()[1], "__GOPURR_TAILNET__") {
+		t.Fatal("explicit disconnect did not restore ordinary routing")
+	}
+	after, err := json.Marshal(a.ov)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("mesh changed ordinary application settings: %v", err)
+	}
+}
+
 func TestMeshServicePresetsDoNotOpenBeforeConfirmation(t *testing.T) {
 	a := subscriptionTestApp(t)
 	f := fixtureMesh(a)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -69,6 +70,7 @@ func (c *Controller) Snapshot() Snapshot {
 	s.Visits = append([]Visit(nil), s.Visits...)
 	s.Status.Peers = append([]Device(nil), s.Status.Peers...)
 	s.Status.Health = append([]string(nil), s.Status.Health...)
+	s.Status.RouteIPs = slices.Clone(s.Status.RouteIPs)
 	return s
 }
 

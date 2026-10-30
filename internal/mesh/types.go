@@ -40,6 +40,7 @@ type Status struct {
 	Installed, Official, Running, ShieldsKnown, ShieldsUp bool
 	State, Version, AuthURL, Tailnet                      string
 	ProxyAddress, ProxyPassword                           string
+	RouteIPs                                              []netip.Addr `json:"-"` // exact guards for this live session
 	Services                                              []Service
 	Blocked                                               []string
 	Self                                                  Device

@@ -35,15 +35,16 @@ type accessPolicy struct {
 // Embedded owns its node, authentication state, access gate and connections.
 // It never discovers or executes an installed Tailscale application.
 type Embedded struct {
-	mu      sync.Mutex
-	dir     string
-	initErr error
-	policy  accessPolicy
-	allow   bool // never persisted; false before any network activity
-	node    *nodeSession
-	visits  []Visit
-	flows   map[*accessFlow]bool
-	pending chan struct{}
+	mu          sync.Mutex
+	dir         string
+	initErr     error
+	policy      accessPolicy
+	allow       bool   // never persisted; false before any network activity
+	accessEpoch uint64 // invalidates pending grants whenever access is revoked
+	node        *nodeSession
+	visits      []Visit
+	flows       map[*accessFlow]bool
+	pending     chan struct{}
 	// Gopurr's own proxy/API listeners may never be exposed as remote services.
 	reserved func(uint16) bool
 }
@@ -56,6 +57,7 @@ type nodeSession struct {
 	listener net.Listener
 	password string
 	peers    map[netip.Addr]bool
+	routeIPs map[netip.Addr]bool // session-only guards, including temporarily unavailable peers
 	devices  map[string]Device
 	self     map[netip.Addr]bool
 	sockets  map[*trackedConn]bool
@@ -106,6 +108,7 @@ func (b *Embedded) Read(ctx context.Context) (Status, error) {
 	s := Status{Installed: true, Official: true, State: "Stopped", ShieldsKnown: true, ShieldsUp: !b.allow,
 		Services: slices.Clone(b.policy.Services), Blocked: slices.Clone(b.policy.Blocked)}
 	initErr := b.initErr
+	b.sessionRoutesLocked(n, &s)
 	b.mu.Unlock()
 	if initErr != nil {
 		return s, initErr
@@ -115,6 +118,11 @@ func (b *Embedded) Read(ctx context.Context) (Status, error) {
 	}
 	rawStatus, err := n.lc.Status(ctx)
 	if err != nil {
+		b.mu.Lock()
+		if b.node == n {
+			n.peers = map[netip.Addr]bool{}
+		}
+		b.mu.Unlock()
 		return s, errors.New("无法读取内置组网内核状态")
 	}
 	encoded, _ := json.Marshal(rawStatus)
@@ -154,14 +162,39 @@ func (b *Embedded) Read(ctx context.Context) (Status, error) {
 	})
 	b.mu.Lock()
 	if b.node == n {
+		if n.routeIPs == nil {
+			n.routeIPs = map[netip.Addr]bool{}
+		}
+		for ip := range peers {
+			if s.Running && TailnetIP(ip) {
+				n.routeIPs[ip] = true
+			}
+		}
+		if !s.Running {
+			// Keep exact routes aimed at the authenticated bridge, but reject
+			// new dials until the current network map is available again.
+			peers = map[netip.Addr]bool{}
+		}
 		n.peers, n.self, n.devices = peers, self, devices
 		s.ShieldsUp = !b.allow
-		if s.Running && n.listener != nil {
-			s.ProxyAddress, s.ProxyPassword = n.listener.Addr().String(), n.password
-		}
+		b.sessionRoutesLocked(n, &s)
 	}
 	b.mu.Unlock()
 	return s, nil
+}
+
+// Guards belong to the live node session, never to preferences or backups.
+// Disconnect drops the session, restoring the application's ordinary routing.
+func (b *Embedded) sessionRoutesLocked(n *nodeSession, s *Status) {
+	if n == nil || b.node != n || n.listener == nil {
+		return
+	}
+	s.ProxyAddress, s.ProxyPassword = n.listener.Addr().String(), n.password
+	s.RouteIPs = make([]netip.Addr, 0, len(n.routeIPs))
+	for ip := range n.routeIPs {
+		s.RouteIPs = append(s.RouteIPs, ip)
+	}
+	slices.SortFunc(s.RouteIPs, func(a, b netip.Addr) int { return a.Compare(b) })
 }
 
 func (b *Embedded) Connect(ctx context.Context) (auth string, retErr error) {
@@ -249,6 +282,10 @@ func safePrefs(running, shields bool) *ipn.MaskedPrefs {
 func (b *Embedded) SetIncoming(ctx context.Context, allow bool) error {
 	b.mu.Lock()
 	n := b.node
+	if allow && ctx.Err() != nil {
+		b.mu.Unlock()
+		return ctx.Err()
+	}
 	if !allow {
 		b.blockLocked("")
 	}
@@ -259,6 +296,7 @@ func (b *Embedded) SetIncoming(ctx context.Context, allow bool) error {
 			return errors.New("请先连接组网并明确授权本机服务端口")
 		}
 	}
+	epoch := b.accessEpoch
 	b.mu.Unlock()
 	if n == nil {
 		return nil
@@ -278,7 +316,15 @@ func (b *Embedded) SetIncoming(ctx context.Context, allow bool) error {
 	if b.node != n {
 		return errors.New("组网已断开")
 	}
-	b.allow = allow
+	if allow {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if b.accessEpoch != epoch {
+			return errors.New("组网访问授权已撤销，请重新确认")
+		}
+		b.allow = true
+	}
 	return nil
 }
 
@@ -294,6 +340,7 @@ func (b *Embedded) BlockDeviceNow(id string) {
 }
 
 func (b *Embedded) blockLocked(deviceID string) {
+	b.accessEpoch++
 	if deviceID == "" {
 		b.allow = false
 	}
