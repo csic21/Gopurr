@@ -145,17 +145,9 @@ func (m *Manager) Ensure() error {
 	// An installed system service owns the socket. Spawning a child here would
 	// just make the two fight over it.
 	if service.Installed() {
-		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
-			if m.healthy() {
-				return nil
-			}
-			time.Sleep(150 * time.Millisecond)
-		}
-		if tail := service.LogTail(m.dir); tail != "" {
-			return fmt.Errorf(localize.Text("系统服务已安装，但内核没有启动：%s"), tail)
-		}
-		return errors.New(localize.Text("系统服务已安装但没有响应：请重试，或在概览页重新安装"))
+		// An unhealthy installed service should fail fast so the UI can point
+		// at reinstall instead of looking frozen for a long poll.
+		return m.waitServiceReady(serviceReadyWait)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -215,6 +207,25 @@ func (m *Manager) Ensure() error {
 	}
 	m.remote.resetTransport()
 	return nil
+}
+
+const serviceReadyWait = 2 * time.Second
+
+// waitServiceReady polls an already-installed system service. Unlike a child
+// spawn, waiting longer rarely helps: the service is either coming up quickly
+// or needs a reinstall.
+func (m *Manager) waitServiceReady(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if m.healthy() {
+			return nil
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	if tail := service.LogTail(m.dir); tail != "" {
+		return fmt.Errorf(localize.Text("系统服务已安装，但内核没有启动：%s"), tail)
+	}
+	return errors.New(localize.Text("系统服务已安装但没有响应：请在概览页重新安装服务"))
 }
 
 // reapStaleLocked stops an unowned daemon recorded in core.json and clears the

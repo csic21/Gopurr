@@ -62,3 +62,19 @@ func TestReapStaleClearsDeadStatusAndSocket(t *testing.T) {
 		t.Fatalf("socket not cleared: %v", err)
 	}
 }
+
+func TestWaitServiceReadyFailsQuicklyWithReinstallGuidance(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	err = m.waitServiceReady(400 * time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "重新安装") {
+		t.Fatalf("expected quick reinstall guidance, got %v", err)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("service wait took too long: %v", took)
+	}
+}

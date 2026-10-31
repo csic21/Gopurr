@@ -233,7 +233,7 @@ func (a *App) settingsPage(c *ui.Context) {
 						TextColor(pal.Faint).MaxLines(2).Selectable().Tooltip(a.dir)
 					hairline(c)
 					settingsRow(c, tr("重载内核"), tr("重新应用当前配置；无需手动启动内核"), func() {
-						softButton(c, tr("重载内核")).Disabled(a.k == nil).OnClick(a.reloadSettingsKernel)
+						softButton(c, tr("重载内核")).Disabled(a.k == nil || a.kernelBusyState()).OnClick(a.reloadSettingsKernel)
 					})
 				})
 			}
@@ -480,9 +480,14 @@ func (a *App) reloadSettingsKernel() {
 		a.notice = tr("内核客户端未初始化")
 		return
 	}
-	if a.startKernel() {
-		a.notice = tr("内核已重载")
+	if a.kernelBusyState() {
+		return
 	}
+	a.startKernelAsync(func(ok bool) {
+		if ok {
+			a.notice = tr("内核已重载")
+		}
+	})
 }
 
 // Keep valid custom values from an existing preference file selectable without

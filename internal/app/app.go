@@ -106,6 +106,7 @@ type App struct {
 	svcInstalled bool
 	svcBusy      bool
 	svcErr       string
+	kernelBusy   bool
 	// tunWanted remembers that TUN was on before its service turned out to be
 	// unusable, so a repaired service can pick the preference up again.
 	tunWanted bool
@@ -430,6 +431,7 @@ func (a *App) StartBackground() {
 		wantTUN := os.Getenv("GOPURR_TUN") == "1" || a.ov.TunEnable
 		if wantTUN && a.k.IsRoot() {
 			a.applyTun(true)
+			a.finishKernelBoot()
 		} else {
 			a.ov.TunEnable, a.tunOn = false, false
 			if wantTUN {
@@ -437,19 +439,15 @@ func (a *App) StartBackground() {
 				a.setTunErr(tr("TUN 服务未就绪，请安装或修复服务后重新开启"))
 			}
 			if !a.k.Running() && os.Getenv("GOPURR_AUTOSTART") != "0" {
-				a.toggle()
-			}
-		}
-		if a.k.Running() {
-			a.modeToken = a.k.Mode()
-			a.ov.Mode = a.modeToken
-			a.modePick = labelFor(a.modeToken)
-			a.modeIdx = modeIndex(a.modeToken)
-			// A proxy that already points at this kernel keeps working across
-			// restarts; re-applying it would only ask for the administrator
-			// password again on every launch.
-			if !a.sysApplied && a.Prefs().RestoreSystemProxy {
-				a.setSystemProxy(true)
+				// Ensure/Reload can take tens of seconds on large profiles; keep
+				// the UI thread free and finish mode/proxy restore in the callback.
+				a.startKernelAsync(func(ok bool) {
+					if ok {
+						a.finishKernelBoot()
+					}
+				})
+			} else {
+				a.finishKernelBoot()
 			}
 		}
 		// Smoke-test hook: measure a group without a human clicking.
@@ -578,6 +576,7 @@ func (a *App) sidebar(c *ui.Context, progress float32, moving bool) {
 		ui.Column(c).FillWidth().Padding(16).Opacity(1 - progress).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 0, 0, 0).Gap(6).Children(func() {
 				running := a.k.Running()
+				busy := a.kernelBusyState()
 				ui.Row(c).AlignItems(ui.Center).Gap(7).Children(func() {
 					dot := pal.Faint
 					if running {
@@ -585,7 +584,10 @@ func (a *App) sidebar(c *ui.Context, progress float32, moving bool) {
 					}
 					ui.Box(c).Size(6, 6).Radius(3).Background(dot)
 					label := tr("内核已停止")
-					if running {
+					switch {
+					case busy:
+						label = tr("正在启动…")
+					case running:
 						label = tr("内核运行中")
 					}
 					ui.Text(c, label).FontSize(11.5).TextColor(pal.Muted)
@@ -668,6 +670,10 @@ func (a *App) pageHeader(c *ui.Context, title, subtitle string, trailing func())
 
 func (a *App) kernelButton(c *ui.Context, running bool) {
 	pal := paletteFor(c)
+	if a.kernelBusyState() {
+		softPrimaryButton(c, tr("正在启动…")).Disabled(true)
+		return
+	}
 	if running {
 		pill(c, tr("运行中"), pal.Success, pal.Success.Alpha(0.10))
 		return
@@ -884,6 +890,9 @@ func (a *App) UseMode(token string) {
 }
 
 func (a *App) toggle() {
+	if a.kernelBusyState() {
+		return
+	}
 	if a.k.Running() {
 		if a.sysApplied {
 			a.setSystemProxy(false)
@@ -903,15 +912,100 @@ func (a *App) toggle() {
 		a.applyTun(true)
 		return
 	}
-	if a.startKernel() {
-		if a.sysOn {
+	a.startKernelAsync(func(ok bool) {
+		if ok && a.sysOn {
 			a.setSystemProxy(true)
 		}
+	})
+}
+
+// finishKernelBoot applies mode and restore-proxy preferences once a kernel is
+// known to be running after launch.
+func (a *App) finishKernelBoot() {
+	if a.k == nil || !a.k.Running() {
+		return
+	}
+	a.modeToken = a.k.Mode()
+	a.ov.Mode = a.modeToken
+	a.modePick = labelFor(a.modeToken)
+	a.modeIdx = modeIndex(a.modeToken)
+	// A proxy that already points at this kernel keeps working across
+	// restarts; re-applying it would only ask for the administrator
+	// password again on every launch.
+	if !a.sysApplied && a.Prefs().RestoreSystemProxy {
+		a.setSystemProxy(true)
 	}
 }
 
+func (a *App) kernelBusyState() bool {
+	a.bmu.Lock()
+	defer a.bmu.Unlock()
+	return a.kernelBusy
+}
+
+// startKernelAsync mirrors svcBusy: validation stays on the UI thread, while
+// Ensure/Reload run off it so the window stays responsive.
+func (a *App) startKernelAsync(after func(ok bool)) {
+	a.bmu.Lock()
+	if a.kernelBusy || a.shutdownPending.Load() {
+		a.bmu.Unlock()
+		return
+	}
+	a.kernelBusy = true
+	a.bmu.Unlock()
+
+	if !a.k.Running() && !portFree(a.mixedPort()) {
+		a.completeKernelStart(false, fmt.Sprintf(tr("端口 %d 已被占用（可能是另一个代理客户端），换一个端口再试"),
+			a.mixedPort()), after)
+		return
+	}
+	raw, err := a.configBytes()
+	if err != nil {
+		a.completeKernelStart(false, tr("配置无法使用: ")+err.Error(), after)
+		return
+	}
+	a.notice = tr("正在启动…")
+	go func() {
+		err := a.k.Start(raw)
+		if a.shutdownPending.Load() {
+			a.bmu.Lock()
+			a.kernelBusy = false
+			a.bmu.Unlock()
+			a.invalidate()
+			return
+		}
+		if err != nil {
+			a.completeKernelStart(false, tr("启动失败: ")+err.Error(), after)
+			return
+		}
+		a.cancelDelayTest()
+		a.bmu.Lock()
+		a.delays = map[string]uint16{}
+		a.delayErrors = map[string]string{}
+		a.kernelBusy = false
+		a.bmu.Unlock()
+		a.notice = ""
+		if after != nil {
+			after(true)
+		}
+		a.invalidate()
+	}()
+}
+
+func (a *App) completeKernelStart(ok bool, notice string, after func(ok bool)) {
+	a.bmu.Lock()
+	a.kernelBusy = false
+	a.bmu.Unlock()
+	a.notice = notice
+	if after != nil {
+		after(ok)
+	}
+	a.invalidate()
+}
+
 // startKernel applies the active config; it returns false and sets the notice
-// when the kernel refuses it.
+// when the kernel refuses it. Callers that need a synchronous result (config
+// transactions, tests) keep using this path; UI start/reload use startKernelAsync.
 func (a *App) startKernel() bool {
 	if !a.k.Running() && !portFree(a.mixedPort()) {
 		a.notice = fmt.Sprintf(tr("端口 %d 已被占用（可能是另一个代理客户端），换一个端口再试"),
@@ -940,7 +1034,7 @@ func (a *App) startKernel() bool {
 // on, the device is rebuilt first: mihomo closes the descriptor it adopted,
 // so the old one cannot be reused.
 func (a *App) restart() {
-	a.startKernel()
+	a.startKernelAsync(nil)
 }
 
 func portFree(port int) bool {
@@ -973,8 +1067,16 @@ func (a *App) setSystemProxy(on bool) {
 		return
 	}
 	port := a.mixedPort()
-	if on && !a.k.Running() && !a.startKernel() {
-		a.sysOn = false
+	if on && !a.k.Running() {
+		// Start off the UI thread; overview may call this every frame while the
+		// switch is ahead of sysApplied.
+		a.startKernelAsync(func(ok bool) {
+			if !ok {
+				a.sysOn = false
+				return
+			}
+			a.setSystemProxy(true)
+		})
 		return
 	}
 

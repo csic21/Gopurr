@@ -162,7 +162,7 @@ func topNavigationPadding(c *ui.Context) float32 {
 		labels += w
 	}
 	var status float32
-	for _, label := range []string{tr("内核运行中"), tr("内核已停止")} {
+	for _, label := range []string{tr("内核运行中"), tr("内核已停止"), tr("正在启动…")} {
 		w, _ := c.MeasureText(0, ui.Span{Text: label, Size: 11})
 		status = max(status, w)
 	}
@@ -172,6 +172,9 @@ func topNavigationPadding(c *ui.Context) float32 {
 }
 
 func (a *App) navigationStatus() string {
+	if a.kernelBusyState() {
+		return tr("正在启动…")
+	}
 	if a.k.Running() {
 		return tr("内核运行中")
 	}

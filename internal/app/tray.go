@@ -39,15 +39,16 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 		a.invalidate()
 	}
 	_, svcBusy, _ := a.svcState()
+	kernelBusy := a.kernelBusyState()
 	tunReady := a.k != nil && a.k.IsRoot()
-	tunEnabled := (tunReady || a.tunOn) && !svcBusy && a.k != nil
+	tunEnabled := (tunReady || a.tunOn) && !svcBusy && !kernelBusy && a.k != nil
 
 	items := []*mygo.MenuItem{
 		{ID: "show-window", Label: tr("显示窗口"), Click: func(*mygo.MenuItem, *mygo.Window) { openWindow() }},
 		mygo.Separator(),
 		{
 			ID: "system-proxy", Label: tr("系统代理"), Type: mygo.MenuItemCheckbox,
-			Checked: a.sysApplied, Disabled: !sysproxy.Available() || a.k == nil || svcBusy,
+			Checked: a.sysApplied, Disabled: !sysproxy.Available() || a.k == nil || svcBusy || kernelBusy,
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
 				a.notice = ""
 				a.setSystemProxy(item.IsChecked())
@@ -86,7 +87,7 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 	for _, token := range routeTokens {
 		modes = append(modes, &mygo.MenuItem{
 			ID: "mode-" + token, Label: modeLabelFor(token), Type: mygo.MenuItemRadio,
-			Checked: a.modeToken == token, Disabled: a.k == nil || svcBusy,
+			Checked: a.modeToken == token, Disabled: a.k == nil || svcBusy || kernelBusy,
 			Click: func(*mygo.MenuItem, *mygo.Window) {
 				a.UseMode(token)
 				for i, mode := range modes {
@@ -99,9 +100,12 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 			},
 		})
 	}
-	nodes := a.trayNodeItems(running, groups, svcBusy, openPage)
+	nodes := a.trayNodeItems(running, groups, svcBusy || kernelBusy, openPage)
 	reloadLabel := tr("重新加载配置")
-	if !running {
+	switch {
+	case kernelBusy:
+		reloadLabel = tr("正在启动…")
+	case !running:
 		reloadLabel = tr("启动内核")
 	}
 	items = append(items,
@@ -111,7 +115,7 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 		&mygo.MenuItem{ID: "mesh", Label: tr("设备组网"), Submenu: a.meshTrayItems(openPage)},
 		mygo.Separator(),
 		&mygo.MenuItem{
-			ID: "reload", Label: reloadLabel, Disabled: a.k == nil || svcBusy,
+			ID: "reload", Label: reloadLabel, Disabled: a.k == nil || svcBusy || kernelBusy,
 			Click: func(*mygo.MenuItem, *mygo.Window) {
 				a.Reload()
 				a.invalidate()
