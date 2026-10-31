@@ -11,6 +11,7 @@
 //	go run scripts/generate-windows-tray.go -variant=C   # inverted badge (default)
 //	go run scripts/generate-windows-tray.go -variant=none
 //	go run scripts/generate-windows-tray.go -preview     # all variants + sheets
+//	go run scripts/generate-windows-tray.go -layout=bold -preview
 package main
 
 import (
@@ -30,6 +31,17 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
+)
+
+// Geometry tuned so the disc matches Steam's edge-to-edge tray footprint
+// and the cat sits larger inside while leaving a readable graphite/ivory ring
+// (full cover swallows the badge and reads as a white blob at 16px).
+const (
+	outSize      = 32
+	circleRadius = 15.75 // ~0–1px outer margin on 32×32 (was 15.0 → 1px each side)
+	catMargin    = 0.55  // fit padding used when sizing the silhouette (was 2.0)
+	boldBlend    = 0.35  // contain→cover lerp for -layout=bold (recommended)
+	rimKeep      = 1.35  // guaranteed disc ring (px) so cat never erases Steam footprint
 )
 
 type pair struct {
@@ -54,30 +66,36 @@ var variants = []pair{
 		edgeRadius: 1,
 	},
 	{
-		// Soft ivory disc + graphite cat / dark slate disc + ivory cat.
 		name: "A", label: "A ivory disc + graphite cat",
-		lightCircle: color.NRGBA{R: 245, G: 245, B: 244, A: 255}, // stone-100
-		darkCircle:  color.NRGBA{R: 31, G: 41, B: 55, A: 255},    // graphite
+		lightCircle: color.NRGBA{R: 245, G: 245, B: 244, A: 255},
+		darkCircle:  color.NRGBA{R: 31, G: 41, B: 55, A: 255},
 		lightCat:    color.NRGBA{R: 31, G: 41, B: 55, A: 255},
 		darkCat:     color.NRGBA{R: 245, G: 245, B: 244, A: 255},
 	},
 	{
-		// Slightly cooler gray disc for light tray; near-black disc for dark.
 		name: "B", label: "B soft-gray disc + graphite cat",
-		lightCircle: color.NRGBA{R: 228, G: 228, B: 231, A: 255}, // zinc-200
-		darkCircle:  color.NRGBA{R: 15, G: 23, B: 42, A: 255},    // slate-900
+		lightCircle: color.NRGBA{R: 228, G: 228, B: 231, A: 255},
+		darkCircle:  color.NRGBA{R: 15, G: 23, B: 42, A: 255},
 		lightCat:    color.NRGBA{R: 31, G: 41, B: 55, A: 255},
 		darkCat:     color.NRGBA{R: 250, G: 250, B: 249, A: 255},
 	},
 	{
-		// Inverted badge: disc always contrasts with the taskbar.
 		name: "C", label: "C inverted badge (graphite/ivory swap)",
-		lightCircle: color.NRGBA{R: 31, G: 41, B: 55, A: 255},    // graphite disc on light tray
-		darkCircle:  color.NRGBA{R: 245, G: 245, B: 244, A: 255}, // ivory disc on dark tray
+		lightCircle: color.NRGBA{R: 31, G: 41, B: 55, A: 255},
+		darkCircle:  color.NRGBA{R: 245, G: 245, B: 244, A: 255},
 		lightCat:    color.NRGBA{R: 245, G: 245, B: 244, A: 255},
 		darkCat:     color.NRGBA{R: 31, G: 41, B: 55, A: 255},
 	},
 }
+
+type layoutMode string
+
+const (
+	layoutContain layoutMode = "contain"
+	layoutBold    layoutMode = "bold" // contain→cover blend; keeps badge ring
+	layoutCover   layoutMode = "cover"
+	layoutHead    layoutMode = "head"
+)
 
 type sized struct {
 	name string
@@ -86,18 +104,35 @@ type sized struct {
 	dk   *image.NRGBA
 }
 
+type candidate struct {
+	id     string
+	label  string
+	layout layoutMode
+	r      float64
+	margin float64
+	stroke bool
+}
+
 func main() {
 	variant := flag.String("variant", "C", "pair to write into internal/brand: A|B|C|none")
+	layoutFlag := flag.String("layout", "bold", "silhouette fit: contain|bold|cover|head (default bold)")
 	preview := flag.Bool("preview", false, "emit all variants + comparison sheets under docs/ and mockups/")
 	mockups := flag.String("mockups", "/workspace/gopurr-tray-mockups", "directory for alternate PNGs")
 	flag.Parse()
+
+	layout := layoutMode(*layoutFlag)
+	switch layout {
+	case layoutContain, layoutBold, layoutCover, layoutHead:
+	default:
+		log.Fatalf("unknown -layout=%q (want contain, bold, cover, or head)", *layoutFlag)
+	}
 
 	src, err := renderSource()
 	if err != nil {
 		log.Fatal(err)
 	}
-	bbox := opaqueBounds(src, 12)
-	if bbox.Empty() {
+	fullBBox := opaqueBounds(src, 12)
+	if fullBBox.Empty() {
 		log.Fatal("no opaque pixels in tray render")
 	}
 
@@ -106,7 +141,15 @@ func main() {
 		log.Fatalf("unknown -variant=%q (want A, B, C, or none)", *variant)
 	}
 
-	light, dark := renderPair(src, bbox, *chosen)
+	geom := candidate{
+		id:     "recommended",
+		label:  fmt.Sprintf("recommended C + %s r=%.2f m=%.2f", layout, circleRadius, catMargin),
+		layout: layout,
+		r:      circleRadius,
+		margin: catMargin,
+	}
+
+	light, dark := renderPairGeom(src, fullBBox, *chosen, geom)
 	dir := "internal/brand"
 	if err := writePNG(filepath.Join(dir, "tray-windows-light.png"), light); err != nil {
 		log.Fatal(err)
@@ -115,7 +158,8 @@ func main() {
 		log.Fatal(err)
 	}
 	fb := opaqueBounds(light, 8)
-	fmt.Printf("default variant=%s content bbox=%v size=%dx%d\n", chosen.name, fb, fb.Dx(), fb.Dy())
+	fmt.Printf("default variant=%s layout=%s r=%.2f margin=%.2f content bbox=%v size=%dx%d\n",
+		chosen.name, layout, circleRadius, catMargin, fb, fb.Dx(), fb.Dy())
 
 	if !*preview {
 		return
@@ -123,9 +167,10 @@ func main() {
 	if err := os.MkdirAll(*mockups, 0o755); err != nil {
 		log.Fatal(err)
 	}
+
 	var all []sized
 	for _, v := range variants {
-		lt, dk := renderPair(src, bbox, v)
+		lt, dk := renderPairGeom(src, fullBBox, v, geom)
 		all = append(all, sized{v.name, v, lt, dk})
 		base := filepath.Join(*mockups, "circle-"+v.name)
 		_ = writePNG(base+"-light-32.png", lt)
@@ -145,14 +190,31 @@ func main() {
 		log.Fatal(err)
 	}
 	rec := findVariant("C")
-	strip := buildTrayStrip(src, bbox, *rec)
+	strip := buildTrayStrip(src, fullBBox, *rec, geom)
 	if err := writePNG("docs/tray-windows-circle-sizes.png", strip); err != nil {
 		log.Fatal(err)
 	}
 	if err := writePNG(filepath.Join(*mockups, "windows-tray-circle-recommended.png"), strip); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("preview sheets written; recommended default = C (inverted badge)")
+
+	cands := []candidate{
+		{id: "v065", label: "v0.6.5 C (r=15.0 m=2.0 contain)", layout: layoutContain, r: 15.0, margin: 2.0},
+		{id: "contain-tight", label: "C contain r=15.75 m=0.55", layout: layoutContain, r: circleRadius, margin: catMargin},
+		{id: "bold", label: "C bold blend0.35 + rimKeep1.35 (recommended)", layout: layoutBold, r: circleRadius, margin: catMargin},
+		{id: "cover", label: "C cover r=15.75 m=0.55 (too filled)", layout: layoutCover, r: circleRadius, margin: catMargin},
+		{id: "head", label: "C head-crop + bold r=15.75 m=0.55", layout: layoutHead, r: circleRadius, margin: catMargin},
+		{id: "bold-stroke", label: "C bold + thin rim stroke", layout: layoutBold, r: circleRadius, margin: catMargin, stroke: true},
+	}
+	cmp := buildCandidateCompare(src, fullBBox, *rec, cands, *mockups)
+	if err := writePNG("docs/tray-windows-size-compare.png", cmp); err != nil {
+		log.Fatal(err)
+	}
+	if err := writePNG(filepath.Join(*mockups, "windows-tray-size-compare.png"), cmp); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("preview sheets written; recommended default = C inverted badge + bold layout")
 }
 
 func findVariant(name string) *pair {
@@ -186,12 +248,26 @@ func renderSource() (*image.NRGBA, error) {
 	return src, nil
 }
 
-func renderPair(src *image.NRGBA, bbox image.Rectangle, v pair) (light, dark *image.NRGBA) {
-	const out = 32
+func renderPairGeom(src *image.NRGBA, fullBBox image.Rectangle, v pair, g candidate) (light, dark *image.NRGBA) {
+	out := outSize
 	useCircle := v.lightCircle.A > 0
+	bbox := fullBBox
+	if g.layout == layoutHead {
+		bbox = headCrop(fullBBox)
+	}
 	var mask *image.NRGBA
 	if useCircle {
-		mask = placeInCircle(src, bbox, out, 15.0, 2.0)
+		switch g.layout {
+		case layoutCover:
+			mask = placeInCircleCover(src, bbox, out, g.r, g.margin)
+		case layoutHead:
+			// Head crop + mild bold blend so ears stay large without eating the rim.
+			mask = placeInCircleBlend(src, bbox, out, g.r, g.margin, boldBlend)
+		case layoutBold:
+			mask = placeInCircleBlend(src, bbox, out, g.r, g.margin, boldBlend)
+		default:
+			mask = placeInCircleContain(src, bbox, out, g.r, g.margin)
+		}
 	} else {
 		mask = placeInSquare(src, bbox, out, 2)
 	}
@@ -203,10 +279,25 @@ func renderPair(src *image.NRGBA, bbox image.Rectangle, v pair) (light, dark *im
 		dark = colorizeSolid(mask, v.darkCat)
 	}
 	if useCircle {
-		light = withCircle(light, v.lightCircle, out, 15.0)
-		dark = withCircle(dark, v.darkCircle, out, 15.0)
+		light = withCircle(light, v.lightCircle, out, g.r)
+		dark = withCircle(dark, v.darkCircle, out, g.r)
+		if g.stroke {
+			light = withRim(light, v.lightCat, out, g.r, 0.9)
+			dark = withRim(dark, v.darkCat, out, g.r, 0.9)
+		}
 	}
 	return light, dark
+}
+
+func headCrop(b image.Rectangle) image.Rectangle {
+	dx, dy := b.Dx(), b.Dy()
+	c := image.Rect(
+		b.Min.X+dx*18/100,
+		b.Min.Y,
+		b.Max.X,
+		b.Min.Y+dy*78/100,
+	)
+	return c.Intersect(b)
 }
 
 func placeInSquare(src *image.NRGBA, bbox image.Rectangle, out, margin int) *image.NRGBA {
@@ -229,10 +320,7 @@ func placeInSquare(src *image.NRGBA, bbox image.Rectangle, out, margin int) *ima
 	return blitScaled(src, bbox, out, nw, nh)
 }
 
-func placeInCircle(src *image.NRGBA, bbox image.Rectangle, out int, r, margin float64) *image.NRGBA {
-	// Fit into the inscribed square of the inner disc. The curled-cat
-	// silhouette does not fill bbox corners, so this reads larger than a
-	// strict diagonal fit while still leaving ~margin px inside the rim.
+func placeInCircleContain(src *image.NRGBA, bbox image.Rectangle, out int, r, margin float64) *image.NRGBA {
 	inner := int(math.Floor(2*(r-margin) + 1e-6))
 	if inner < 1 {
 		inner = 1
@@ -255,6 +343,54 @@ func placeInCircle(src *image.NRGBA, bbox image.Rectangle, out int, r, margin fl
 	return blitScaled(src, bbox, out, nw, nh)
 }
 
+func placeInCircleCover(src *image.NRGBA, bbox image.Rectangle, out int, r, margin float64) *image.NRGBA {
+	inner := 2 * (r - margin)
+	if inner < 1 {
+		inner = 1
+	}
+	bw, bh := float64(bbox.Dx()), float64(bbox.Dy())
+	scale := math.Max(inner/bw, inner/bh)
+	nw := int(math.Round(bw * scale))
+	nh := int(math.Round(bh * scale))
+	if nw < 1 {
+		nw = 1
+	}
+	if nh < 1 {
+		nh = 1
+	}
+	return blitScaled(src, bbox, out, nw, nh)
+}
+
+
+func placeInCircleBlend(src *image.NRGBA, bbox image.Rectangle, out int, r, margin, blend float64) *image.NRGBA {
+	// Lerp contain→cover so the cat grows without erasing the disc ring that
+	// gives the inverted badge its Steam-like footprint on the taskbar.
+	if blend <= 0 {
+		return placeInCircleContain(src, bbox, out, r, margin)
+	}
+	if blend >= 1 {
+		return placeInCircleCover(src, bbox, out, r, margin)
+	}
+	inner := 2 * (r - margin)
+	if inner < 1 {
+		inner = 1
+	}
+	bw, bh := float64(bbox.Dx()), float64(bbox.Dy())
+	scContain := math.Min(inner/bw, inner/bh)
+	scCover := math.Max(inner/bw, inner/bh)
+	scale := scContain*(1-blend) + scCover*blend
+	nw := int(math.Round(bw * scale))
+	nh := int(math.Round(bh * scale))
+	if nw < 1 {
+		nw = 1
+	}
+	if nh < 1 {
+		nh = 1
+	}
+	return blitScaled(src, bbox, out, nw, nh)
+}
+
+
 func blitScaled(src *image.NRGBA, bbox image.Rectangle, out, nw, nh int) *image.NRGBA {
 	cropped := image.NewNRGBA(image.Rect(0, 0, bbox.Dx(), bbox.Dy()))
 	draw.Draw(cropped, cropped.Bounds(), src, bbox.Min, draw.Src)
@@ -268,20 +404,29 @@ func blitScaled(src *image.NRGBA, bbox image.Rectangle, out, nw, nh int) *image.
 }
 
 func withCircle(fg *image.NRGBA, circle color.NRGBA, out int, r float64) *image.NRGBA {
+	return withCircleRing(fg, circle, out, r, rimKeep)
+}
+
+func withCircleRing(fg *image.NRGBA, circle color.NRGBA, out int, r, keep float64) *image.NRGBA {
 	dst := image.NewNRGBA(image.Rect(0, 0, out, out))
 	cx := float64(out) / 2
 	cy := float64(out) / 2
 	fillCircle(dst, cx, cy, r, circle)
+	// Soft-clip cat inside the disc, leaving `keep` px of pure disc so the
+	// inverted badge still reads as a Steam-sized circle on the taskbar.
+	catR := r - keep
+	if catR < r*0.5 {
+		catR = r * 0.5
+	}
 	for y := 0; y < out; y++ {
 		for x := 0; x < out; x++ {
 			s := fg.NRGBAAt(x, y)
 			if s.A == 0 {
 				continue
 			}
-			// Soft-clip cat to the disc so bbox corners never poke past the rim.
 			dx := float64(x) + 0.5 - cx
 			dy := float64(y) + 0.5 - cy
-			cover := r + 0.5 - math.Hypot(dx, dy)
+			cover := catR + 0.5 - math.Hypot(dx, dy)
 			if cover <= 0 {
 				continue
 			}
@@ -292,6 +437,46 @@ func withCircle(fg *image.NRGBA, circle color.NRGBA, out int, r float64) *image.
 			dst.SetNRGBA(x, y, over(s, d))
 		}
 	}
+	return dst
+}
+
+func withRim(img *image.NRGBA, rim color.NRGBA, out int, r, width float64) *image.NRGBA {
+	dst := cloneNRGBA(img)
+	cx := float64(out) / 2
+	cy := float64(out) / 2
+	outer := r + 0.15
+	inner := r - width
+	for y := 0; y < out; y++ {
+		for x := 0; x < out; x++ {
+			dx := float64(x) + 0.5 - cx
+			dy := float64(y) + 0.5 - cy
+			d := math.Hypot(dx, dy)
+			if d > outer+0.5 || d < inner-0.5 {
+				continue
+			}
+			cover := 1.0
+			if d > outer-0.5 {
+				cover = outer + 0.5 - d
+			} else if d < inner+0.5 {
+				cover = d - (inner - 0.5)
+			}
+			if cover <= 0 {
+				continue
+			}
+			if cover > 1 {
+				cover = 1
+			}
+			c := rim
+			c.A = uint8(float64(rim.A)*cover*0.85 + 0.5)
+			dst.SetNRGBA(x, y, over(c, dst.NRGBAAt(x, y)))
+		}
+	}
+	return dst
+}
+
+func cloneNRGBA(src *image.NRGBA) *image.NRGBA {
+	dst := image.NewNRGBA(src.Bounds())
+	copy(dst.Pix, src.Pix)
 	return dst
 }
 
@@ -453,7 +638,7 @@ func buildSheet(all []sized) *image.NRGBA {
 	height := pad + 36 + rows*(cell+labelH+pad) + 40
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	fillRect(img, img.Bounds(), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
-	drawLabel(img, pad, pad+12, "Gopurr Windows tray — circle variants (4x nearest) + 16/24/32", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
+	drawLabel(img, pad, pad+12, "Gopurr Windows tray — circle variants (edge-to-edge + larger cat) + 16/24/32", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
 
 	y := pad + 36
 	for _, it := range all {
@@ -478,20 +663,20 @@ func buildSheet(all []sized) *image.NRGBA {
 		}
 		y += cell + labelH + pad
 	}
-	drawLabel(img, pad, height-20, "Recommended default: C (inverted badge — disc contrasts with taskbar). Mac tray.png unchanged.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, height-20, "Recommended: C inverted badge + bold layout (disc edge-to-edge, larger cat, visible ring). Mac tray.png unchanged.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 	return img
 }
 
-func buildTrayStrip(src *image.NRGBA, bbox image.Rectangle, v pair) *image.NRGBA {
-	lt, dk := renderPair(src, bbox, v)
+func buildTrayStrip(src *image.NRGBA, bbox image.Rectangle, v pair, g candidate) *image.NRGBA {
+	lt, dk := renderPairGeom(src, bbox, v, g)
 	const pad = 20
 	width := pad*2 + 280*2
 	height := pad*2 + 160
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	fillRect(img, image.Rect(0, 0, width/2, height), color.NRGBA{R: 243, G: 244, B: 246, A: 255})
 	fillRect(img, image.Rect(width/2, 0, width, height), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
-	drawLabel(img, pad, pad+8, "Light taskbar — recommended C", color.NRGBA{R: 39, G: 39, B: 42, A: 255})
-	drawLabel(img, width/2+pad, pad+8, "Dark taskbar — recommended C", color.NRGBA{R: 228, G: 228, B: 231, A: 255})
+	drawLabel(img, pad, pad+8, "Light taskbar — recommended C bold", color.NRGBA{R: 39, G: 39, B: 42, A: 255})
+	drawLabel(img, width/2+pad, pad+8, "Dark taskbar — recommended C bold", color.NRGBA{R: 228, G: 228, B: 231, A: 255})
 	x := pad
 	for _, sz := range []int{16, 24, 32} {
 		var zoom *image.NRGBA
@@ -516,6 +701,52 @@ func buildTrayStrip(src *image.NRGBA, bbox image.Rectangle, v pair) *image.NRGBA
 		drawLabel(img, x, 50+zoom.Bounds().Dy()+14, fmt.Sprintf("%dpx -> 4x", sz), color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 		x += zoom.Bounds().Dx() + 16
 	}
+	return img
+}
+
+func buildCandidateCompare(src *image.NRGBA, bbox image.Rectangle, v pair, cands []candidate, mockups string) *image.NRGBA {
+	const pad = 16
+	const cell = 96
+	const rowH = cell + 56
+	const steamBox = 40
+	width := pad + 280 + 48*3 + 16 + cell + 24 + steamBox + pad
+	height := pad + 48 + len(cands)*rowH + 36
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	fillRect(img, img.Bounds(), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
+	drawLabel(img, pad, pad+12, "v0.6.5 C vs new candidates — light tray 16/24/32 + 3x zoom; Steam-size ref circle", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
+	drawLabel(img, pad, pad+28, "Goal: disc edge-to-edge like Steam; cat much larger / more recognizable (no stretch)", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+
+	trayBG := color.NRGBA{R: 243, G: 244, B: 246, A: 255}
+	steamRef := color.NRGBA{R: 31, G: 41, B: 55, A: 255}
+
+	y := pad + 48
+	for _, g := range cands {
+		lt, _ := renderPairGeom(src, bbox, v, g)
+		base := filepath.Join(mockups, "cand-"+g.id)
+		_ = writePNG(base+"-light-32.png", lt)
+		_ = writePNG(base+"-light-24.png", downNearest(lt, 24))
+		_ = writePNG(base+"-light-16.png", downNearest(lt, 16))
+		_ = writePNG(base+"-light-128.png", upNearest(lt, 4))
+
+		drawLabel(img, pad, y+14, g.label, color.NRGBA{R: 212, G: 212, B: 216, A: 255})
+		x := pad + 280
+		for _, sz := range []int{16, 24, 32} {
+			placeSized(img, lt, x, y+cell-sz-20, sz, trayBG, 40)
+			drawLabel(img, x, y+cell-2, fmt.Sprintf("%d", sz), color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+			x += 48
+		}
+		x += 8
+		placeZoom(img, lt, x, y, cell, trayBG)
+		x += cell + 16
+		ref := image.NewNRGBA(image.Rect(0, 0, 32, 32))
+		fillCircle(ref, 16, 16, 15.75, steamRef)
+		fillCircle(ref, 16, 16, 6.5, color.NRGBA{R: 245, G: 245, B: 244, A: 255})
+		placeSized(img, ref, x, y+cell-32-20, 32, trayBG, steamBox)
+		drawLabel(img, x-4, y+cell-2, "Steam~", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+
+		y += rowH
+	}
+	drawLabel(img, pad, height-18, "Recommended asset written to tray-windows-light/dark.png (C bold). No release tag.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 	return img
 }
 
