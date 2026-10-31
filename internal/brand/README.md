@@ -7,7 +7,8 @@
 - `tray.svg`：相同剪影的菜单栏版本，只有黑色与透明像素，缩紧视口以适配 16/18 像素。
 - `logo.png`、`icon.png`、`sidebar.png`：从渲染源派生的 1024、512、128 像素版本。
 - `tray.png`：从菜单栏矢量派生的 32 像素模板，由 macOS 适配明暗。
-- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图（圆底 Graphite 风格），非模板。默认变体 C：浅色任务栏为 Graphite 圆底 + 象牙白猫，深色任务栏为象牙圆底 + Graphite 猫；圆贴满 32×32（r≈16，0 外边距，贴近 Steam 圆底足迹；若系统裁切再回退）。默认布局 `head`：裁切蜷睡猫剪影的耳＋头／脸（右侧），在圆内等比放大，约 2.50px 环带保留 / catMargin≈1.75，避免贴边；相对全身剪影在 16–24px 更易辨认。`main` 按任务栏明暗切换。用 `go run scripts/generate-windows-tray.go`（`-variant=A|B|C|none`，`-layout=contain|bold|cover|head`，`-preview` 出对比图）重生成，勿改 `tray.png`。对比见 `docs/tray-windows-body-vs-face.png`、`docs/tray-windows-circle-preview.png` 与 `docs/tray-windows-size-compare.png`。
+- `tray-face.svg`：Windows 托盘专用的**全新正面猫脸**矢量（非蜷睡剪影裁切）。圆头、中等尖耳、简化眼／鼻镂空，比例对齐 logo-v5 蜷睡猫角色；概念稿见 `docs/tray-face-concept.png`（ImageGen + 品牌参考后矢量化）。
+- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图（圆底 Graphite 风格），非模板。默认变体 C：浅色任务栏为 Graphite 圆底 + 象牙白猫，深色任务栏为象牙圆底 + Graphite 猫；圆贴满 32×32（r≈16，0 外边距，贴近 Steam 圆底足迹）。默认布局 `face`：用 `tray-face.svg` 正面脸，在圆内等比放大，约 2.50px 环带保留 / catMargin≈1.75。对比布局仍可用 `head`（蜷睡剪影耳头裁切）与 `contain|bold|cover`（全身）。`main` 按任务栏明暗切换。用 `go run scripts/generate-windows-tray.go`（`-variant=A|B|C|none`，`-layout=face|head|contain|bold|cover`，`-preview` 出对比图）重生成，**勿改** `tray.png`（macOS）。对比见 `docs/tray-windows-crop-vs-face.png`、`docs/tray-windows-body-vs-face.png`、`docs/tray-windows-circle-preview.png` 与 `docs/tray-windows-size-compare.png`。
 
 编辑 `logo.svg` 与 `tray.svg` 时保持剪影路径一致，然后运行：
 

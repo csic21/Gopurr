@@ -1,18 +1,18 @@
 //go:build ignore
 
-// One-shot: regenerate Windows Graphite tray icons from tray.svg.
-// Uniform scale + center only (no stretch). Optional filled circle behind
-// the cat so the silhouette can sit larger without looking padded.
-// Default layout is head (ears+face crop) for clearer 16–24px recognition.
-// macOS tray.png is never touched.
+// One-shot: regenerate Windows Graphite tray icons.
+// Default: NEW front-facing cat face from tray-face.svg on inverted badge C
+// (not a crop of the curled body). Optional layouts still render the curled
+// tray.svg (contain/bold/cover/head crop) for comparison.
+// Uniform scale + center only (no stretch). macOS tray.png is never touched.
 //
 //	go run scripts/generate-windows-tray.go
 //	go run scripts/generate-windows-tray.go -variant=A   # ivory disc
 //	go run scripts/generate-windows-tray.go -variant=B   # soft gray disc
 //	go run scripts/generate-windows-tray.go -variant=C   # inverted badge (default)
 //	go run scripts/generate-windows-tray.go -variant=none
-//	go run scripts/generate-windows-tray.go -preview     # all variants + sheets
-//	go run scripts/generate-windows-tray.go -layout=head -preview
+//	go run scripts/generate-windows-tray.go -layout=face -preview
+//	go run scripts/generate-windows-tray.go -layout=head -preview  # prior crop
 package main
 
 import (
@@ -35,15 +35,15 @@ import (
 )
 
 // Geometry: disc fills the 32×32 canvas (r=16, 0 outer margin) to match
-// Steam's edge-to-edge tray footprint. Default layout is head (ears+face
-// crop) so the badge reads as a cat face at 16–24px; rimKeep / catMargin
-// keep comfortable padding so the face is not jammed to the disc edge.
+// Steam's edge-to-edge tray footprint. Default layout is face (new front-
+// facing tray-face.svg) so the badge reads as the Gopurr cat at 16–24px;
+// rimKeep / catMargin keep comfortable padding inside the disc.
 const (
 	outSize      = 32
-	circleRadius = 16.0  // fill 32×32 completely (0 outer margin; was 15.75)
-	catMargin    = 1.75  // fit padding so face sits inside disc (was 1.50 body; was 0.55 jam)
-	boldBlend    = 0.20  // contain→cover lerp for head/bold (milder for face; was 0.25)
-	rimKeep      = 2.50  // guaranteed disc ring (px) so face is not jammed to the rim
+	circleRadius = 16.0 // fill 32×32 completely (0 outer margin; was 15.75)
+	catMargin    = 1.75 // fit padding so face sits inside disc
+	boldBlend    = 0.20 // contain→cover lerp for face/head/bold
+	rimKeep      = 2.50 // guaranteed disc ring (px) so art is not jammed to the rim
 )
 
 type pair struct {
@@ -96,7 +96,8 @@ const (
 	layoutContain layoutMode = "contain"
 	layoutBold    layoutMode = "bold" // contain→cover blend; keeps badge ring
 	layoutCover   layoutMode = "cover"
-	layoutHead    layoutMode = "head"
+	layoutHead    layoutMode = "head" // prior: crop ears+head from curled tray.svg
+	layoutFace    layoutMode = "face" // NEW: front-facing tray-face.svg (default)
 )
 
 type sized struct {
@@ -117,19 +118,19 @@ type candidate struct {
 
 func main() {
 	variant := flag.String("variant", "C", "pair to write into internal/brand: A|B|C|none")
-	layoutFlag := flag.String("layout", "head", "silhouette fit: contain|bold|cover|head (default head = ears+face)")
+	layoutFlag := flag.String("layout", "face", "silhouette: face (default, tray-face.svg) | head (crop) | contain|bold|cover")
 	preview := flag.Bool("preview", false, "emit all variants + comparison sheets under docs/ and mockups/")
 	mockups := flag.String("mockups", "/workspace/gopurr-tray-mockups", "directory for alternate PNGs")
 	flag.Parse()
 
 	layout := layoutMode(*layoutFlag)
 	switch layout {
-	case layoutContain, layoutBold, layoutCover, layoutHead:
+	case layoutContain, layoutBold, layoutCover, layoutHead, layoutFace:
 	default:
-		log.Fatalf("unknown -layout=%q (want contain, bold, cover, or head)", *layoutFlag)
+		log.Fatalf("unknown -layout=%q (want face, head, contain, bold, or cover)", *layoutFlag)
 	}
 
-	src, err := renderSource()
+	src, err := renderSource(layout)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func main() {
 
 	geom := candidate{
 		id:     "recommended",
-		label:  fmt.Sprintf("recommended C + %s r=%.2f m=%.2f", layout, circleRadius, catMargin),
+		label:  fmt.Sprintf("recommended C + %s (new face) r=%.2f m=%.2f", layout, circleRadius, catMargin),
 		layout: layout,
 		r:      circleRadius,
 		margin: catMargin,
@@ -200,15 +201,25 @@ func main() {
 		log.Fatal(err)
 	}
 
-	cands := []candidate{
-		{id: "body-v065", label: "prior full-body v0.6.5 C (r=15.0 m=2.0 contain)", layout: layoutContain, r: 15.0, margin: 2.0},
-		{id: "body-bold", label: "prior full-body C bold r=16.0 m=1.50 (last main)", layout: layoutBold, r: circleRadius, margin: 1.50},
-		{id: "body-cover", label: "full-body C cover r=16.0 (too filled)", layout: layoutCover, r: circleRadius, margin: catMargin},
-		{id: "head", label: "C head/face crop r=16.0 m=1.75 blend0.20 + rimKeep2.50 (recommended)", layout: layoutHead, r: circleRadius, margin: catMargin},
-		{id: "head-tight", label: "C head crop + cover-ish (m=1.25)", layout: layoutHead, r: circleRadius, margin: 1.25},
-		{id: "head-stroke", label: "C head + thin rim stroke r=16.0", layout: layoutHead, r: circleRadius, margin: catMargin, stroke: true},
+	bodySrc, err := renderSource(layoutBold)
+	if err != nil {
+		log.Fatal(err)
 	}
-	cmp := buildCandidateCompare(src, fullBBox, *rec, cands, *mockups)
+	bodyBBox := opaqueBounds(bodySrc, 12)
+	faceSrc, err := renderSource(layoutFace)
+	if err != nil {
+		log.Fatal(err)
+	}
+	faceBBox := opaqueBounds(faceSrc, 12)
+
+	cands := []candidate{
+		{id: "body-bold", label: "prior full-body C bold (curled tray.svg)", layout: layoutBold, r: circleRadius, margin: 1.50},
+		{id: "head-crop", label: "prior head crop from curled tray.svg", layout: layoutHead, r: circleRadius, margin: catMargin},
+		{id: "face", label: "NEW front-facing face (tray-face.svg) — recommended", layout: layoutFace, r: circleRadius, margin: catMargin},
+		{id: "face-tight", label: "NEW face tighter margin m=1.25", layout: layoutFace, r: circleRadius, margin: 1.25},
+		{id: "face-stroke", label: "NEW face + thin rim stroke", layout: layoutFace, r: circleRadius, margin: catMargin, stroke: true},
+	}
+	cmp := buildCandidateCompareMulti(bodySrc, bodyBBox, faceSrc, faceBBox, *rec, cands, *mockups)
 	if err := writePNG("docs/tray-windows-size-compare.png", cmp); err != nil {
 		log.Fatal(err)
 	}
@@ -216,15 +227,21 @@ func main() {
 		log.Fatal(err)
 	}
 
-	bodyFace := buildBodyVsFace(src, fullBBox, *rec)
+	bodyFace := buildCropVsNewFace(bodySrc, bodyBBox, faceSrc, faceBBox, *rec)
 	if err := writePNG("docs/tray-windows-body-vs-face.png", bodyFace); err != nil {
 		log.Fatal(err)
 	}
 	if err := writePNG(filepath.Join(*mockups, "windows-tray-body-vs-face.png"), bodyFace); err != nil {
 		log.Fatal(err)
 	}
+	if err := writePNG("docs/tray-windows-crop-vs-face.png", bodyFace); err != nil {
+		log.Fatal(err)
+	}
+	if err := writePNG(filepath.Join(*mockups, "windows-tray-crop-vs-face.png"), bodyFace); err != nil {
+		log.Fatal(err)
+	}
 
-	fmt.Println("preview sheets written; recommended default = C inverted badge + head (cat face) layout")
+	fmt.Println("preview sheets written; recommended default = C inverted badge + face (tray-face.svg)")
 }
 
 func findVariant(name string) *pair {
@@ -236,9 +253,13 @@ func findVariant(name string) *pair {
 	return nil
 }
 
-func renderSource() (*image.NRGBA, error) {
+func renderSource(layout layoutMode) (*image.NRGBA, error) {
 	const dir = "internal/brand"
-	data, err := os.ReadFile(filepath.Join(dir, "tray.svg"))
+	name := "tray.svg"
+	if layout == layoutFace {
+		name = "tray-face.svg"
+	}
+	data, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		return nil, err
 	}
@@ -270,8 +291,8 @@ func renderPairGeom(src *image.NRGBA, fullBBox image.Rectangle, v pair, g candid
 		switch g.layout {
 		case layoutCover:
 			mask = placeInCircleCover(src, bbox, out, g.r, g.margin)
-		case layoutHead:
-			// Head crop + mild bold blend so ears stay large without eating the rim.
+		case layoutHead, layoutFace:
+			// Face asset or head crop + mild bold blend; rimKeep preserves disc ring.
 			mask = placeInCircleBlend(src, bbox, out, g.r, g.margin, boldBlend)
 		case layoutBold:
 			mask = placeInCircleBlend(src, bbox, out, g.r, g.margin, boldBlend)
@@ -374,7 +395,6 @@ func placeInCircleCover(src *image.NRGBA, bbox image.Rectangle, out int, r, marg
 	return blitScaled(src, bbox, out, nw, nh)
 }
 
-
 func placeInCircleBlend(src *image.NRGBA, bbox image.Rectangle, out int, r, margin, blend float64) *image.NRGBA {
 	// Lerp contain→cover so the cat grows without erasing the disc ring that
 	// gives the inverted badge its Steam-like footprint on the taskbar.
@@ -402,7 +422,6 @@ func placeInCircleBlend(src *image.NRGBA, bbox image.Rectangle, out int, r, marg
 	}
 	return blitScaled(src, bbox, out, nw, nh)
 }
-
 
 func blitScaled(src *image.NRGBA, bbox image.Rectangle, out, nw, nh int) *image.NRGBA {
 	cropped := image.NewNRGBA(image.Rect(0, 0, bbox.Dx(), bbox.Dy()))
@@ -651,7 +670,7 @@ func buildSheet(all []sized) *image.NRGBA {
 	height := pad + 36 + rows*(cell+labelH+pad) + 40
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	fillRect(img, img.Bounds(), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
-	drawLabel(img, pad, pad+12, "Gopurr Windows tray — circle variants (r=16 fill + cat face) + 16/24/32", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
+	drawLabel(img, pad, pad+12, "Gopurr Windows tray — circle variants (r=16 + NEW front face) + 16/24/32", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
 
 	y := pad + 36
 	for _, it := range all {
@@ -676,7 +695,7 @@ func buildSheet(all []sized) *image.NRGBA {
 		}
 		y += cell + labelH + pad
 	}
-	drawLabel(img, pad, height-20, "Recommended: C inverted badge + head (ears+face) layout (disc r=16 fill, roomier rimKeep). Mac tray.png unchanged.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, height-20, "Recommended: C inverted badge + NEW front-facing face (tray-face.svg). Mac tray.png unchanged.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 	return img
 }
 
@@ -688,8 +707,8 @@ func buildTrayStrip(src *image.NRGBA, bbox image.Rectangle, v pair, g candidate)
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	fillRect(img, image.Rect(0, 0, width/2, height), color.NRGBA{R: 243, G: 244, B: 246, A: 255})
 	fillRect(img, image.Rect(width/2, 0, width, height), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
-	drawLabel(img, pad, pad+8, "Light taskbar — recommended C head (face)", color.NRGBA{R: 39, G: 39, B: 42, A: 255})
-	drawLabel(img, width/2+pad, pad+8, "Dark taskbar — recommended C head (face)", color.NRGBA{R: 228, G: 228, B: 231, A: 255})
+	drawLabel(img, pad, pad+8, "Light taskbar — recommended C NEW face", color.NRGBA{R: 39, G: 39, B: 42, A: 255})
+	drawLabel(img, width/2+pad, pad+8, "Dark taskbar — recommended C NEW face", color.NRGBA{R: 228, G: 228, B: 231, A: 255})
 	x := pad
 	for _, sz := range []int{16, 24, 32} {
 		var zoom *image.NRGBA
@@ -717,38 +736,42 @@ func buildTrayStrip(src *image.NRGBA, bbox image.Rectangle, v pair, g candidate)
 	return img
 }
 
-
-func buildBodyVsFace(src *image.NRGBA, bbox image.Rectangle, v pair) *image.NRGBA {
+func buildCropVsNewFace(bodySrc *image.NRGBA, bodyBBox image.Rectangle, faceSrc *image.NRGBA, faceBBox image.Rectangle, v pair) *image.NRGBA {
 	bodyGeom := candidate{
 		id: "body", label: "full-body bold", layout: layoutBold, r: circleRadius, margin: 1.50,
 	}
-	faceGeom := candidate{
-		id: "face", label: "head/face", layout: layoutHead, r: circleRadius, margin: catMargin,
+	cropGeom := candidate{
+		id: "crop", label: "prior head crop", layout: layoutHead, r: circleRadius, margin: catMargin,
 	}
-	bodyLt, bodyDk := renderPairGeom(src, bbox, v, bodyGeom)
-	faceLt, faceDk := renderPairGeom(src, bbox, v, faceGeom)
+	faceGeom := candidate{
+		id: "face", label: "NEW front face", layout: layoutFace, r: circleRadius, margin: catMargin,
+	}
+	bodyLt, bodyDk := renderPairGeom(bodySrc, bodyBBox, v, bodyGeom)
+	cropLt, cropDk := renderPairGeom(bodySrc, bodyBBox, v, cropGeom)
+	faceLt, faceDk := renderPairGeom(faceSrc, faceBBox, v, faceGeom)
 
 	const pad = 20
 	const cell = 128
 	const rowH = cell + 72
-	width := pad*2 + 200 + (cell+16)*2 + 48*3 + 24
-	height := pad + 48 + rowH*2 + 36
+	width := pad*2 + 220 + (cell+16)*2 + 48*3 + 24
+	height := pad + 48 + rowH*3 + 36
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	fillRect(img, img.Bounds(), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
-	drawLabel(img, pad, pad+12, "Windows tray: full-body silhouette vs cat face (ears+head) — variant C inverted badge", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
-	drawLabel(img, pad, pad+28, "Same full-bleed disc (r=16). Face crop reads clearer at 16–24px; Mac tray.png unchanged.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, pad+12, "Windows tray: curled body / prior head-crop / NEW front-facing face — variant C", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
+	drawLabel(img, pad, pad+28, "NEW face is tray-face.svg (not a crop). Same full-bleed disc r=16. Mac tray.png unchanged.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 
 	rows := []struct {
-		title string
+		title  string
 		lt, dk *image.NRGBA
 	}{
-		{"FULL-BODY (prior bold)", bodyLt, bodyDk},
-		{"CAT FACE (recommended head)", faceLt, faceDk},
+		{"FULL-BODY (curled)", bodyLt, bodyDk},
+		{"PRIOR HEAD CROP", cropLt, cropDk},
+		{"NEW FRONT FACE (recommended)", faceLt, faceDk},
 	}
 	y := pad + 48
 	for _, row := range rows {
 		drawLabel(img, pad, y+14, row.title, color.NRGBA{R: 212, G: 212, B: 216, A: 255})
-		x := pad + 200
+		x := pad + 220
 		placeZoom(img, row.lt, x, y, cell, color.NRGBA{R: 228, G: 228, B: 231, A: 255})
 		x += cell + 16
 		placeZoom(img, row.dk, x, y, cell, color.NRGBA{R: 39, G: 39, B: 42, A: 255})
@@ -761,27 +784,34 @@ func buildBodyVsFace(src *image.NRGBA, bbox image.Rectangle, v pair) *image.NRGB
 		}
 		y += rowH
 	}
-	drawLabel(img, pad, height-18, "Shipped assets: internal/brand/tray-windows-light.png + tray-windows-dark.png (C head). No tag/release.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, height-18, "Shipped: internal/brand/tray-windows-light/dark.png (C + tray-face.svg). No tag/release.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 	return img
 }
 
-func buildCandidateCompare(src *image.NRGBA, bbox image.Rectangle, v pair, cands []candidate, mockups string) *image.NRGBA {
+func buildCandidateCompareMulti(bodySrc *image.NRGBA, bodyBBox image.Rectangle, faceSrc *image.NRGBA, faceBBox image.Rectangle, v pair, cands []candidate, mockups string) *image.NRGBA {
 	const pad = 16
 	const cell = 96
 	const rowH = cell + 56
 	const steamBox = 40
-	width := pad + 280 + 48*3 + 16 + cell + 24 + steamBox + pad
+	width := pad + 300 + 48*3 + 16 + cell + 24 + steamBox + pad
 	height := pad + 48 + len(cands)*rowH + 36
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	fillRect(img, img.Bounds(), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
-	drawLabel(img, pad, pad+12, "Full-body vs cat-face — light tray 16/24/32 + 3x zoom; Steam-size ref circle", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
-	drawLabel(img, pad, pad+28, "Goal: ears+face inside full-bleed disc (r=16); clearer at 16–24px than full-body; roomy rimKeep", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, pad+12, "Body / prior crop / NEW face — light tray 16/24/32 + 3x zoom; Steam-size ref", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
+	drawLabel(img, pad, pad+28, "NEW face = tray-face.svg front-facing (not a crop of curled body); disc r=16 rimKeep 2.50", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 
 	trayBG := color.NRGBA{R: 243, G: 244, B: 246, A: 255}
 	steamRef := color.NRGBA{R: 31, G: 41, B: 55, A: 255}
 
 	y := pad + 48
 	for _, g := range cands {
+		var src *image.NRGBA
+		var bbox image.Rectangle
+		if g.layout == layoutFace {
+			src, bbox = faceSrc, faceBBox
+		} else {
+			src, bbox = bodySrc, bodyBBox
+		}
 		lt, _ := renderPairGeom(src, bbox, v, g)
 		base := filepath.Join(mockups, "cand-"+g.id)
 		_ = writePNG(base+"-light-32.png", lt)
@@ -790,7 +820,7 @@ func buildCandidateCompare(src *image.NRGBA, bbox image.Rectangle, v pair, cands
 		_ = writePNG(base+"-light-128.png", upNearest(lt, 4))
 
 		drawLabel(img, pad, y+14, g.label, color.NRGBA{R: 212, G: 212, B: 216, A: 255})
-		x := pad + 280
+		x := pad + 300
 		for _, sz := range []int{16, 24, 32} {
 			placeSized(img, lt, x, y+cell-sz-20, sz, trayBG, 40)
 			drawLabel(img, x, y+cell-2, fmt.Sprintf("%d", sz), color.NRGBA{R: 161, G: 161, B: 170, A: 255})
@@ -807,7 +837,7 @@ func buildCandidateCompare(src *image.NRGBA, bbox image.Rectangle, v pair, cands
 
 		y += rowH
 	}
-	drawLabel(img, pad, height-18, "Recommended asset: tray-windows-light/dark.png (C head/face r=16 rimKeep2.50). No release tag.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, height-18, "Recommended: tray-windows-light/dark.png (C + tray-face.svg face). No release tag.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 	return img
 }
 

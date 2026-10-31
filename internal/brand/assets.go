@@ -26,13 +26,13 @@ var SidebarPNG []byte
 var TrayPNG []byte
 
 // TrayWindowsLightPNG is the Windows notification-area icon for a light
-// taskbar: Graphite disc with an ivory cat. Not a template.
+// taskbar: Graphite disc with an ivory front-facing cat face. Not a template.
 //
 //go:embed tray-windows-light.png
 var TrayWindowsLightPNG []byte
 
 // TrayWindowsDarkPNG is the Windows notification-area icon for a dark
-// taskbar: ivory disc with a Graphite cat. Not a template.
+// taskbar: ivory disc with a Graphite front-facing cat face. Not a template.
 //
 //go:embed tray-windows-dark.png
 var TrayWindowsDarkPNG []byte

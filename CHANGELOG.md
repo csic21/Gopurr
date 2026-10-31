@@ -1,5 +1,9 @@
 # 更新记录
 
+## Unreleased
+
+- Windows 托盘改为**全新正面猫脸**（`tray-face.svg`，非蜷睡剪影裁切）：变体 C 圆底不变，默认布局 `face`，16–32px 更易辨认为同一 Gopurr 猫；对比见 `docs/tray-windows-crop-vs-face.png`。macOS `tray.png` 不变。无 tag／无 GitHub Release。
+
 ## 0.6.5
 
 - 修复 Windows 发布测试中内核就绪竞态：`TestDaemonLoadsSubscription` 预留混合端口时同时检查 TCP 与 UDP（与冒烟一致），避免仅 TCP 空闲时 mihomo UDP 绑定失败关闭监听、守护进程在写入 `core.json` 前超时；就绪等待放宽至 20s，并在有 `StatusPath` 时等到状态文件落盘。macOS 托盘与 Windows 圆形反色徽章（变体 C）不变。
