@@ -163,11 +163,19 @@ func (m *Manager) Ensure() error {
 		return nil
 	}
 
+	// A previous session may have left a live process that no longer answers
+	// Probe (stale socket, wrong secret, wedged controller) while still holding
+	// mixed-port / AF_UNIX. Spawning without reaping fails intermittently with
+	// "address already in use" or listenController remove errors on Windows.
+	m.reapStaleLocked()
+	m.remote.resetTransport()
+
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(m.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	// Truncate so startupError shows this attempt, not an older failure.
+	logFile, err := os.OpenFile(m.logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -196,12 +204,50 @@ func (m *Manager) Ensure() error {
 		exit.err = cmd.Wait()
 		close(exit.done)
 	}()
-	if err := m.waitReady(exit, 10*time.Second); err != nil {
+	// Large subscriptions spend most of this window inside hub.Parse before the
+	// controller socket exists; 10s was a frequent false timeout.
+	if err := m.waitReady(exit, 30*time.Second); err != nil {
 		_ = cmd.Process.Kill()
+		<-exit.done
 		m.cmd, m.exit = nil, nil
+		m.remote.resetTransport()
 		return err
 	}
+	m.remote.resetTransport()
 	return nil
+}
+
+// reapStaleLocked stops an unowned daemon recorded in core.json and clears the
+// leftover socket/status files. Caller must hold m.mu.
+func (m *Manager) reapStaleLocked() {
+	if m.cmd != nil && m.cmd.Process != nil {
+		_ = process.Stop(m.cmd.Process)
+		if m.exit != nil {
+			select {
+			case <-m.exit.done:
+			case <-time.After(3 * time.Second):
+				_ = m.cmd.Process.Kill()
+				<-m.exit.done
+			}
+		}
+		m.cmd, m.exit = nil, nil
+	}
+	st, err := m.Status()
+	if err == nil && st.PID > 0 && st.PID != os.Getpid() && process.Alive(st.PID) {
+		if p, err := os.FindProcess(st.PID); err == nil {
+			_ = process.Stop(p)
+			deadline := time.Now().Add(3 * time.Second)
+			for process.Alive(st.PID) && time.Now().Before(deadline) {
+				time.Sleep(50 * time.Millisecond)
+			}
+			if process.Alive(st.PID) {
+				_ = p.Kill()
+				time.Sleep(150 * time.Millisecond)
+			}
+		}
+	}
+	_ = os.Remove(m.statusPath)
+	_ = os.Remove(m.socket)
 }
 
 func (m *Manager) waitReady(exit *processExit, timeout time.Duration) error {
@@ -253,6 +299,7 @@ func (m *Manager) Stop() error {
 		m.cmd, m.exit = nil, nil
 	}
 	m.mu.Unlock()
+	m.remote.resetTransport()
 	return nil
 }
 

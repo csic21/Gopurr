@@ -120,6 +120,20 @@ func (r *Remote) Probe(ctx context.Context) error {
 	return nil
 }
 
+// resetTransport drops idle connections so a restarted daemon at the same
+// socket path is not reached through a dead keep-alive to the previous process.
+func (r *Remote) resetTransport() {
+	if r == nil {
+		return
+	}
+	if t, ok := r.stream.Transport.(*http.Transport); ok {
+		t.CloseIdleConnections()
+	}
+	if t, ok := r.call.Transport.(*http.Transport); ok {
+		t.CloseIdleConnections()
+	}
+}
+
 // ---------- streams ----------
 
 // Watch starts the traffic and log streams. Safe to call once.
@@ -450,7 +464,13 @@ func (r *Remote) Reload(path string) error {
 		return fmt.Errorf(localize.Text("读取运行配置: %w"), err)
 	}
 	body, _ := json.Marshal(map[string]string{"payload": string(raw)})
-	return r.request(http.MethodPut, "/configs?force=true", strings.NewReader(string(body)), nil)
+	// Large subscriptions re-parse and re-bind listeners; the shared 6s client
+	// timeout made Start fail even after the daemon was already healthy.
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	client := *r.call
+	client.Timeout = 0
+	return r.requestContext(ctx, &client, http.MethodPut, "/configs?force=true", strings.NewReader(string(body)), nil)
 }
 
 // ---------- logs ----------

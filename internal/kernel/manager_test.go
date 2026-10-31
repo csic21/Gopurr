@@ -1,12 +1,15 @@
 package kernel
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"gopurr/internal/core"
 )
 
 func TestStartupReportsExitImmediatelyWithCoreOutput(t *testing.T) {
@@ -32,5 +35,30 @@ func TestHiddenWindowReducesConnectionPolling(t *testing.T) {
 	r.SetUIActive(true)
 	if r.connectionPollInterval() != 2*time.Second {
 		t.Fatal("reopened window did not resume live polling")
+	}
+}
+
+func TestReapStaleClearsDeadStatusAndSocket(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := core.DaemonStatus{PID: 1 << 30, UID: -1, Socket: m.socket} // unlikely live pid
+	body, _ := json.Marshal(st)
+	if err := os.WriteFile(m.statusPath, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.socket, []byte("stale"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	m.reapStaleLocked()
+	m.mu.Unlock()
+	if _, err := os.Stat(m.statusPath); !os.IsNotExist(err) {
+		t.Fatalf("status not cleared: %v", err)
+	}
+	if _, err := os.Stat(m.socket); !os.IsNotExist(err) {
+		t.Fatalf("socket not cleared: %v", err)
 	}
 }
