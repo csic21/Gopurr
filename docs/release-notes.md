@@ -1,10 +1,9 @@
-Gopurr 0.6.3 修复 Windows TUN 服务「已就绪」与混合端口实际可连之间的竞态，并加固发布冒烟。
+Gopurr 0.6.4 将 Windows 托盘更新为圆形反色徽章（变体 C），让蜷睡猫在通知区更清晰。
 
-- **服务就绪**：写入状态前确认混合端口已接受连接；控制器 Probe 成功不再单独代表流量路径可用。
-- **发布冒烟**：预留端口同时检查 TCP/UDP，HTTP 经混合端口探测带截止前重试，降低 Windows runner 偶发失败。
-- **Windows 托盘**：Graphite 明暗图标剪影更大、边距约 1 像素；macOS 模板托盘图不变。
+- **Windows 托盘（变体 C）**：浅色任务栏为 Graphite 圆底 + 象牙白猫；深色任务栏为象牙圆底 + Graphite 猫。圆约占满 32×32，猫在圆内等比放大（约 1–2px 边距）。macOS 模板托盘图不变。
+- 本版基于已公开的 v0.6.3（混合端口就绪判定与发布冒烟加固）与 v0.6.2（异步内核启动／重载、更快的 TUN 服务失败反馈）。
 
-macOS Apple Silicon（M1 及后续 M 系列）下载 `gopurr-0.6.3-arm64.dmg`，打开后将 Gopurr 拖入 Applications。Windows 10/11 x64 下载 `gopurr-setup-0.6.3-amd64.exe`，按向导安装。
+macOS Apple Silicon（M1 及后续 M 系列）下载 `gopurr-0.6.4-arm64.dmg`，打开后将 Gopurr 拖入 Applications。Windows 10/11 x64 下载 `gopurr-setup-0.6.4-amd64.exe`，按向导安装。
 
 在「设置 → 维护 → 软件更新」检查新版本。更新包通过 Ed25519 签名校验。若提示 TUN 服务需要更新，在概览页点击「重新安装…」并完成管理员授权。
 
