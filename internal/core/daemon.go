@@ -49,12 +49,14 @@ type DaemonStatus struct {
 	Home              string `json:"home"`
 }
 
-// Increment when an installed privileged daemon must be reinstalled even if
-// the application version has not changed (for example a development build).
+// SecurityVersion must bump when an installed privileged daemon is no longer
+// safe to keep running (trust boundary, secret handling, etc.). A mismatch
+// forces ServiceNeedsUpdate / reinstall even if marketing Version matches.
 const SecurityVersion = 1
 
-// ControllerVersion changes when the UI needs endpoints absent from an older
-// installed service. Such a service stays running until explicitly updated.
+// ControllerVersion must bump when the UI needs controller endpoints absent
+// from an older installed service. Mismatch forces reinstall; marketing
+// Version skew alone does not (see kernel.ServiceVersionSkew).
 const ControllerVersion = 1
 
 // RunDaemon is the privileged side of the app. It is the same kernel code as

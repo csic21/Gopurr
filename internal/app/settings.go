@@ -130,8 +130,8 @@ func (a *App) settingsPage(c *ui.Context) {
 						softSwitch(c, &a.silentStartOn).Label(tr("静默启动开关"))
 					})
 					hairline(c)
-					settingsRow(c, tr("启动时开启系统代理"), tr("内核就绪后，将系统网络请求交给 Gopurr"), func() {
-						softSwitch(c, &a.restoreProxyOn).Label(tr("启动时系统代理开关"))
+					settingsRow(c, tr("启动时自动开启系统代理"), tr("与概览开关同步：退出后下次启动自动恢复系统代理"), func() {
+						softSwitch(c, &a.restoreProxyOn).Label(tr("启动时自动开启系统代理开关"))
 					})
 				})
 				settingsGroup(c, tr("快捷操作"), func() {

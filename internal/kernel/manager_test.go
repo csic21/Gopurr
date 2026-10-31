@@ -78,3 +78,44 @@ func TestWaitServiceReadyFailsQuicklyWithReinstallGuidance(t *testing.T) {
 		t.Fatalf("service wait took too long: %v", took)
 	}
 }
+
+func TestServiceUpdateRequiredIgnoresMarketingVersion(t *testing.T) {
+	compatible := core.DaemonStatus{
+		SecurityVersion:   core.SecurityVersion,
+		ControllerVersion: core.ControllerVersion,
+		Version:           "0.1.0",
+	}
+	if serviceUpdateRequired(compatible) {
+		t.Fatal("marketing version skew must not force service reinstall")
+	}
+	if !serviceVersionSkew(compatible, "0.6.7") {
+		t.Fatal("expected soft version skew for API-compatible service")
+	}
+	if serviceVersionSkew(compatible, "dev") || serviceVersionSkew(compatible, "0.1.0") {
+		t.Fatal("dev builds and matching versions must not report skew")
+	}
+
+	securityBreak := compatible
+	securityBreak.SecurityVersion = core.SecurityVersion - 1
+	if !serviceUpdateRequired(securityBreak) {
+		t.Fatal("security version mismatch must force update")
+	}
+	if serviceVersionSkew(securityBreak, "0.6.7") {
+		t.Fatal("forced security update must not also report soft skew")
+	}
+
+	controllerBreak := compatible
+	controllerBreak.ControllerVersion = core.ControllerVersion - 1
+	if !serviceUpdateRequired(controllerBreak) {
+		t.Fatal("controller version mismatch must force update")
+	}
+}
+
+func TestReclaimStaleIsSafeWithoutStatus(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.ReclaimStale() // must not panic when nothing is recorded
+}

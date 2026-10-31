@@ -237,8 +237,12 @@ func (k *Kernel) Counts() (int, int, int) {
 }
 
 // Shutdown is the app's exit path: stop what we own, leave system daemons be.
+// ReclaimStale covers the case where this UI session never owned m.cmd (for
+// example an adopted daemon) but core.json still names a process holding
+// mixed-port — important after in-app update relaunch.
 func (k *Kernel) Shutdown() {
 	_ = k.mgr.Stop()
+	k.mgr.ReclaimStale()
 }
 
 func (k *Kernel) invalidate() {

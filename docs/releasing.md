@@ -49,4 +49,8 @@ Windows 在原生 Windows runner 上构建，mygo 自动准备 NSIS 安装器工
 
 ## TUN 服务升级
 
-普通子进程会在应用重启时更新。已安装的管理员服务继续使用旧内核，客户端比较服务状态中的版本与应用版本，在概览页提示重新安装。这个过程保留一次明确的系统授权，Windows 会替换 Program Files 中的服务副本，macOS 重新注册 LaunchDaemon。安装和卸载都不会删除订阅或用户设置。
+普通子进程会在应用重启时更新。已安装的管理员服务继续使用旧内核。
+
+强制「重新安装」仅在 `SecurityVersion` 或 `ControllerVersion` 低于当前应用常量时触发（安全边界或控制器 API 不兼容）。仅营销／应用 `Version` 不同且上述常量仍匹配时，服务视为 API 兼容：不强制重装，概览可软提示可选升级。不要在无 UAC／管理员授权的情况下静默写入 Program Files 或 LaunchDaemons。
+
+Windows 重装会替换 Program Files 中的服务副本，macOS 重新注册 LaunchDaemon。安装和卸载都不会删除订阅或用户设置。

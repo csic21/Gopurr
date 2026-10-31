@@ -428,6 +428,9 @@ func (a *App) StartBackground() {
 			a.sysApplied = ownsProxy(st, a.mixedPort())
 			a.sysOn = a.sysApplied
 		}
+		// Update relaunch and crash recovery often leave mixed-port held by a
+		// stale core, or OS proxy still pointing at a dead Gopurr port.
+		a.prepareMixedPort()
 		wantTUN := os.Getenv("GOPURR_TUN") == "1" || a.ov.TunEnable
 		if wantTUN && a.k.IsRoot() {
 			a.applyTun(true)
@@ -954,7 +957,7 @@ func (a *App) startKernelAsync(after func(ok bool)) {
 	a.kernelBusy = true
 	a.bmu.Unlock()
 
-	if !a.k.Running() && !portFree(a.mixedPort()) {
+	if !a.ensureMixedPortAvailable() {
 		a.completeKernelStart(false, fmt.Sprintf(tr("端口 %d 已被占用（可能是另一个代理客户端），换一个端口再试"),
 			a.mixedPort()), after)
 		return
@@ -1007,7 +1010,7 @@ func (a *App) completeKernelStart(ok bool, notice string, after func(ok bool)) {
 // when the kernel refuses it. Callers that need a synchronous result (config
 // transactions, tests) keep using this path; UI start/reload use startKernelAsync.
 func (a *App) startKernel() bool {
-	if !a.k.Running() && !portFree(a.mixedPort()) {
+	if !a.ensureMixedPortAvailable() {
 		a.notice = fmt.Sprintf(tr("端口 %d 已被占用（可能是另一个代理客户端），换一个端口再试"),
 			a.mixedPort())
 		return false
@@ -1050,6 +1053,65 @@ func portFree(port int) bool {
 	}
 	_ = udp.Close()
 	return true
+}
+
+func waitPortFree(port int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if portFree(port) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// ensureMixedPortAvailable reclaims a stale same-app core before treating an
+// occupied mixed-port as a foreign conflict. startKernel used to fail the
+// portFree preflight before Ensure could reap, which surfaced as "端口已被占用"
+// after updates when the previous process was slow to release listeners.
+func (a *App) ensureMixedPortAvailable() bool {
+	if a.k != nil && a.k.Running() {
+		return true
+	}
+	port := a.mixedPort()
+	if portFree(port) {
+		return true
+	}
+	if a.mgr != nil {
+		a.mgr.ReclaimStale()
+	}
+	return waitPortFree(port, 2*time.Second)
+}
+
+// prepareMixedPort runs once at boot: reclaim stale cores holding mixed-port,
+// and clear OS proxy that still points at a dead Gopurr listener when the user
+// did not ask to restore system proxy next launch.
+func (a *App) prepareMixedPort() {
+	if a.mgr == nil {
+		return
+	}
+	port := a.mixedPort()
+	if a.k != nil && a.k.Running() {
+		return
+	}
+	if !portFree(port) {
+		a.mgr.ReclaimStale()
+		_ = waitPortFree(port, 2*time.Second)
+	}
+	if !a.sysApplied || !portFree(port) || a.Prefs().RestoreSystemProxy {
+		return
+	}
+	// Leftover OS proxy from a crashed session: nothing listens and the user
+	// does not want auto-restore, so hand the setting back / turn it off.
+	if err := a.restoreProxy(); err == nil {
+		a.sysApplied, a.sysOn = false, false
+		if st, err := sysproxy.Current(); err == nil {
+			a.sysState = st
+		}
+	}
 }
 
 func (a *App) mixedPort() int {
@@ -1105,6 +1167,10 @@ func (a *App) setSystemProxy(on bool) {
 	a.sysApplied = on
 	a.sysOn = on
 	a.setSysErr("")
+	// Overview / tray toggles are the user's session intent: remember them so
+	// the next launch matches (Clash-like). Exit still restores foreign OS
+	// proxy settings; finishKernelBoot re-applies when this pref is true.
+	a.persistRestoreSystemProxy(on)
 }
 
 // restoreProxy hands the system proxy back to its previous owner, or turns it
@@ -1130,6 +1196,18 @@ func ownsProxy(st sysproxy.State, port int) bool {
 		return false
 	}
 	return st.Enabled && st.Server == "127.0.0.1" && st.Port == port
+}
+
+// persistRestoreSystemProxy keeps the settings toggle and prefs.json in sync
+// with the overview/tray system-proxy switch.
+func (a *App) persistRestoreSystemProxy(on bool) {
+	a.restoreProxyOn = on
+	if a.Prefs().RestoreSystemProxy == on {
+		return
+	}
+	if err := a.changePrefs(func(p *Prefs) { p.RestoreSystemProxy = on }); err != nil && a.notice == "" {
+		a.notice = tr("系统代理偏好保存失败: ") + err.Error()
+	}
 }
 
 func (a *App) loadPrevProxy() {
@@ -1340,6 +1418,9 @@ func (a *App) tunHint() string {
 	}
 	if a.mgr.ServiceNeedsUpdate() {
 		return tr("服务需要更新 · 重新安装以使用新版本内核")
+	}
+	if a.mgr.ServiceVersionSkew() {
+		return tr("应用已更新 · 服务仍兼容，可选择重新安装")
 	}
 	if a.ov.TunEnable {
 		return tr("已启用 · 路由由内核自己接管")

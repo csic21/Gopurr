@@ -297,9 +297,7 @@
   "静默启动开关": "Start quietly",
   "内核自动运行": "Start Core Automatically",
   "随应用启动，无需手动开启；关窗后仍可继续代理": "Starts with the app and keeps running after closing the window",
-  "启动时开启系统代理": "Enable System Proxy at startup",
   "内核就绪后，将系统网络请求交给 Gopurr": "Route system traffic through Gopurr when the core is ready",
-  "启动时系统代理开关": "System Proxy at startup",
   "轻量模式": "Lightweight Mode",
   "关窗后释放界面资源，代理继续运行": "Release UI resources after closing; keep proxying",
   "轻量模式开关": "Lightweight Mode",
@@ -1475,5 +1473,10 @@
   "策略组 %q 仍被 dialer-proxy 使用，请先修改链式代理": "Group %q is still used by dialer-proxy. Update that outbound chain first.",
   "策略组 %q 仍被入站或端口转发使用，请先修改对应出口": "Group %q is still used by an inbound listener or port forward. Update its outbound policy first.",
   "系统服务已安装但没有响应：请在概览页重新安装服务": "System service is installed but not responding. Reinstall the service on Overview",
-  "正在启动…": "Starting…"
+  "正在启动…": "Starting…",
+  "启动时自动开启系统代理": "Automatically enable System Proxy at startup",
+  "启动时自动开启系统代理开关": "Automatically enable System Proxy at startup switch",
+  "与概览开关同步：退出后下次启动自动恢复系统代理": "Synced with Overview: restore System Proxy automatically on the next launch",
+  "应用已更新 · 服务仍兼容，可选择重新安装": "App updated · service still compatible; reinstall optional",
+  "系统代理偏好保存失败: ": "Unable to save System Proxy preference: "
 }

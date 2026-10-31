@@ -125,14 +125,61 @@ func (m *Manager) IsRoot() bool {
 	return err == nil && st.UID == 0
 }
 
-// ServiceNeedsUpdate leaves the existing service running until the user
-// explicitly authorizes reinstalling it with the new application binary.
+// ServiceNeedsUpdate reports that an installed privileged service must be
+// reinstalled before the UI can rely on it. Only SecurityVersion /
+// ControllerVersion mismatches force this: those constants change when the
+// daemon's trust boundary or controller API is no longer compatible.
+//
+// A marketing/app Version skew alone does not force reinstall — tray-only or
+// UI-only releases keep an API-compatible service running. See
+// ServiceVersionSkew for the soft suggestion, and docs/releasing.md.
+// Never copy into Program Files / LaunchDaemons without an explicit UAC /
+// admin authorization path (Install/Reinstall).
 func (m *Manager) ServiceNeedsUpdate() bool {
 	if !service.Installed() {
 		return false
 	}
 	st, err := m.Status()
-	return err == nil && (st.SecurityVersion < core.SecurityVersion || st.ControllerVersion < core.ControllerVersion || (buildinfo.Version != "dev" && st.Version != buildinfo.Version))
+	return err == nil && serviceUpdateRequired(st)
+}
+
+// ServiceVersionSkew is true when the installed service answers with an older
+// (or different) marketing Version but remains API-compatible. The overview
+// may soft-suggest reinstall; it must not block TUN or force "重新安装".
+func (m *Manager) ServiceVersionSkew() bool {
+	if !service.Installed() {
+		return false
+	}
+	st, err := m.Status()
+	return err == nil && serviceVersionSkew(st, buildinfo.Version)
+}
+
+// serviceUpdateRequired is the security/API gate shared by ServiceNeedsUpdate
+// and tests. Marketing Version is intentionally ignored here.
+func serviceUpdateRequired(st core.DaemonStatus) bool {
+	return st.SecurityVersion < core.SecurityVersion || st.ControllerVersion < core.ControllerVersion
+}
+
+// serviceVersionSkew detects app/service Version mismatch when the service is
+// still Security/Controller compatible. Dev builds never report skew.
+func serviceVersionSkew(st core.DaemonStatus, appVersion string) bool {
+	if appVersion == "" || appVersion == "dev" || st.Version == "" {
+		return false
+	}
+	if serviceUpdateRequired(st) {
+		return false
+	}
+	return st.Version != appVersion
+}
+
+// ReclaimStale stops an unowned daemon recorded in core.json and clears leftover
+// socket/status files. Safe to call before mixed-port binding or after Shutdown
+// when a previous session may still hold the port.
+func (m *Manager) ReclaimStale() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reapStaleLocked()
+	m.remote.resetTransport()
 }
 
 // Ensure makes sure a daemon is up. If one is already listening (installed as a

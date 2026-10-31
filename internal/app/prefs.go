@@ -42,6 +42,8 @@ type Prefs struct {
 	// LastAutoUpdate is when the last automatic refresh finished.
 	LastAutoUpdate time.Time `json:"lastAutoUpdate"`
 	// RestoreSystemProxy enables the system proxy after the kernel is ready.
+	// Overview/tray toggles persist this so the next launch matches the last
+	// session; exit still restores any foreign OS proxy first.
 	RestoreSystemProxy bool `json:"restoreSystemProxy"`
 	// Test settings apply to manual node latency tests.
 	TestURL         string `json:"testURL"`
