@@ -1,7 +1,7 @@
 //go:build ignore
 
-// One-shot: regenerate Windows Graphite tray icons with a tighter crop so the
-// cat silhouette fills more of the 32×32 canvas (macOS tray.png unchanged).
+// One-shot: regenerate Windows Graphite tray icons from tray.svg.
+// Uniform scale + center only (no stretch). macOS tray.png is never touched.
 package main
 
 import (
@@ -43,24 +43,29 @@ func main() {
 	if bbox.Empty() {
 		log.Fatal("no opaque pixels in tray render")
 	}
-	// Target: nearly fill 32×32 with ~1px optical margin (bigger than previous ~3–4px).
+	// 32×32 with ~2px safe margin on the limiting edges (Windows clips
+	// tight crops). Keep the cat's natural aspect; never non-uniform scale.
 	const out = 32
-	const margin = 1
+	const margin = 2
 	inner := out - 2*margin
 	bw, bh := bbox.Dx(), bbox.Dy()
-	scale := float64(inner) / float64(max(bw, bh))
-	// Prefer filling height a bit more aggressively for tray readability.
-	if float64(bh)*scale < float64(inner)*0.92 {
-		scale = float64(inner) * 0.96 / float64(bh)
-	}
+	scale := math.Min(float64(inner)/float64(bw), float64(inner)/float64(bh))
 	nw := int(math.Round(float64(bw) * scale))
 	nh := int(math.Round(float64(bh) * scale))
-	if nw > inner {
-		nw = inner
+	// Rounding must not break aspect or exceed the inner box: shrink
+	// uniformly instead of clamping one axis independently.
+	for (nw > inner || nh > inner) && scale > 0 {
+		scale *= 0.99
+		nw = int(math.Round(float64(bw) * scale))
+		nh = int(math.Round(float64(bh) * scale))
 	}
-	if nh > inner {
-		nh = inner
+	if nw < 1 {
+		nw = 1
 	}
+	if nh < 1 {
+		nh = 1
+	}
+
 	cropped := image.NewNRGBA(image.Rect(0, 0, bw, bh))
 	draw.Draw(cropped, cropped.Bounds(), src, bbox.Min, draw.Src)
 	scaled := image.NewNRGBA(image.Rect(0, 0, nw, nh))
@@ -80,7 +85,9 @@ func main() {
 		log.Fatal(err)
 	}
 	fb := opaqueBounds(mask, 8)
-	fmt.Printf("content fill ~%.0f%% bbox=%v size=%dx%d\n", float64(fb.Dx()*fb.Dy())/float64(out*out)*100, fb, fb.Dx(), fb.Dy())
+	fmt.Printf("content fill ~%.0f%% bbox=%v size=%dx%d aspect=%.3f pad_x=%d pad_y=%d\n",
+		float64(fb.Dx()*fb.Dy())/float64(out*out)*100, fb, fb.Dx(), fb.Dy(),
+		float64(fb.Dx())/float64(fb.Dy()), ox, oy)
 }
 
 func opaqueBounds(img *image.NRGBA, minA uint8) image.Rectangle {
@@ -114,7 +121,6 @@ func opaqueBounds(img *image.NRGBA, minA uint8) image.Rectangle {
 func colorize(mask *image.NRGBA, fill, edge color.NRGBA, radius int) *image.NRGBA {
 	b := mask.Bounds()
 	out := image.NewNRGBA(b)
-	// Edge: any neighbor within radius of an opaque mask pixel.
 	opaque := func(x, y int) bool {
 		if x < b.Min.X || y < b.Min.Y || x >= b.Max.X || y >= b.Max.Y {
 			return false
@@ -144,7 +150,6 @@ func colorize(mask *image.NRGBA, fill, edge color.NRGBA, radius int) *image.NRGB
 				continue
 			}
 			if near(x, y) {
-				// Soft edge outside the fill.
 				ea := uint8(180)
 				if a > ea {
 					ea = a
