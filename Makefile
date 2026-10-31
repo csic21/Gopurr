@@ -27,6 +27,7 @@ update-geodata:
 # Runtime sizes and the black-and-transparent menu-bar template.
 icons:
 	go run scripts/generate-icons.go
+	go run scripts/generate-windows-tray.go
 
 # Re-render the flat vector design, then derive the runtime sizes.
 brand-master:

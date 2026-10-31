@@ -356,7 +356,7 @@ func installTray(a *app.App) bool {
 	if runtime.GOOS == "windows" {
 		// Windows does not tint template ink the way macOS does on a light
 		// taskbar; a black silhouette becomes an opaque blob. Use explicit
-		// Graphite icons with an edge, and swap when the taskbar appearance changes.
+		// black/white badges, and swap when the taskbar appearance changes.
 		icon = brand.TrayWindowsLightPNG
 		template = false
 	}

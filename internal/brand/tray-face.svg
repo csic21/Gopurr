@@ -1,39 +1,6 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <!-- Gopurr Windows tray face — NEW front-facing awake cat (not a crop of the curled body).
-       Brand-matched from logo-v5 curled cat: soft wide head, medium pointed ears with soft
-       tips, simplified eye + nose cutouts for 16–32px tray recognition.
-       Pure #000000; transparent feature holes via fill-rule evenodd.
-       Default source for scripts/generate-windows-tray.go (-layout=face).
-       Concept: docs/tray-face-concept.png (ImageGen from brand refs, then vectorized).
-       Mac tray.png / tray.svg unchanged. -->
-  <path fill="#000000" fill-rule="evenodd" d="
-    M68 10
-    C50 24 42 50 40 78
-    C26 110 24 144 34 156
-    C40 198 78 230 128 236
-    C178 230 216 198 222 156
-    C232 144 230 110 216 78
-    C214 50 206 24 188 10
-    C172 34 146 58 128 64
-    C110 58 84 34 68 10
-    Z
-    M64 152
-    C64 143.2 75.6 136 90 136
-    C104.4 136 116 143.2 116 152
-    C116 160.8 104.4 168 90 168
-    C75.6 168 64 160.8 64 152
-    Z
-    M140 152
-    C140 143.2 151.6 136 166 136
-    C180.4 136 192 143.2 192 152
-    C192 160.8 180.4 168 166 168
-    C151.6 168 140 160.8 140 152
-    Z
-    M128 174
-    C114 176 108 182 114 194
-    C118 202 138 202 142 194
-    C148 182 142 176 128 174
-    Z
-  "/>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Windows micro mark: wide cheeks and two ears, without facial details.
+       Keep this viewport: the badge generator places it at 75% scale.
+       The app icon and macOS sleeping-cat template have separate sources. -->
+  <path fill="#000000" d="M5 4 C5 3 6 3 7 4 L12 8 Q16 6.5 20 8 L25 4 C26 3 27 3 27 4 L27 12 C29 15 30 17 30 20 C30 26 24 29 16 29 C8 29 2 26 2 20 C2 17 3 15 5 12 Z"/>
 </svg>

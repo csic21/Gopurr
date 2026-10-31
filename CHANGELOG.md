@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Windows 托盘改为**全新正面猫脸**（`tray-face.svg`，非蜷睡剪影裁切）：变体 C 圆底不变，默认布局 `face`，16–32px 更易辨认为同一 Gopurr 猫；对比见 `docs/tray-windows-crop-vs-face.png`。macOS `tray.png` 不变。无 tag／无 GitHub Release。
+## 0.6.6
+
+- Windows 托盘采用 C 圆底徽章与宽脸双耳剪影，移除眼鼻，使用纯黑／纯白随任务栏明暗反转；保留耳尖与圆周间距，改善小尺寸辨识度。`make icons` 同步生成 Windows 资源，并提供 16/20/24/32px 明暗预览。
 
 ## 0.6.5
 
