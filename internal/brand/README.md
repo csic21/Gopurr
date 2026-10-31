@@ -7,7 +7,7 @@
 - `tray.svg`：相同剪影的菜单栏版本，只有黑色与透明像素，缩紧视口以适配 16/18 像素。
 - `logo.png`、`icon.png`、`sidebar.png`：从渲染源派生的 1024、512、128 像素版本。
 - `tray.png`：从菜单栏矢量派生的 32 像素模板，由 macOS 适配明暗。
-- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图（圆底 Graphite 风格），非模板。默认变体 C：浅色任务栏为 Graphite 圆底 + 象牙白猫，深色任务栏为象牙圆底 + Graphite 猫；圆贴满 32×32（r≈16，0 外边距，贴近 Steam 圆底足迹；若系统裁切再回退），猫在圆内等比放大（`bold`：contain→cover 插值 + 约 1.35px 环带保留，避免吃掉圆底）。`main` 按任务栏明暗切换。用 `go run scripts/generate-windows-tray.go`（`-variant=A|B|C|none`，`-layout=contain|bold|cover|head`，`-preview` 出对比图）重生成，勿改 `tray.png`。对比见 `docs/tray-windows-circle-preview.png` 与 `docs/tray-windows-size-compare.png`。
+- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图（圆底 Graphite 风格），非模板。默认变体 C：浅色任务栏为 Graphite 圆底 + 象牙白猫，深色任务栏为象牙圆底 + Graphite 猫；圆贴满 32×32（r≈16，0 外边距，贴近 Steam 圆底足迹；若系统裁切再回退），猫在圆内等比放大但留出内边距（`bold`：contain→cover 插值 + 约 2.50px 环带保留 / catMargin≈1.50，避免顶满格子）。`main` 按任务栏明暗切换。用 `go run scripts/generate-windows-tray.go`（`-variant=A|B|C|none`，`-layout=contain|bold|cover|head`，`-preview` 出对比图）重生成，勿改 `tray.png`。对比见 `docs/tray-windows-circle-preview.png` 与 `docs/tray-windows-size-compare.png`。
 
 编辑 `logo.svg` 与 `tray.svg` 时保持剪影路径一致，然后运行：
 
