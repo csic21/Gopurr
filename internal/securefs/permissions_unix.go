@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"golang.org/x/sys/unix"
+
+	"gopurr/internal/localize"
 )
 
 func restrict(path string, directory bool) error {
@@ -25,7 +27,7 @@ func restrict(path string, directory bool) error {
 		return err
 	}
 	if !directory && !info.Mode().IsRegular() {
-		return fmt.Errorf("不是普通文件: %s", path)
+		return fmt.Errorf(localize.Text("不是普通文件: %s"), path)
 	}
 	mode := os.FileMode(0600)
 	if directory {

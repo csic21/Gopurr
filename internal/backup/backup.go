@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gopurr/internal/localize"
 )
 
 const maxSize = 64 << 20
@@ -41,27 +43,27 @@ func allowed(name string) bool {
 
 func (s *Snapshot) Validate() error {
 	if s.Version != 1 {
-		return fmt.Errorf("不支持的备份版本 %d", s.Version)
+		return fmt.Errorf(localize.Text("不支持的备份版本 %d"), s.Version)
 	}
 	if len(s.Files) > 2048 {
-		return fmt.Errorf("备份文件过多")
+		return fmt.Errorf("%s", localize.Text("备份文件过多"))
 	}
 	total := 0
 	for name, data := range s.Files {
 		if !allowed(name) {
-			return fmt.Errorf("备份包含不允许的路径: %s", name)
+			return fmt.Errorf(localize.Text("备份包含不允许的路径: %s"), name)
 		}
 		if len(data) > 16<<20 {
-			return fmt.Errorf("备份中的文件过大: %s", name)
+			return fmt.Errorf(localize.Text("备份中的文件过大: %s"), name)
 		}
 		total += len(data)
 	}
 	if total > maxSize {
-		return fmt.Errorf("备份内容超过 64 MB")
+		return fmt.Errorf("%s", localize.Text("备份内容超过 64 MB"))
 	}
 	for _, name := range roots[:4] {
 		if len(s.Files[name]) == 0 {
-			return fmt.Errorf("备份缺少 %s", name)
+			return fmt.Errorf(localize.Text("备份缺少 %s"), name)
 		}
 	}
 	return nil
@@ -121,14 +123,14 @@ func Read(filename string) (*Snapshot, error) {
 		return nil, err
 	}
 	if info.Size() > maxSize {
-		return nil, fmt.Errorf("备份文件超过 64 MB")
+		return nil, fmt.Errorf("%s", localize.Text("备份文件超过 64 MB"))
 	}
 	z, err := zip.NewReader(f, info.Size())
 	if err != nil {
-		return nil, fmt.Errorf("不是有效的 Gopurr 备份: %w", err)
+		return nil, fmt.Errorf(localize.Text("不是有效的 Gopurr 备份: %w"), err)
 	}
 	if len(z.File) > 2049 {
-		return nil, fmt.Errorf("备份文件过多")
+		return nil, fmt.Errorf("%s", localize.Text("备份文件过多"))
 	}
 	s := &Snapshot{Files: map[string][]byte{}}
 	seen := map[string]bool{}
@@ -136,11 +138,11 @@ func Read(filename string) (*Snapshot, error) {
 	for _, entry := range z.File {
 		name := entry.Name
 		if seen[name] || (name != "manifest.json" && !allowed(name)) || entry.Mode()&os.ModeType != 0 {
-			return nil, fmt.Errorf("备份包含重复或不允许的文件: %s", name)
+			return nil, fmt.Errorf(localize.Text("备份包含重复或不允许的文件: %s"), name)
 		}
 		seen[name] = true
 		if entry.UncompressedSize64 > 16<<20 {
-			return nil, fmt.Errorf("备份中的文件过大: %s", name)
+			return nil, fmt.Errorf(localize.Text("备份中的文件过大: %s"), name)
 		}
 		r, err := entry.Open()
 		if err != nil {
@@ -153,7 +155,7 @@ func Read(filename string) (*Snapshot, error) {
 		}
 		remaining -= int64(len(b))
 		if remaining < 0 || len(b) > 16<<20 {
-			return nil, fmt.Errorf("备份内容过大")
+			return nil, fmt.Errorf("%s", localize.Text("备份内容过大"))
 		}
 		if name == "manifest.json" {
 			if err := json.Unmarshal(b, s); err != nil {
@@ -226,7 +228,7 @@ func (t *Transaction) Rollback() error {
 		errs = append(errs, os.Rename(filepath.Join(t.stage, "previous", name), filepath.Join(t.dir, name)))
 	}
 	if err := errors.Join(errs...); err != nil {
-		return fmt.Errorf("恢复旧文件失败，原文件保留在 %s: %w", t.stage, err)
+		return fmt.Errorf(localize.Text("恢复旧文件失败，原文件保留在 %s: %w"), t.stage, err)
 	}
 	return os.RemoveAll(t.stage)
 }

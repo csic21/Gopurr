@@ -55,7 +55,7 @@ func serveController(socket, backend, secret string, geo *geoUpdater) (*http.Ser
 		allowed := false
 		switch r.Method {
 		case http.MethodGet:
-			allowed = path == "/version" || path == "/configs" || path == "/traffic" || path == "/memory" || path == "/logs" || path == "/rules" || path == "/connections" || path == "/proxies" || strings.HasPrefix(path, "/proxies/")
+			allowed = path == "/version" || path == "/configs" || path == "/traffic" || path == "/memory" || path == "/logs" || path == "/rules" || path == "/connections" || path == "/proxies" || strings.HasPrefix(path, "/proxies/") || path == "/dns/query"
 		case http.MethodPatch, http.MethodPut:
 			allowed = path == "/configs" || (r.Method == http.MethodPut && strings.HasPrefix(path, "/proxies/"))
 		case http.MethodDelete:

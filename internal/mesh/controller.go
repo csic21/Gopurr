@@ -1,5 +1,7 @@
 package mesh
 
+import "gopurr/internal/localize"
+
 import (
 	"context"
 	"encoding/json"
@@ -46,12 +48,12 @@ func New(backend Backend, path string, wake func()) *Controller {
 				if json.Unmarshal(b, &d) == nil {
 					c.s.Managed, c.s.Visits, c.s.AutoConnect = d.Managed, d.Visits, d.AutoConnect
 				} else {
-					c.s.Error = "本地组网记录损坏，启动后将重新关闭入站访问"
+					c.s.Error = localize.Text("本地组网记录损坏，启动后将重新关闭入站访问")
 				}
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			c.s.Managed = true
-			c.s.Error = "无法读取本地组网安全状态，启动后将尝试关闭入站访问"
+			c.s.Error = localize.Text("无法读取本地组网安全状态，启动后将尝试关闭入站访问")
 		}
 	}
 	if len(c.s.Visits) > 100 {
@@ -124,7 +126,7 @@ func (c *Controller) SetAutoConnect(enabled bool) {
 	c.s.AutoConnect = enabled
 	if err := c.saveLocked(); err != nil {
 		c.s.AutoConnect = previous
-		c.s.Error = "自动连接设置保存失败，请重试"
+		c.s.Error = localize.Text("自动连接设置保存失败，请重试")
 	}
 	c.mu.Unlock()
 	c.notify()
@@ -136,7 +138,7 @@ func (c *Controller) Probe(ctx context.Context, id, protocol string, port uint16
 	}); ok {
 		return b.Probe(ctx, id, protocol, port)
 	}
-	return ProbeResult{DeviceID: id, Port: port, State: "unknown", Message: "当前组网内核不支持连接检测", Checked: time.Now()}
+	return ProbeResult{DeviceID: id, Port: port, State: "unknown", Message: localize.Text("当前组网内核不支持连接检测"), Checked: time.Now()}
 }
 
 func (c *Controller) Refresh() { c.work("refresh", false) }
@@ -242,7 +244,7 @@ func (c *Controller) perform(ctx context.Context, action string) error {
 		err := c.saveLocked()
 		c.mu.Unlock()
 		if err != nil && action != "block" && action != "disconnect" {
-			return errors.New("无法保存组网安全状态，未执行操作")
+			return errors.New(localize.Text("无法保存组网安全状态，未执行操作"))
 		}
 	}
 	var actionErr error
@@ -330,7 +332,7 @@ func (c *Controller) perform(ctx context.Context, action string) error {
 	c.s.Visits = visits
 	if c.s.Managed {
 		if err := c.saveLocked(); err != nil {
-			c.s.MonitorError = "访问记录无法保存，当前仅显示内存中的记录"
+			c.s.MonitorError = localize.Text("访问记录无法保存，当前仅显示内存中的记录")
 		}
 	}
 	return actionErr
@@ -383,6 +385,6 @@ func (c *Controller) ClearHistory() {
 	}
 	c.s.Visits = kept
 	if err := c.saveLocked(); err != nil {
-		c.s.Error = "历史记录清理未能保存"
+		c.s.Error = localize.Text("历史记录清理未能保存")
 	}
 }

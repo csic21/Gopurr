@@ -1,5 +1,7 @@
 package mesh
 
+import "gopurr/internal/localize"
+
 import (
 	"context"
 	"crypto/rand"
@@ -61,7 +63,7 @@ func (b *Embedded) dialPeer(n *nodeSession, ctx context.Context, network, addres
 	allowed := b.node == n && n.peers[dst.Addr()]
 	b.mu.Unlock()
 	if err != nil || !allowed || dst.Port() == 0 || (network != "tcp" && network != "udp") {
-		return nil, errors.New("目标不是已知的组网设备")
+		return nil, errors.New(localize.Text("目标不是已知的组网设备"))
 	}
 	return n.dial(ctx, network, dst.String())
 }

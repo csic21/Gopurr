@@ -1,6 +1,8 @@
 // Package applications discovers local programs without launching them.
 package applications
 
+import "gopurr/internal/localize"
+
 import (
 	"context"
 	"encoding/json"
@@ -55,7 +57,7 @@ func scanBundles(ctx context.Context, roots []string) ([]Application, error) {
 			}
 			if walkErr != nil {
 				if !errors.Is(walkErr, fs.ErrNotExist) {
-					failures = append(failures, fmt.Errorf("读取 %s：%w", path, walkErr))
+					failures = append(failures, fmt.Errorf(localize.Text("读取 %s：%w"), path, walkErr))
 				}
 				return nil
 			}
@@ -121,7 +123,7 @@ func Inspect(ctx context.Context, path string) (Application, error) {
 	}
 	if !info.Mode().IsRegular() || (runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(path), ".exe")) ||
 		(runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0) {
-		return Application{}, errors.New("请选择 .app 应用或可执行程序")
+		return Application{}, errors.New(localize.Text("请选择 .app 应用或可执行程序"))
 	}
 	return Application{Name: filepath.Base(path), Path: path, Executable: path}, nil
 }
@@ -130,7 +132,7 @@ func inspectBundle(ctx context.Context, path string) (Application, error) {
 	plistPath := filepath.Join(path, "Contents", "Info.plist")
 	data, err := os.ReadFile(plistPath)
 	if err != nil {
-		return Application{}, fmt.Errorf("无法读取应用信息：%w", err)
+		return Application{}, fmt.Errorf(localize.Text("无法读取应用信息：%w"), err)
 	}
 	values := map[string]string{}
 	if strings.HasPrefix(string(data), "bplist") {
@@ -138,7 +140,7 @@ func inspectBundle(ctx context.Context, path string) (Application, error) {
 		// through a shell. Discovery itself runs away from the UI thread.
 		data, err = exec.CommandContext(ctx, "/usr/bin/plutil", "-convert", "json", "-o", "-", "--", plistPath).Output()
 		if err != nil {
-			return Application{}, fmt.Errorf("无法解析应用信息：%w", err)
+			return Application{}, fmt.Errorf(localize.Text("无法解析应用信息：%w"), err)
 		}
 		var doc map[string]any
 		if err := json.Unmarshal(data, &doc); err != nil {
@@ -167,13 +169,13 @@ func inspectBundle(ctx context.Context, path string) (Application, error) {
 	}
 	executable := values["CFBundleExecutable"]
 	if executable == "" || executable == "." || executable == ".." || strings.ContainsAny(executable, "/\\\r\n") {
-		return Application{}, errors.New("应用缺少有效的主程序")
+		return Application{}, errors.New(localize.Text("应用缺少有效的主程序"))
 	}
 	exePath := filepath.Join(path, "Contents", "MacOS", executable)
 	info, err := os.Stat(exePath)
 	// Windows reports no Unix executable bit, so a regular file is enough there.
 	if err != nil || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0) {
-		return Application{}, errors.New("找不到应用的可执行主程序")
+		return Application{}, errors.New(localize.Text("找不到应用的可执行主程序"))
 	}
 	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
 		exePath = resolved
@@ -208,7 +210,7 @@ $apps = @(foreach ($root in $roots) {
 ConvertTo-Json -InputObject $apps -Compress`
 	data, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Output()
 	if err != nil {
-		return nil, fmt.Errorf("读取开始菜单失败：%w", err)
+		return nil, fmt.Errorf(localize.Text("读取开始菜单失败：%w"), err)
 	}
 	var found []Application
 	if err := json.Unmarshal(data, &found); err != nil {

@@ -114,7 +114,7 @@ func (a *App) pollApplicationResults() {
 			a.appCatalogResult = nil
 			a.appCatalog, a.appCatalogBusy, a.appCatalogReady = result.apps, false, true
 			if result.err != nil {
-				a.appCatalogError = "部分应用未能读取，可重试或手动选择。"
+				a.appCatalogError = tr("部分应用未能读取，可重试或手动选择。")
 			}
 		default:
 		}
@@ -151,11 +151,11 @@ func (a *App) chooseApplicationFile() {
 	result := make(chan applicationScanResult, 1)
 	a.appFileResult = result
 	go func() {
-		opts := mygo.OpenDialogOptions{Title: "选择应用或 Helper 程序", ButtonLabel: "选择"}
+		opts := mygo.OpenDialogOptions{Title: tr("选择应用或 Helper 程序"), ButtonLabel: tr("选择")}
 		if runtime.GOOS == "darwin" {
 			opts.DefaultPath = "/Applications"
 		} else if runtime.GOOS == "windows" {
-			opts.Filters = []mygo.FileFilter{{Name: "可执行程序", Extensions: []string{"exe"}}}
+			opts.Filters = []mygo.FileFilter{{Name: tr("可执行程序"), Extensions: []string{"exe"}}}
 		}
 		paths, err := mygo.Dialog.Open(opts)
 		var apps []applications.Application
@@ -241,7 +241,7 @@ func (a *App) stageApplicationRule() {
 		route.Target = "REJECT"
 	case 2:
 		if !containsString(a.appEditGroups, a.appEditGroup) {
-			a.appEditError = "请从当前配置中选择可用的代理组"
+			a.appEditError = tr("请从当前配置中选择可用的代理组")
 			return
 		}
 		route.Target = a.appEditGroup
@@ -262,9 +262,9 @@ func (a *App) stageApplicationRule() {
 func appPolicyLabel(target string) string {
 	switch target {
 	case "DIRECT":
-		return "直连"
+		return tr("直连")
 	case "REJECT":
-		return "拦截"
+		return tr("拦截")
 	default:
 		return target
 	}
@@ -274,10 +274,10 @@ func (a *App) applicationRulesPage(c *ui.Context) {
 	a.initApplicationRules()
 	a.pollApplicationResults()
 	pal := paletteFor(c)
-	ui.Text(c, "应用分流优先于额外规则与订阅规则，订阅更新后仍会保留。").FillWidth().FontSize(11.5).TextColor(pal.Muted)
+	ui.Text(c, tr("应用分流优先于额外规则与订阅规则，订阅更新后仍会保留。")).FillWidth().FontSize(11.5).TextColor(pal.Muted)
 	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-		searchRow(c, &a.appRulesQuery, "搜索已添加的应用…").Grow(1).MinWidth(0).Label("搜索应用分流")
-		softButton(c, "添加应用…").OnClick(a.openApplicationPicker)
+		searchRow(c, &a.appRulesQuery, tr("搜索已添加的应用…")).Grow(1).MinWidth(0).Label(tr("搜索应用分流"))
+		softButton(c, tr("添加应用…")).OnClick(a.openApplicationPicker)
 	})
 	var shown []int
 	query := strings.ToLower(strings.TrimSpace(a.appRulesQuery))
@@ -292,9 +292,9 @@ func (a *App) applicationRulesPage(c *ui.Context) {
 	if len(shown) == 0 {
 		ui.Column(c).FillWidth().Grow(1).MinHeight(0).Justify(ui.Center).Children(func() {
 			if len(a.appRulesDraft) == 0 {
-				emptyState(c, "为应用选择专属出口", "添加本机应用，选择直连、拦截或代理组。")
+				emptyState(c, tr("为应用选择专属出口"), tr("添加本机应用，选择直连、拦截或代理组。"))
 			} else {
-				emptyState(c, "没有匹配的应用", "试试应用名称、路径或策略名称。")
+				emptyState(c, tr("没有匹配的应用"), tr("试试应用名称、路径或策略名称。"))
 			}
 		})
 	} else {
@@ -315,28 +315,28 @@ func (a *App) applicationRulesPage(c *ui.Context) {
 				})
 				ui.Column(c).Width(132).Gap(5).Children(func() {
 					ui.Text(c, appPolicyLabel(route.Target)).FillWidth().SingleLine().Ellipsis("…").Tooltip(route.Target).FontSize(12).TextColor(adapterColor(c, route.Target))
-					scope := "仅主程序"
+					scope := tr("仅主程序")
 					if route.IncludeHelpers {
-						scope = "含包内 Helper"
+						scope = tr("含包内 Helper")
 					}
 					ui.Text(c, scope).FontSize(11).TextColor(pal.Faint)
 				})
-				softButton(c, "编辑").Label("编辑应用分流 " + route.Application.Name).OnClick(func() { a.openApplicationEditor(route.Application) })
-				softButton(c, "移除").Label("移除应用分流 " + route.Application.Name).OnClick(func() {
+				softButton(c, tr("编辑")).Label(tr("编辑应用分流 ") + route.Application.Name).OnClick(func() { a.openApplicationEditor(route.Application) })
+				softButton(c, tr("移除")).Label(tr("移除应用分流 ") + route.Application.Name).OnClick(func() {
 					a.appRulesDraft = append(a.appRulesDraft[:index:index], a.appRulesDraft[index+1:]...)
 					a.appRulesError, a.appRulesStatus = "", ""
 				})
 			})
 		})
 	}
-	modeHint := "在规则模式下生效；不遵循系统代理的应用可通过 TUN 接管。"
+	modeHint := tr("在规则模式下生效；不遵循系统代理的应用可通过 TUN 接管。")
 	color := pal.Muted
 	if a.ov.Mode != "" && a.ov.Mode != "rule" {
-		modeHint, color = "当前为"+labelFor(a.ov.Mode)+"模式，切回规则模式后应用分流才会生效。", pal.Warn
+		modeHint, color = tr("当前为")+labelFor(a.ov.Mode)+tr("模式，切回规则模式后应用分流才会生效。"), pal.Warn
 	}
 	ui.Text(c, modeHint).FillWidth().FontSize(11).TextColor(color)
 	extensionFeedback(c, a.appRulesError, a.appRulesStatus)
-	extensionSaveBar(c, !slices.Equal(a.appRulesDraft, a.ov.AppRules), "保存应用分流", func() {
+	extensionSaveBar(c, !slices.Equal(a.appRulesDraft, a.ov.AppRules), tr("保存应用分流"), func() {
 		a.appRulesDraft = slices.Clone(a.ov.AppRules)
 		a.appRulesError, a.appRulesStatus = "", ""
 	}, func() { _ = a.saveApplicationRules() })
@@ -354,12 +354,12 @@ func (a *App) applicationPicker(c *ui.Context) {
 		}
 		ui.Column(c).Width(590).Padding(20).Gap(12).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "选择本机应用").Grow(1).FontSize(16).Bold().TextColor(pal.Text)
-				ui.Text(c, fmt.Sprintf("%d 个应用", len(a.appCatalog))).FontSize(11).TextColor(pal.Muted)
+				ui.Text(c, tr("选择本机应用")).Grow(1).FontSize(16).Bold().TextColor(pal.Text)
+				ui.Text(c, fmt.Sprintf(tr("%d 个应用"), len(a.appCatalog))).FontSize(11).TextColor(pal.Muted)
 			})
 			ui.Row(c).FillWidth().Gap(8).Children(func() {
-				searchRow(c, &a.appCatalogQuery, "搜索应用名称或路径…").Grow(1).MinWidth(0).Label("搜索本机应用")
-				softButton(c, "重新扫描").Disabled(a.appCatalogBusy).OnClick(a.startApplicationScan)
+				searchRow(c, &a.appCatalogQuery, tr("搜索应用名称或路径…")).Grow(1).MinWidth(0).Label(tr("搜索本机应用"))
+				softButton(c, tr("重新扫描")).Disabled(a.appCatalogBusy).OnClick(a.startApplicationScan)
 			})
 			shown := filterApplications(a.appCatalog, a.appCatalogQuery)
 			if a.appCatalogIdentity != a.appCatalogQuery {
@@ -368,9 +368,9 @@ func (a *App) applicationPicker(c *ui.Context) {
 			ui.Column(c).FillWidth().Height(listHeight).Radius(10).Background(pal.Surface).Children(func() {
 				if len(shown) == 0 {
 					ui.Column(c).Fill().Justify(ui.Center).Children(func() {
-						title, hint := "没有找到应用", "可更换搜索词，或从其他位置选择应用。"
+						title, hint := tr("没有找到应用"), tr("可更换搜索词，或从其他位置选择应用。")
 						if a.appCatalogBusy {
-							title, hint = "正在读取本机应用…", "仅读取应用信息，不会启动应用。"
+							title, hint = tr("正在读取本机应用…"), tr("仅读取应用信息，不会启动应用。")
 						}
 						emptyState(c, title, hint)
 					})
@@ -391,9 +391,9 @@ func (a *App) applicationPicker(c *ui.Context) {
 							ui.Text(c, app.Path).FillWidth().SingleLine().Ellipsis("…").Tooltip(app.Path).FontSize(11).TextColor(pal.Muted)
 						})
 						if selected {
-							ui.Text(c, "已添加").FontSize(11).TextColor(pal.Accent)
+							ui.Text(c, tr("已添加")).FontSize(11).TextColor(pal.Accent)
 						}
-						softButton(c, "选择").Label("选择应用 " + app.Name).OnClick(func() { a.openApplicationEditor(app) })
+						softButton(c, tr("选择")).Label(tr("选择应用 ") + app.Name).OnClick(func() { a.openApplicationEditor(app) })
 					})
 				})
 			})
@@ -401,9 +401,9 @@ func (a *App) applicationPicker(c *ui.Context) {
 				ui.Text(c, a.appCatalogError).FillWidth().MaxHeight(36).FontSize(11).TextColor(pal.Warn).Tooltip(a.appCatalogError)
 			}
 			ui.Row(c).FillWidth().Gap(8).Children(func() {
-				softButton(c, "选择文件…").Disabled(a.appFileResult != nil).OnClick(a.chooseApplicationFile)
+				softButton(c, tr("选择文件…")).Disabled(a.appFileResult != nil).OnClick(a.chooseApplicationFile)
 				ui.Spacer(c)
-				softButton(c, "取消").OnClick(func() { a.showAppPicker = false })
+				softButton(c, tr("取消")).OnClick(func() { a.showAppPicker = false })
 			})
 		})
 	})
@@ -413,13 +413,13 @@ func (a *App) applicationRuleEditor(c *ui.Context) {
 	pal := paletteFor(c)
 	softModal(c, "application-editor", &a.showAppEditor, func() {
 		ui.Column(c).Width(560).Padding(20).Gap(12).Children(func() {
-			ui.Text(c, "设置应用分流").FontSize(16).Bold().TextColor(pal.Text)
+			ui.Text(c, tr("设置应用分流")).FontSize(16).Bold().TextColor(pal.Text)
 			ui.Column(c).FillWidth().Gap(4).Children(func() {
 				ui.Text(c, a.appEdit.Application.Name).FillWidth().SingleLine().Ellipsis("…").Tooltip(a.appEdit.Application.Name).FontSize(14).TextColor(pal.Text)
 				ui.Text(c, a.appEdit.Application.Path).FillWidth().SingleLine().Ellipsis("…").Tooltip(a.appEdit.Application.Path).FontSize(11).TextColor(pal.Muted)
 			})
-			ui.Text(c, "连接方式").FontSize(11.5).TextColor(pal.Muted)
-			softSegmented(c, &a.appEditKind, "直连", "拦截", "代理组").AlignSelf(ui.Start).Label("应用连接方式")
+			ui.Text(c, tr("连接方式")).FontSize(11.5).TextColor(pal.Muted)
+			softSegmented(c, &a.appEditKind, tr("直连"), tr("拦截"), tr("代理组")).AlignSelf(ui.Start).Label(tr("应用连接方式"))
 			validGroup := containsString(a.appEditGroups, a.appEditGroup)
 			if a.appEditKind == 2 {
 				options := slices.Clone(a.appEditGroups)
@@ -427,27 +427,27 @@ func (a *App) applicationRuleEditor(c *ui.Context) {
 					options = append(options, a.appEditGroup)
 				}
 				if len(options) > 0 {
-					ui.Select(c, &a.appEditGroup, options).FillWidth().Label("应用代理组")
+					ui.Select(c, &a.appEditGroup, options).FillWidth().Label(tr("应用代理组"))
 				}
 				if !validGroup {
-					ui.Text(c, "当前配置中没有可用的所选代理组，请更换或先添加订阅。").FillWidth().FontSize(11).TextColor(pal.Warn)
+					ui.Text(c, tr("当前配置中没有可用的所选代理组，请更换或先添加订阅。")).FillWidth().FontSize(11).TextColor(pal.Warn)
 				}
 			}
-			ui.Checkbox(c, &a.appEdit.IncludeHelpers, "包含应用包内的 Helper 子进程").Disabled(!a.appEdit.Application.IsBundle()).Label("包含应用 Helper")
-			hint := "按应用包路径匹配，覆盖包内 Helper、XPC 服务与更新程序。应用包外的共享进程需单独添加。"
+			ui.Checkbox(c, &a.appEdit.IncludeHelpers, tr("包含应用包内的 Helper 子进程")).Disabled(!a.appEdit.Application.IsBundle()).Label(tr("包含应用 Helper"))
+			hint := tr("按应用包路径匹配，覆盖包内 Helper、XPC 服务与更新程序。应用包外的共享进程需单独添加。")
 			if !a.appEdit.Application.IsBundle() {
-				hint = "此项是独立可执行程序，仅匹配该程序。Helper 可通过「选择文件…」单独添加，避免影响同目录的其他应用。"
+				hint = tr("此项是独立可执行程序，仅匹配该程序。Helper 可通过「选择文件…」单独添加，避免影响同目录的其他应用。")
 			}
 			ui.Text(c, hint).FillWidth().FontSize(11.5).TextColor(pal.Muted)
 			if a.appEditError != "" {
 				extensionError(c, a.appEditError)
 			}
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "加入草稿后，保存才会生效").Grow(1).FontSize(11).TextColor(pal.Faint)
-				softButton(c, "取消").OnClick(func() { a.showAppEditor = false })
-				label := "添加到草稿"
+				ui.Text(c, tr("加入草稿后，保存才会生效")).Grow(1).FontSize(11).TextColor(pal.Faint)
+				softButton(c, tr("取消")).OnClick(func() { a.showAppEditor = false })
+				label := tr("添加到草稿")
 				if appRuleIndex(a.appRulesDraft, a.appEdit.Application.Path) >= 0 {
-					label = "更新草稿"
+					label = tr("更新草稿")
 				}
 				softPrimaryButton(c, label).Disabled(a.appEditKind == 2 && !validGroup).OnClick(a.stageApplicationRule)
 			})

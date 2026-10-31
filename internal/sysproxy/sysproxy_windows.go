@@ -10,6 +10,8 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"gopurr/internal/localize"
 )
 
 const supported = true
@@ -18,10 +20,10 @@ const internetSettings = `Software\Microsoft\Windows\CurrentVersion\Internet Set
 var internetSetOption = windows.NewLazySystemDLL("wininet.dll").NewProc("InternetSetOptionW")
 
 func SetTimeout(time.Duration) {}
-func Service() (string, error) { return "当前用户", nil }
+func Service() (string, error) { return localize.Text("当前用户"), nil }
 
 func Current() (State, error) {
-	st := State{Supported: true, Service: "当前用户"}
+	st := State{Supported: true, Service: localize.Text("当前用户")}
 	key, err := registry.OpenKey(registry.CURRENT_USER, internetSettings, registry.QUERY_VALUE)
 	if errors.Is(err, registry.ErrNotExist) {
 		return st, nil
@@ -67,7 +69,7 @@ func Enable(port int) error { return Apply("127.0.0.1", port) }
 
 func Apply(server string, port int) error {
 	if strings.TrimSpace(server) == "" || strings.ContainsAny(server, "\x00;=\r\n") || port < 1 || port > 65535 {
-		return errors.New("系统代理地址或端口无效")
+		return errors.New(localize.Text("系统代理地址或端口无效"))
 	}
 	return writeWindowsProxy(net.JoinHostPort(server, strconv.Itoa(port)), true)
 }
@@ -128,7 +130,7 @@ func notifyWindowsProxy() error {
 	// INTERNET_OPTION_SETTINGS_CHANGED and INTERNET_OPTION_REFRESH.
 	for _, option := range []uintptr{39, 37} {
 		if ok, _, err := internetSetOption.Call(0, option, 0, 0); ok == 0 {
-			return fmt.Errorf("通知 Windows 系统代理失败: %v", err)
+			return fmt.Errorf(localize.Text("通知 Windows 系统代理失败: %v"), err)
 		}
 	}
 	return nil

@@ -182,10 +182,10 @@ func (a *App) featureSettingsPage(c *ui.Context, dns bool) {
 		})
 	})
 	message, status, dirty := a.snifferError, a.snifferStatus, a.snifferDraft != a.snifferBase
-	save, reset, label := a.saveSnifferSettings, a.resetSnifferDraft, "保存嗅探设置"
+	save, reset, label := a.saveSnifferSettings, a.resetSnifferDraft, tr("保存嗅探设置")
 	if dns {
 		message, status, dirty = a.dnsError, a.dnsStatus, a.dnsDraft != a.dnsBase
-		save, reset, label = a.saveDNSSettings, a.resetDNSDraft, "保存 DNS 设置"
+		save, reset, label = a.saveDNSSettings, a.resetDNSDraft, tr("保存 DNS 设置")
 	}
 	if message != "" {
 		extensionError(c, message)
@@ -204,12 +204,12 @@ func (a *App) featureSettingsPage(c *ui.Context, dns bool) {
 
 func featureSource(c *ui.Context, name string, source *int, enabled *bool, hint string) {
 	settingsGroup(c, name, func() {
-		settingsRow(c, "配置方式", "跟随配置时使用订阅与 YAML 覆写", func() {
-			softSegmented(c, source, "跟随配置", "自定义").Label(name + "配置方式")
+		settingsRow(c, tr("配置方式"), tr("跟随配置时使用订阅与 YAML 覆写"), func() {
+			softSegmented(c, source, tr("跟随配置"), tr("自定义")).Label(name + tr("配置方式"))
 		})
 		hairline(c)
-		settingsRow(c, "启用"+name, hint, func() {
-			softSwitch(c, enabled).Disabled(*source == 0).Label(name + "开关")
+		settingsRow(c, fmt.Sprintf(tr("启用%s"), name), hint, func() {
+			softSwitch(c, enabled).Disabled(*source == 0).Label(name + tr("开关"))
 		})
 	})
 }
@@ -224,49 +224,52 @@ func featureTextArea(c *ui.Context, title, hint string, value *string, placehold
 }
 
 func (a *App) dnsSettingsFields(c *ui.Context) {
-	d := &a.dnsDraft
+	a.dnsFields(c, &a.dnsDraft, tr("全局 DNS 适用于所有订阅；订阅的 YAML 或独立 DNS 可进一步覆写。切回跟随配置并保存可移除自定义设置。"))
+}
+
+func (a *App) dnsFields(c *ui.Context, d *dnsDraft, note string) {
 	disabled := d.Source == 0 || !d.Enable
-	featureSource(c, "DNS", &d.Source, &d.Enable, "接管域名解析；TUN 模式需要开启")
-	settingsGroup(c, "解析方式", func() {
-		settingsRow(c, "DNS 模式", "Fake-IP 建立域名映射；redir-host 返回真实 IP", func() {
-			ui.Select(c, &d.Mode, []string{"fake-ip", "redir-host"}).Width(130).Disabled(disabled).Label("DNS 模式")
+	featureSource(c, "DNS", &d.Source, &d.Enable, tr("接管域名解析；TUN 模式需要开启"))
+	settingsGroup(c, tr("解析方式"), func() {
+		settingsRow(c, tr("DNS 模式"), tr("Fake-IP 建立域名映射；redir-host 返回真实 IP"), func() {
+			ui.Select(c, &d.Mode, []string{"fake-ip", "redir-host"}).Width(130).Disabled(disabled).Label(tr("DNS 模式"))
 		})
 		hairline(c)
-		settingsRow(c, "解析 IPv6", "允许 DNS 返回 IPv6 地址", func() {
-			softSwitch(c, &d.IPv6).Disabled(disabled).Label("DNS IPv6 开关")
+		settingsRow(c, tr("解析 IPv6"), tr("允许 DNS 返回 IPv6 地址"), func() {
+			softSwitch(c, &d.IPv6).Disabled(disabled).Label(tr("DNS IPv6 开关"))
 		})
 	})
-	settingsGroup(c, "解析服务器", func() {
-		featureTextArea(c, "DNS 解析服务器", "每行一个，支持 IP、DoH、DoT 等地址", &d.Servers, "https://doh.pub/dns-query\n1.1.1.1", disabled)
+	settingsGroup(c, tr("解析服务器"), func() {
+		featureTextArea(c, tr("DNS 解析服务器"), tr("每行一个，支持 IP、DoH、DoT 等地址"), &d.Servers, "https://doh.pub/dns-query\n1.1.1.1", disabled)
 		hairline(c)
-		featureTextArea(c, "引导 DNS", "用于解析 DNS 服务器自身的域名；填写 IP 地址或 system", &d.Bootstrap, "223.5.5.5\n1.1.1.1", disabled)
+		featureTextArea(c, tr("引导 DNS"), tr("用于解析 DNS 服务器自身的域名；填写 IP 地址或 system"), &d.Bootstrap, "223.5.5.5\n1.1.1.1", disabled)
 		hairline(c)
-		featureTextArea(c, "备用 DNS", "可选，每行一个；沿用配置中的回退筛选规则", &d.Fallback, "https://dns.google/dns-query", disabled)
+		featureTextArea(c, tr("备用 DNS"), tr("可选，每行一个；沿用配置中的回退筛选规则"), &d.Fallback, "https://dns.google/dns-query", disabled)
 	})
-	settingsGroup(c, "Fake-IP 例外", func() {
-		featureTextArea(c, "Fake-IP 过滤列表", "每行一项，语法与配置中的过滤模式一致", &d.Filter, "*.lan\n+.local", disabled || d.Mode != "fake-ip")
+	settingsGroup(c, tr("Fake-IP 例外"), func() {
+		featureTextArea(c, tr("Fake-IP 过滤列表"), tr("每行一项，语法与配置中的过滤模式一致"), &d.Filter, "*.lan\n+.local", disabled || d.Mode != "fake-ip")
 	})
-	featureNote(c, "自定义设置对所有订阅生效；其他 DNS 参数继续沿用配置。切回“跟随配置”并保存可移除自定义设置。")
+	featureNote(c, note)
 }
 
 func (a *App) snifferSettingsFields(c *ui.Context) {
 	s := &a.snifferDraft
 	disabled := s.Source == 0 || !s.Enable
-	featureSource(c, "域名嗅探", &s.Source, &s.Enable, "从连接中识别域名，帮助规则准确分流")
-	settingsGroup(c, "嗅探行为", func() {
-		settingsRow(c, "覆盖连接地址", "使用识别出的域名作为实际连接目标", func() {
-			softSwitch(c, &s.Override).Disabled(disabled).Label("覆盖连接地址")
+	featureSource(c, tr("域名嗅探"), &s.Source, &s.Enable, tr("从连接中识别域名，帮助规则准确分流"))
+	settingsGroup(c, tr("嗅探行为"), func() {
+		settingsRow(c, tr("覆盖连接地址"), tr("使用识别出的域名作为实际连接目标"), func() {
+			softSwitch(c, &s.Override).Disabled(disabled).Label(tr("覆盖连接地址"))
 		})
 		hairline(c)
-		settingsRow(c, "对真实 IP 映射嗅探", "对 redir-host 映射的连接再次识别域名", func() {
-			softSwitch(c, &s.Mapping).Disabled(disabled).Label("对真实 IP 映射嗅探")
+		settingsRow(c, tr("对真实 IP 映射嗅探"), tr("对 redir-host 映射的连接再次识别域名"), func() {
+			softSwitch(c, &s.Mapping).Disabled(disabled).Label(tr("对真实 IP 映射嗅探"))
 		})
 		hairline(c)
-		settingsRow(c, "对未映射 IP 地址嗅探", "尝试识别尚未获取域名的连接", func() {
-			softSwitch(c, &s.PureIP).Disabled(disabled).Label("对未映射 IP 地址嗅探")
+		settingsRow(c, tr("对未映射 IP 地址嗅探"), tr("尝试识别尚未获取域名的连接"), func() {
+			softSwitch(c, &s.PureIP).Disabled(disabled).Label(tr("对未映射 IP 地址嗅探"))
 		})
 	})
-	settingsGroup(c, "协议与端口", func() {
+	settingsGroup(c, tr("协议与端口"), func() {
 		for i, field := range []struct {
 			name        string
 			value       *string
@@ -277,22 +280,22 @@ func (a *App) snifferSettingsFields(c *ui.Context) {
 			if i > 0 {
 				hairline(c)
 			}
-			settingsRow(c, field.name+" 端口", "逗号分隔，支持范围；留空则不嗅探此协议", func() {
-				ui.TextInput(c, field.value).Width(170).Disabled(disabled).Label(field.name + " 嗅探端口").Placeholder(field.placeholder)
+			settingsRow(c, field.name+tr(" 端口"), tr("逗号分隔，支持范围；留空则不嗅探此协议"), func() {
+				ui.TextInput(c, field.value).Width(170).Disabled(disabled).Label(field.name + tr(" 嗅探端口")).Placeholder(field.placeholder)
 			})
 		}
 	})
-	settingsGroup(c, "域名例外", func() {
-		featureTextArea(c, "跳过域名嗅探", "每行一个域名或通配规则", &s.SkipDomain, "+.push.apple.com", disabled)
+	settingsGroup(c, tr("域名例外"), func() {
+		featureTextArea(c, tr("跳过域名嗅探"), tr("每行一个域名或通配规则"), &s.SkipDomain, "+.push.apple.com", disabled)
 		hairline(c)
-		featureTextArea(c, "强制域名嗅探", "每行一个域名或通配规则", &s.ForceDomain, "+.v2ex.com", disabled)
+		featureTextArea(c, tr("强制域名嗅探"), tr("每行一个域名或通配规则"), &s.ForceDomain, "+.v2ex.com", disabled)
 	})
-	settingsGroup(c, "地址例外", func() {
-		featureTextArea(c, "跳过来源地址", "每行一个 IP 或 CIDR 网段", &s.SkipSrc, "192.168.1.0/24", disabled)
+	settingsGroup(c, tr("地址例外"), func() {
+		featureTextArea(c, tr("跳过来源地址"), tr("每行一个 IP 或 CIDR 网段"), &s.SkipSrc, "192.168.1.0/24", disabled)
 		hairline(c)
-		featureTextArea(c, "跳过目标地址", "每行一个 IP 或 CIDR 网段", &s.SkipDst, "91.105.192.0/23", disabled)
+		featureTextArea(c, tr("跳过目标地址"), tr("每行一个 IP 或 CIDR 网段"), &s.SkipDst, "91.105.192.0/23", disabled)
 	})
-	featureNote(c, "嗅探只读取协议中可见的域名信息，不解密 HTTPS 正文。自定义设置对所有订阅生效。")
+	featureNote(c, tr("嗅探只读取协议中可见的域名信息，不解密 HTTPS 正文。自定义设置对所有订阅生效。"))
 }
 
 func featureNote(c *ui.Context, text string) {
@@ -304,14 +307,11 @@ func (a *App) toggleNetworkFeature(isDNS, enabled bool) {
 	a.featureCacheAt = time.Time{}
 	d, s, err := a.effectiveFeatures()
 	if err != nil {
-		a.notice = "配置读取失败：" + err.Error()
+		a.notice = tr("配置读取失败：") + err.Error()
 		return
 	}
 	next := a.ov
 	if isDNS {
-		if next.DNS != nil {
-			d = *next.DNS
-		}
 		d.Enable = enabled
 		next.DNS = &d
 	} else {
@@ -321,7 +321,18 @@ func (a *App) toggleNetworkFeature(isDNS, enabled bool) {
 		s.Enable = enabled
 		next.Sniffer = &s
 	}
-	applied, err := a.commitExtensionOverrides(next)
+	var applied bool
+	if isDNS && a.store != nil && a.store.ActiveID() != "" {
+		id := a.store.ActiveID()
+		local := a.profileOverrides(id)
+		local.DNS = &d
+		applied, err = a.commitProfileOverrides(id, local)
+		if a.extensionReady && a.extensionDraftKey == id && a.profileDNSDraft == a.profileDNSBase {
+			a.resetProfileDNSDraft()
+		}
+	} else {
+		applied, err = a.commitExtensionOverrides(next)
+	}
 	if err != nil {
 		a.notice = err.Error()
 		return
@@ -339,40 +350,51 @@ func (a *App) toggleNetworkFeature(isDNS, enabled bool) {
 // remain available even while following the subscription.
 func (a *App) overviewFeatures(c *ui.Context) {
 	dns, sniffer, err := a.effectiveFeatures()
+	customDNS := a.ov.DNS != nil
+	if a.store != nil {
+		customDNS = customDNS || a.profileOverrides(a.store.ActiveID()).DNS != nil
+	}
 	ui.Column(c).FillWidth().Children(func() {
 		for i, feature := range []struct {
 			name            string
 			enabled, custom bool
 			tab             int
 		}{
-			{"DNS", dns.Enable, a.ov.DNS != nil, 4}, {"域名嗅探", sniffer.Enable, a.ov.Sniffer != nil, 5},
+			{"DNS", dns.Enable, customDNS, 4}, {tr("域名嗅探"), sniffer.Enable, a.ov.Sniffer != nil, 5},
 		} {
 			if i > 0 {
 				hairline(c)
 			}
-			status := "已关闭"
+			status := tr("已关闭")
 			if feature.enabled {
-				status = "已开启"
+				status = tr("已开启")
 			}
 			if feature.custom {
-				status += " · 自定义"
+				status += tr(" · 自定义")
 			} else {
-				status += " · 跟随配置"
+				status += tr(" · 跟随配置")
 			}
 			if err != nil {
-				status = "配置读取失败，请检查设置"
+				status = tr("配置读取失败，请检查设置")
 			}
 			color := paletteFor(c).Muted
 			if err != nil {
 				color = paletteFor(c).Danger
 			}
 			overviewControlRow(c, feature.name, status, color, func() {
-				softButton(c, feature.name+" 设置").OnClick(func() {
+				softButton(c, feature.name+tr(" 设置")).OnClick(func() {
+					if feature.tab == 4 && a.store != nil {
+						if p, err := a.store.Get(a.store.ActiveID()); err == nil && p.Overrides != nil && p.Overrides.DNS != nil {
+							a.openProfileOverrides(p)
+							a.extensionTab = 4
+							return
+						}
+					}
 					a.page, a.settingsTab = "settings", feature.tab
 				})
 				enabled := feature.enabled
-				softSwitch(c, &enabled).Disabled(err != nil).Label("概览" + feature.name + "开关").
-					Tooltip("切换后使用自定义设置；可在设置中恢复跟随配置").OnChange(func() {
+				softSwitch(c, &enabled).Disabled(err != nil).Label(tr("概览") + feature.name + tr("开关")).
+					Tooltip(tr("切换后使用自定义设置；可在设置中恢复跟随配置")).OnChange(func() {
 					a.toggleNetworkFeature(feature.tab == 4, enabled)
 				})
 			})

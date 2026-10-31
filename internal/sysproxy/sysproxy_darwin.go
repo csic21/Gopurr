@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gopurr/internal/localize"
 )
 
 const supported = true
@@ -51,7 +53,7 @@ func serviceUsing(command commandRunner) (string, error) {
 		}
 	}
 	if device == "" {
-		return "", errors.New("找不到默认网卡")
+		return "", errors.New(localize.Text("找不到默认网卡"))
 	}
 	return serviceForDeviceUsing(command, device)
 }
@@ -79,7 +81,7 @@ func serviceForDeviceUsing(command commandRunner, device string) (string, error)
 			return current, nil
 		}
 	}
-	return "", fmt.Errorf("网卡 %s 没有对应的网络服务", device)
+	return "", fmt.Errorf(localize.Text("网卡 %s 没有对应的网络服务"), device)
 }
 
 // Current reads the HTTP proxy state of the active service.

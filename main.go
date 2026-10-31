@@ -90,6 +90,12 @@ func main() {
 		return
 	}
 	a := app.New()
+	app.ConfigureLanguages(a.Prefs())
+	mygo.App.OnLocaleChanged(func(string) {
+		if runtime.GOOS == "darwin" {
+			mygo.App.SetMenu(a.ApplicationMenu(func() { showWindow(a) }))
+		}
+	})
 	mygo.App.OnSecondInstance(func(args []string, _ string) {
 		for _, arg := range args {
 			if arg == "--autostart" {
@@ -103,6 +109,9 @@ func main() {
 
 	mygo.App.SetName("Gopurr")
 	mygo.App.SetVersion(buildinfo.Version)
+	if runtime.GOOS == "darwin" {
+		mygo.App.SetMenu(a.ApplicationMenu(func() { showWindow(a) }))
+	}
 
 	installQuitLifecycle(a)
 
@@ -170,6 +179,7 @@ var (
 )
 
 func installWindowLifecycle(a *app.App) {
+	appliedLanguage := a.Prefs().Language
 	// The kernel must outlive the last window, including a light-mode release.
 	mygo.App.OnWindowAllClosed(func() {})
 	mygo.App.OnActivate(func(bool) { showWindow(a) })
@@ -182,6 +192,10 @@ func installWindowLifecycle(a *app.App) {
 			p := a.Prefs()
 			if source := mygo.ThemeSource(p.Appearance); mygo.Theme.Source() != source {
 				mygo.Theme.SetSource(source)
+			}
+			if p.Language != appliedLanguage {
+				mygo.App.SetLocale(p.NativeLanguage())
+				appliedLanguage = p.Language
 			}
 			applyDockVisibility(p, windowVisible())
 			scheduleRelease(a)
@@ -344,6 +358,7 @@ func installTray(a *app.App) bool {
 		if !menuOnClick {
 			tray.OnClick(openWindow)
 		}
+		mygo.App.OnLocaleChanged(func(string) { tray.SetMenu(a.TrayMenu(openWindow)) })
 		return true
 	}
 

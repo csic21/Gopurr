@@ -19,9 +19,11 @@ import (
 	"sync"
 	"time"
 
-	"gopurr/internal/securefs"
-
 	"go.yaml.in/yaml/v3"
+
+	"gopurr/internal/localize"
+	"gopurr/internal/patch"
+	"gopurr/internal/securefs"
 )
 
 // Info is the traffic quota some providers put in the subscription-userinfo
@@ -44,17 +46,18 @@ const (
 
 // Profile is one saved configuration: a subscription link or a local file.
 type Profile struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Kind        string    `json:"kind,omitempty"` // empty on entries from before local files
-	URL         string    `json:"url,omitempty"`
-	Path        string    `json:"path,omitempty"`
-	File        string    `json:"file"`
-	Updated     time.Time `json:"updated"`
-	Info        Info      `json:"info"`
-	UserAgent   string    `json:"userAgent,omitempty"`
-	UpdateHours *int      `json:"updateHours,omitempty"`
-	UseProxy    bool      `json:"useProxy,omitempty"`
+	ID          string                  `json:"id"`
+	Name        string                  `json:"name"`
+	Kind        string                  `json:"kind,omitempty"` // empty on entries from before local files
+	URL         string                  `json:"url,omitempty"`
+	Path        string                  `json:"path,omitempty"`
+	File        string                  `json:"file"`
+	Updated     time.Time               `json:"updated"`
+	Info        Info                    `json:"info"`
+	UserAgent   string                  `json:"userAgent,omitempty"`
+	UpdateHours *int                    `json:"updateHours,omitempty"`
+	UseProxy    bool                    `json:"useProxy,omitempty"`
+	Overrides   *patch.ProfileOverrides `json:"overrides,omitempty"`
 }
 
 // IsFile reports a local file rather than a subscription.
@@ -85,7 +88,7 @@ func Open(dir string) (*Store, error) {
 			return nil, err
 		}
 		if err := json.Unmarshal(b, s); err != nil {
-			return nil, fmt.Errorf("profiles.json 损坏: %w", err)
+			return nil, fmt.Errorf(localize.Text("profiles.json 损坏: %w"), err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -94,7 +97,7 @@ func Open(dir string) (*Store, error) {
 	// Entries written before local files existed have no kind; they are URLs.
 	for i := range s.Items {
 		if filepath.Base(s.Items[i].File) != s.Items[i].File || !strings.HasSuffix(s.Items[i].File, ".yaml") {
-			return nil, errors.New("订阅文件路径无效")
+			return nil, errors.New(localize.Text("订阅文件路径无效"))
 		}
 		if err := securefs.PrivateFile(filepath.Join(dir, "profiles", s.Items[i].File)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
@@ -119,7 +122,9 @@ func (s *Store) List() []Profile {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]Profile, len(s.Items))
-	copy(out, s.Items)
+	for i, p := range s.Items {
+		out[i] = cloneProfile(p)
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
 	return out
 }
@@ -145,7 +150,7 @@ func (s *Store) SetActive(id string) error {
 			return s.save()
 		}
 	}
-	return errors.New("没有这个订阅")
+	return errors.New(localize.Text("没有这个订阅"))
 }
 
 // Remove deletes a profile and its file.
@@ -175,7 +180,7 @@ func (s *Store) Content(id string) ([]byte, error) {
 			return os.ReadFile(filepath.Join(s.dir, "profiles", p.File))
 		}
 	}
-	return nil, errors.New("没有这个订阅")
+	return nil, errors.New(localize.Text("没有这个订阅"))
 }
 
 // Add fetches a subscription URL and stores it. name may be empty when the
@@ -218,6 +223,7 @@ func (s *Store) Add(url, name string) (Profile, error) {
 		if old.ID == p.ID {
 			p.Name = firstNonEmpty(name, old.Name)
 			p.UserAgent, p.UpdateHours, p.UseProxy = old.UserAgent, old.UpdateHours, old.UseProxy
+			p.Overrides = old.Overrides
 			s.Items[i] = p
 			replaced = true
 		}
@@ -239,7 +245,7 @@ func (s *Store) AddFile(path, name string) (Profile, error) {
 	}
 	body, err := os.ReadFile(abs)
 	if err != nil {
-		return Profile{}, fmt.Errorf("读取失败: %w", err)
+		return Profile{}, fmt.Errorf(localize.Text("读取失败: %w"), err)
 	}
 	if err := validate(body); err != nil {
 		return Profile{}, err
@@ -266,6 +272,7 @@ func (s *Store) AddFile(path, name string) (Profile, error) {
 	replaced := false
 	for i, old := range s.Items {
 		if old.ID == p.ID {
+			p.Overrides = old.Overrides
 			s.Items[i] = p
 			replaced = true
 		}
@@ -283,10 +290,10 @@ func (s *Store) AddFile(path, name string) (Profile, error) {
 func validate(body []byte) error {
 	var doc map[string]any
 	if err := yaml.Unmarshal(body, &doc); err != nil {
-		return errors.New("不是合法 YAML: " + err.Error())
+		return errors.New(localize.Text("不是合法 YAML: ") + err.Error())
 	}
 	if len(doc) == 0 {
-		return errors.New("配置为空")
+		return errors.New(localize.Text("配置为空"))
 	}
 	return nil
 }
@@ -306,7 +313,7 @@ func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 	}
 	s.mu.Unlock()
 	if !found {
-		return errors.New("没有这个订阅")
+		return errors.New(localize.Text("没有这个订阅"))
 	}
 
 	var body []byte
@@ -321,7 +328,7 @@ func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 		}
 		body, err = os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("读取本地文件失败: %w", err)
+			return fmt.Errorf(localize.Text("读取本地文件失败: %w"), err)
 		}
 	} else {
 		body, info, title, err = s.fetchProfile(target)
@@ -365,7 +372,7 @@ func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 		}
 		return nil
 	}
-	return errors.New("没有这个订阅")
+	return errors.New(localize.Text("没有这个订阅"))
 }
 
 func writeContent(path string, body []byte) error {
@@ -408,19 +415,19 @@ func fetchWith(address, userAgent string, proxy *url.URL) (body []byte, info Inf
 	client := &http.Client{Timeout: 30 * time.Second, Transport: transport}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, Info{}, "", fmt.Errorf("下载失败: %w", err)
+		return nil, Info{}, "", fmt.Errorf(localize.Text("下载失败: %w"), err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, Info{}, "", fmt.Errorf("下载失败: HTTP %d", resp.StatusCode)
+		return nil, Info{}, "", fmt.Errorf(localize.Text("下载失败: HTTP %d"), resp.StatusCode)
 	}
 	body, err = io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
 		return nil, Info{}, "", err
 	}
 	if len(body) == 0 {
-		return nil, Info{}, "", errors.New("订阅内容为空")
+		return nil, Info{}, "", errors.New(localize.Text("订阅内容为空"))
 	}
 
 	info = parseUserinfo(resp.Header.Get("subscription-userinfo"))
@@ -495,7 +502,7 @@ func hostOf(url string) string {
 		s = s[:i]
 	}
 	if s == "" {
-		return "订阅"
+		return localize.Text("订阅")
 	}
 	return s
 }

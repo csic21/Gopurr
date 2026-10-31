@@ -82,7 +82,7 @@ func (a *App) shutdownWork() func() shutdownResult {
 	return func() (result shutdownResult) {
 		if applied {
 			if err := proxy.Restore(port, previous); err != nil {
-				result.err = fmt.Errorf("无法恢复系统代理，应用保持运行: %w", err)
+				result.err = fmt.Errorf(tr("无法恢复系统代理，应用保持运行: %w"), err)
 				return
 			}
 			result.restored = true
@@ -94,7 +94,7 @@ func (a *App) shutdownWork() func() shutdownResult {
 		}
 		if meshClient != nil {
 			if err := meshClient.Shutdown(); err != nil {
-				result.err = fmt.Errorf("无法关闭组网入站访问，应用保持运行: %w", err)
+				result.err = fmt.Errorf(tr("无法关闭组网入站访问，应用保持运行: %w"), err)
 				return
 			}
 		}
@@ -127,6 +127,7 @@ func (a *App) applyShutdownResult(result shutdownResult) {
 	a.shutdown.err = ""
 	a.setSysErr("")
 	a.cancelDelayTest()
+	a.cancelDiagnostics()
 	a.shutdown.ready = true
 }
 
@@ -140,14 +141,18 @@ func (a *App) dismissShutdownError() {
 func (a *App) shutdownModal(c *ui.Context) {
 	pal := paletteFor(c)
 	width, _ := c.Size()
-	action := "退出"
+	title, busyLabel, retryLabel := tr("正在退出"), tr("正在退出…"), tr("重试退出")
 	if a.shutdown.relaunch {
-		action = "重启"
+		title, busyLabel, retryLabel = tr("正在重启"), tr("正在重启…"), tr("重试重启")
 	}
-	title, message := "正在"+action, "正在恢复系统代理并结束当前会话，请稍候。"
+	message := tr("正在恢复系统代理并结束当前会话，请稍候。")
 	failed := a.shutdown.err != ""
 	if failed {
-		title, message = action+"未完成", "应用仍在运行，订阅与设置已保留。请稍后重试。"
+		title = tr("退出未完成")
+		if a.shutdown.relaunch {
+			title = tr("重启未完成")
+		}
+		message = tr("应用仍在运行，订阅与设置已保留。请稍后重试。")
 	}
 	ui.Overlay(c, func() {
 		back := ui.Box(c.Key("shutdown")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Modal()
@@ -170,10 +175,10 @@ func (a *App) shutdownModal(c *ui.Context) {
 				}
 				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 					if failed {
-						softButton(c, "返回应用").OnClick(a.dismissShutdownError)
-						softPrimaryButton(c, "重试"+action).OnClick(func() { a.requestQuit(a.shutdown.relaunch) })
+						softButton(c, tr("返回应用")).OnClick(a.dismissShutdownError)
+						softPrimaryButton(c, retryLabel).OnClick(func() { a.requestQuit(a.shutdown.relaunch) })
 					} else {
-						softPrimaryButton(c, "正在"+action+"…").Disabled(true)
+						softPrimaryButton(c, busyLabel).Disabled(true)
 					}
 				})
 			})

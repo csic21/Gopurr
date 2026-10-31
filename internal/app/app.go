@@ -74,6 +74,7 @@ type App struct {
 	connectionState
 	backupState
 	meshState
+	diagnosticState
 
 	mu   sync.Mutex
 	hist []sample
@@ -135,6 +136,7 @@ type App struct {
 	showRaw     bool
 	rawDraft    string
 	rawReadOnly bool
+	rawPreview  bool
 	rawError    string
 
 	store    *profile.Store
@@ -187,7 +189,7 @@ func New() *App {
 		mgr:       mgr,
 		page:      "overview",
 		modeToken: "rule",
-		modePick:  "规则",
+		modePick:  tr("规则"),
 		cfgText:   demoConfig,
 		cfgPath:   filepath.Join(dir, "local.yaml"),
 		ov:        patch.Default(),
@@ -196,9 +198,9 @@ func New() *App {
 	a.meshClient = mesh.New(mesh.NewEmbedded(filepath.Join(dir, "tailnet"), func(port uint16) bool { return uint32(port) == a.meshReservedPort.Load() }), filepath.Join(dir, "mesh.json"), a.invalidate)
 	switch {
 	case err != nil:
-		a.initErr = "数据目录不可用: " + err.Error()
+		a.initErr = tr("数据目录不可用: ") + err.Error()
 	case mgr == nil:
-		a.initErr = "内核客户端没有初始化"
+		a.initErr = tr("内核客户端没有初始化")
 	default:
 		a.k = kernel.New(mgr)
 	}
@@ -326,7 +328,7 @@ func (a *App) saveOverrides() {
 		return
 	}
 	if err := a.saveOverridesAtomic(); err != nil {
-		a.notice = "设置已应用，但保存失败: " + err.Error()
+		a.notice = tr("设置已应用，但保存失败: ") + err.Error()
 	}
 }
 
@@ -334,6 +336,7 @@ func (a *App) saveOverrides() {
 // this app's overrides applied on top.
 func (a *App) configBytes() ([]byte, error) {
 	raw := []byte(a.cfgText)
+	var local patch.ProfileOverrides
 	if a.store != nil {
 		if id := a.store.ActiveID(); id != "" {
 			b, err := a.store.Content(id)
@@ -341,15 +344,19 @@ func (a *App) configBytes() ([]byte, error) {
 				return nil, err
 			}
 			raw = b
+			p, err := a.store.Get(id)
+			if err != nil {
+				return nil, err
+			}
+			if p.Overrides != nil {
+				local = *p.Overrides
+			}
 		}
 	}
 	if len(raw) == 0 {
-		return nil, errors.New("没有可用的配置")
+		return nil, errors.New(tr("没有可用的配置"))
 	}
-	ov := a.ov
-	a.meshReservedPort.Store(uint32(a.mixedPort()))
-	ov.MeshIPs, ov.MeshProxyAddress, ov.MeshProxyPassword = a.meshRuntimeRoutes()
-	return patch.Apply(raw, ov)
+	return patch.ApplyLayers(raw, a.runtimeOverrides(), local)
 }
 
 // View is the window's root.
@@ -367,9 +374,9 @@ func (a *App) View(c *ui.Context) {
 	if a.initErr != "" {
 		ui.Column(c).Fill().Background(pal.Bg).Padding(32).Justify(ui.Center).Gap(8).
 			Children(func() {
-				ui.Text(c, "无法启动内核客户端").FontSize(16).Bold().TextColor(pal.Text)
+				ui.Text(c, tr("无法启动内核客户端")).FontSize(16).Bold().TextColor(pal.Text)
 				ui.Text(c, a.initErr).FontSize(11).TextColor(pal.Danger)
-				ui.Text(c, "检查数据目录是否可写，或用 GOPURR_HOME 指定一个可写目录。").
+				ui.Text(c, tr("检查数据目录是否可写，或用 GOPURR_HOME 指定一个可写目录。")).
 					FontSize(11.5).TextColor(pal.Muted)
 			})
 		return
@@ -419,7 +426,7 @@ func (a *App) StartBackground() {
 			a.ov.TunEnable, a.tunOn = false, false
 			if wantTUN {
 				a.tunWanted = true
-				a.setTunErr("TUN 服务未就绪，请安装或修复服务后重新开启")
+				a.setTunErr(tr("TUN 服务未就绪，请安装或修复服务后重新开启"))
 			}
 			if !a.k.Running() && os.Getenv("GOPURR_AUTOSTART") != "0" {
 				a.toggle()
@@ -516,9 +523,9 @@ func (a *App) recoverFailedKernel() {
 	}
 	a.setSystemProxy(false)
 	if !a.sysApplied {
-		a.notice = "内核已退出，已恢复系统代理"
+		a.notice = tr("内核已退出，已恢复系统代理")
 	} else {
-		a.notice = "内核已退出，系统代理恢复失败，请重试: " + a.sysErrText()
+		a.notice = tr("内核已退出，系统代理恢复失败，请重试: ") + a.sysErrText()
 	}
 	a.invalidate()
 }
@@ -549,7 +556,7 @@ func (a *App) sidebar(c *ui.Context, progress float32, moving bool) {
 			brand.Opacity(0)
 		}
 		brand.Children(func() {
-			ui.Image(c, brandLogo).Size(32, 32).Label("Gopurr 蜷睡猫标记")
+			ui.Image(c, brandLogo).Size(32, 32).Label(tr("Gopurr 蜷睡猫标记"))
 			ui.Text(c, "Gopurr").FontSize(16).FontWeight(600).TextColor(pal.Text)
 		})
 
@@ -569,14 +576,14 @@ func (a *App) sidebar(c *ui.Context, progress float32, moving bool) {
 						dot = pal.Success
 					}
 					ui.Box(c).Size(6, 6).Radius(3).Background(dot)
-					label := "内核已停止"
+					label := tr("内核已停止")
 					if running {
-						label = "内核运行中"
+						label = tr("内核运行中")
 					}
 					ui.Text(c, label).FontSize(11.5).TextColor(pal.Muted)
 				})
 				proxies, rules, _ := a.k.Counts()
-				ui.Text(c, fmt.Sprintf("%d 代理 · %d 规则", proxies, rules)).
+				ui.Text(c, fmt.Sprintf(tr("%d 代理 · %d 规则"), proxies, rules)).
 					FontSize(11).TextColor(pal.Faint)
 			})
 		})
@@ -600,7 +607,7 @@ func (a *App) main(c *ui.Context) {
 					if a.notice != "" {
 						ui.Row(c).FillWidth().Padding(12).Gap(12).AlignItems(ui.Center).Radius(10).Background(pal.Hover).Children(func() {
 							ui.Text(c, a.notice).Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Text).ContentTransition(contentMotion())
-							softButton(c, "关闭提示").OnClick(func() { a.notice = "" })
+							softButton(c, tr("关闭提示")).OnClick(func() { a.notice = "" })
 						})
 					}
 					a.pageBody(c)
@@ -628,8 +635,8 @@ func (a *App) pageBody(c *ui.Context) {
 		a.overviewPage(c)
 	}
 	if a.showDeleteSub {
-		idx := softAlertDialog(c, &a.showDeleteSub, "删除订阅？",
-			"将从本机移除「"+a.deleteSubName+"」。如果正在使用此订阅，请先启用其他配置。", "取消", "删除")
+		idx := softAlertDialog(c, &a.showDeleteSub, tr("删除订阅？"),
+			tr("将从本机移除「")+a.deleteSubName+tr("」。如果正在使用此订阅，请先启用其他配置。"), tr("取消"), tr("删除"))
 		if idx == 1 {
 			a.removeSubscription(a.deleteSubID)
 		}
@@ -654,10 +661,10 @@ func (a *App) pageHeader(c *ui.Context, title, subtitle string, trailing func())
 func (a *App) kernelButton(c *ui.Context, running bool) {
 	pal := paletteFor(c)
 	if running {
-		pill(c, "运行中", pal.Success, pal.Success.Alpha(0.10))
+		pill(c, tr("运行中"), pal.Success, pal.Success.Alpha(0.10))
 		return
 	}
-	softPrimaryButton(c, "启动内核").OnClick(a.toggle)
+	softPrimaryButton(c, tr("启动内核")).OnClick(a.toggle)
 }
 
 // ---------- overview ----------
@@ -683,7 +690,7 @@ func (a *App) chart(c *ui.Context, hist []sample) {
 	if len(hist) < 2 {
 		ui.Column(c).FillWidth().Height(height).AlignItems(ui.Center).Justify(ui.Center).
 			Children(func() {
-				ui.Text(c, "等待流量采样…").FontSize(12).TextColor(pal.Faint)
+				ui.Text(c, tr("等待流量采样…")).FontSize(12).TextColor(pal.Faint)
 			})
 		return
 	}
@@ -726,9 +733,9 @@ func (a *App) chart(c *ui.Context, hist []sample) {
 
 func (a *App) configSource() string {
 	if a.store != nil && a.store.ActiveID() != "" {
-		return "当前由订阅生成"
+		return tr("当前由订阅生成")
 	}
-	return "当前使用本地配置"
+	return tr("当前使用本地配置")
 }
 
 func (a *App) revealDataDir() {
@@ -740,11 +747,12 @@ func (a *App) revealDataDir() {
 		command = "xdg-open"
 	}
 	if err := exec.Command(command, a.dir).Start(); err != nil {
-		a.notice = "打开文件夹失败: " + err.Error()
+		a.notice = tr("打开文件夹失败: ") + err.Error()
 	}
 }
 
 func (a *App) openRawConfig() {
+	a.rawPreview = false
 	a.showRaw = true
 	a.rawError = ""
 	a.rawReadOnly = a.store != nil && a.store.ActiveID() != ""
@@ -774,34 +782,45 @@ func (a *App) rawConfigModal(c *ui.Context) {
 	softModal(c, "raw-config", &a.showRaw, func() {
 		ui.Column(c).Width(min(float32(760), width-80)).Padding(20).Gap(12).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "运行配置").FontSize(16).FontWeight(600).TextColor(pal.Text)
+				title := tr("运行配置")
+				if a.rawPreview {
+					title = tr("最终配置预览")
+				}
+				ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(pal.Text)
 				ui.Spacer(c)
 				if a.rawReadOnly {
-					pill(c, "只读 · 由订阅生成", pal.Muted, pal.Muted.Alpha(0.10))
+					label := tr("只读 · 由订阅生成")
+					if a.rawPreview {
+						label = tr("只读 · 包含草稿")
+					}
+					pill(c, label, pal.Muted, pal.Muted.Alpha(0.10))
 				}
 			})
 
-			hint := "本地配置可直接编辑；保存到本机并热重载内核。"
+			hint := tr("本地配置可直接编辑；保存到本机并热重载内核。")
 			if a.rawReadOnly {
-				hint = "由订阅与覆写生成；需要修改时，前往「规则」添加额外规则或 YAML 覆写。"
+				hint = tr("由订阅与覆写生成；需要修改时，前往「规则」添加额外规则或 YAML 覆写。")
+			}
+			if a.rawPreview {
+				hint = tr("按所选范围合并当前草稿；预览不会保存或应用配置。")
 			}
 			ui.Text(c, hint).FontSize(11).TextColor(pal.Faint)
 
 			ui.TextArea(c, &a.rawDraft).FillWidth().Height(editorHeight).Font("monospace").FontSize(12).
-				ReadOnly(a.rawReadOnly).Label("运行配置内容")
+				ReadOnly(a.rawReadOnly).Label(tr("运行配置内容"))
 			if a.rawError != "" {
 				ui.Text(c, a.rawError).FillWidth().FontSize(11).TextColor(pal.Danger)
 			}
 
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				softButton(c, "复制").OnClick(func() {
+				softButton(c, tr("复制")).OnClick(func() {
 					a.services().WriteClipboard(a.rawDraft)
-					a.notice = "配置已复制"
+					a.notice = tr("配置已复制")
 				})
 				ui.Spacer(c)
-				softButton(c, "关闭").OnClick(func() { a.showRaw = false })
+				softButton(c, tr("关闭")).OnClick(func() { a.showRaw = false })
 				if !a.rawReadOnly {
-					softPrimaryButton(c, "保存并应用").OnClick(a.saveLocalConfig)
+					softPrimaryButton(c, tr("保存并应用")).OnClick(a.saveLocalConfig)
 				}
 			})
 		})
@@ -818,7 +837,7 @@ func (a *App) Reload() { a.restart() }
 func (a *App) UseMode(token string) {
 	if a.k.Running() {
 		if err := a.k.SetMode(token); err != nil {
-			a.notice = "切换模式失败: " + err.Error()
+			a.notice = tr("切换模式失败: ") + err.Error()
 			a.modePick = labelFor(a.modeToken)
 			a.modeIdx = modeIndex(a.modeToken)
 			return
@@ -837,15 +856,15 @@ func (a *App) toggle() {
 		if a.sysApplied {
 			a.setSystemProxy(false)
 			if a.sysApplied {
-				a.notice = "系统代理恢复失败，内核保持运行: " + a.sysErrText()
+				a.notice = tr("系统代理恢复失败，内核保持运行: ") + a.sysErrText()
 				return
 			}
 		}
 		if err := a.k.Stop(); err != nil {
-			a.notice = "停止失败: " + err.Error()
+			a.notice = tr("停止失败: ") + err.Error()
 			return
 		}
-		a.notice = "内核已停止。"
+		a.notice = tr("内核已停止。")
 		return
 	}
 	if a.ov.TunEnable {
@@ -863,17 +882,17 @@ func (a *App) toggle() {
 // when the kernel refuses it.
 func (a *App) startKernel() bool {
 	if !a.k.Running() && !portFree(a.mixedPort()) {
-		a.notice = fmt.Sprintf("端口 %d 已被占用（可能是另一个代理客户端），换一个端口再试",
+		a.notice = fmt.Sprintf(tr("端口 %d 已被占用（可能是另一个代理客户端），换一个端口再试"),
 			a.mixedPort())
 		return false
 	}
 	raw, err := a.configBytes()
 	if err != nil {
-		a.notice = "配置无法使用: " + err.Error()
+		a.notice = tr("配置无法使用: ") + err.Error()
 		return false
 	}
 	if err := a.k.Start(raw); err != nil {
-		a.notice = "启动失败: " + err.Error()
+		a.notice = tr("启动失败: ") + err.Error()
 		return false
 	}
 	a.cancelDelayTest()
@@ -918,7 +937,7 @@ func (a *App) mixedPort() int {
 // because the authorization prompt is modal anyway.
 func (a *App) setSystemProxy(on bool) {
 	if !sysproxy.Available() {
-		a.setSysErr("当前平台暂不支持自动设置系统代理")
+		a.setSysErr(tr("当前平台暂不支持自动设置系统代理"))
 		return
 	}
 	port := a.mixedPort()
@@ -1073,12 +1092,12 @@ func (a *App) installService() {
 		case err != nil:
 			a.svcErr = err.Error()
 		case !installed:
-			a.svcErr = "服务没有安装成功，请查看 README 的安装步骤"
+			a.svcErr = tr("服务没有安装成功，请查看 README 的安装步骤")
 		case !a.k.IsRoot():
 			if tail := service.LogTail(a.dir); tail != "" {
-				a.svcErr = "服务已安装，但内核没有启动：" + tail
+				a.svcErr = tr("服务已安装，但内核没有启动：") + tail
 			} else {
-				a.svcErr = "服务已安装，但内核尚未获得管理员权限，请稍后重试或重新安装"
+				a.svcErr = tr("服务已安装，但内核尚未获得管理员权限，请稍后重试或重新安装")
 			}
 		}
 		a.bmu.Unlock()
@@ -1135,7 +1154,7 @@ func (a *App) setTunErr(msg string) {
 func (a *App) applyTun(on bool) {
 	a.tunWanted = false
 	if on && !a.k.IsRoot() {
-		a.setTunErr("TUN 需要系统服务：先在概览页点「安装服务…」")
+		a.setTunErr(tr("TUN 需要系统服务：先在概览页点「安装服务…」"))
 		a.ov.TunEnable = false
 		a.tunOn = false
 		a.saveOverrides()
@@ -1152,14 +1171,14 @@ func (a *App) applyTun(on bool) {
 	a.tunOn = on
 	if err := a.saveOverridesAtomic(); err != nil {
 		a.ov.TunEnable, a.tunOn = previous, previous
-		message := "TUN 设置保存失败: " + err.Error()
+		message := tr("TUN 设置保存失败: ") + err.Error()
 		if !a.startKernel() {
 			// The kernel last accepted the requested state. Keep the switch
 			// truthful and retryable if restoring the old config also fails.
 			a.ov.TunEnable, a.tunOn = on, on
-			message += "；恢复原内核配置失败: " + a.notice
+			message += tr("；恢复原内核配置失败: ") + a.notice
 		} else {
-			message += "；已恢复原设置"
+			message += tr("；已恢复原设置")
 		}
 		a.setTunErr(message)
 	}
@@ -1167,7 +1186,7 @@ func (a *App) applyTun(on bool) {
 
 func (a *App) tunHint() string {
 	if !service.Available() {
-		return "当前平台不支持 TUN 服务"
+		return tr("当前平台不支持 TUN 服务")
 	}
 	installed, busy, svcErr := a.svcState()
 	if e := a.tunErrText(); e != "" {
@@ -1180,18 +1199,18 @@ func (a *App) tunHint() string {
 		return service.AuthorizationHint()
 	}
 	if !installed {
-		return "可选 · 不装也能用系统代理，装了才能全局接管"
+		return tr("可选 · 不装也能用系统代理，装了才能全局接管")
 	}
 	if !a.k.IsRoot() {
-		return "服务已安装，但内核尚未获得管理员权限"
+		return tr("服务已安装，但内核尚未获得管理员权限")
 	}
 	if a.mgr.ServiceNeedsUpdate() {
-		return "服务需要更新 · 重新安装以使用新版本内核"
+		return tr("服务需要更新 · 重新安装以使用新版本内核")
 	}
 	if a.ov.TunEnable {
-		return "已启用 · 路由由内核自己接管"
+		return tr("已启用 · 路由由内核自己接管")
 	}
-	return "已就绪 · 打开开关即全局接管"
+	return tr("已就绪 · 打开开关即全局接管")
 }
 
 // ---------- subscriptions ----------
@@ -1211,11 +1230,11 @@ func (a *App) subState() (busy bool, errText string) {
 func (a *App) addSubscription() {
 	url := strings.TrimSpace(a.subURL)
 	if url == "" {
-		a.setSubErr("先填订阅链接")
+		a.setSubErr(tr("先填订阅链接"))
 		return
 	}
 	if a.store == nil {
-		a.setSubErr("订阅目录不可用")
+		a.setSubErr(tr("订阅目录不可用"))
 		return
 	}
 
@@ -1284,7 +1303,7 @@ func (a *App) useSubscription(id string) {
 		return
 	}
 	a.proxyGroup = ""
-	a.notice = "订阅已启用"
+	a.notice = tr("订阅已启用")
 }
 
 func (a *App) removeSubscription(id string) {
@@ -1293,7 +1312,7 @@ func (a *App) removeSubscription(id string) {
 	}
 	defer a.endProfileWork()
 	if a.store.ActiveID() == id {
-		a.setSubErr("正在使用的订阅不能直接删除，请先启用其他配置")
+		a.setSubErr(tr("正在使用的订阅不能直接删除，请先启用其他配置"))
 		return
 	}
 	if err := a.store.Remove(id); err != nil {
@@ -1301,7 +1320,7 @@ func (a *App) removeSubscription(id string) {
 		return
 	}
 	a.setSubErr("")
-	a.notice = "订阅已删除"
+	a.notice = tr("订阅已删除")
 }
 
 // ---------- helpers ----------
@@ -1311,27 +1330,27 @@ func (a *App) sysProxyHint() string {
 		return e
 	}
 	if !sysproxy.Available() {
-		return "当前平台暂不支持"
+		return tr("当前平台暂不支持")
 	}
 	service := a.sysState.Service
 	if service == "" {
-		service = "默认网络服务"
+		service = tr("默认网络服务")
 	}
 	if a.sysApplied {
-		return fmt.Sprintf("已指向 127.0.0.1:%d · %s", a.mixedPort(), service)
+		return fmt.Sprintf(tr("已指向 127.0.0.1:%d · %s"), a.mixedPort(), service)
 	}
 	if a.sysState.Enabled {
-		return fmt.Sprintf("当前指向 %s:%d；开启后切到 Gopurr", a.sysState.Server, a.sysState.Port)
+		return fmt.Sprintf(tr("当前指向 %s:%d；开启后切到 Gopurr"), a.sysState.Server, a.sysState.Port)
 	}
 	if !a.k.Running() {
-		return "未启用 · 内核未运行"
+		return tr("未启用 · 内核未运行")
 	}
-	return "未启用 · " + service
+	return tr("未启用 · ") + service
 }
 
 func delayLabel(d uint16) string {
 	if d == 0 {
-		return "超时"
+		return tr("超时")
 	}
 	return fmt.Sprintf("%dms", d)
 }
@@ -1352,22 +1371,24 @@ func delayColor(c *ui.Context, d uint16) ui.Color {
 
 func (a *App) statusLine() string {
 	if a.k.Running() {
-		return "内核运行中 · " + a.modeLabel()
+		return tr("内核运行中 · ") + a.modeLabel()
 	}
 	if e := a.k.LastError(); e != "" {
-		return "上次启动失败 · " + e
+		return tr("上次启动失败 · ") + e
 	}
-	return "内核未启动 · 点右侧按钮加载配置"
+	return tr("内核未启动 · 点右侧按钮加载配置")
 }
 
-func (a *App) modeLabel() string {
-	switch a.modeToken {
+func (a *App) modeLabel() string { return modeLabelFor(a.modeToken) }
+
+func modeLabelFor(token string) string {
+	switch token {
 	case "global":
-		return "全局模式"
+		return tr("全局模式")
 	case "direct":
-		return "直连模式"
+		return tr("直连模式")
 	default:
-		return "规则模式"
+		return tr("规则模式")
 	}
 }
 
@@ -1379,15 +1400,15 @@ var (
 func labelFor(token string) string {
 	for i, t := range modeTokens {
 		if t == token {
-			return modeLabels[i]
+			return tr(modeLabels[i])
 		}
 	}
-	return modeLabels[0]
+	return tr(modeLabels[0])
 }
 
 func tokenFor(label string) string {
 	for i, l := range modeLabels {
-		if l == label {
+		if l == label || tr(l) == label {
 			return modeTokens[i]
 		}
 	}
@@ -1396,9 +1417,9 @@ func tokenFor(label string) string {
 
 func onOff(b bool) string {
 	if b {
-		return "运行"
+		return tr("运行")
 	}
-	return "停止"
+	return tr("停止")
 }
 
 func fmtBytes(n int64) string {
@@ -1525,7 +1546,7 @@ func (a *App) maybeAutoUpdate() {
 		}
 	}
 	if updated > 0 {
-		a.notice = fmt.Sprintf("已自动更新 %d 个订阅", updated)
+		a.notice = fmt.Sprintf(tr("已自动更新 %d 个订阅"), updated)
 	}
 	a.invalidate()
 }
@@ -1533,31 +1554,31 @@ func (a *App) maybeAutoUpdate() {
 func (a *App) autoUpdateDesc() string {
 	p := a.Prefs()
 	if p.AutoUpdateHours <= 0 {
-		return "关闭；订阅只在手动点击时刷新"
+		return tr("关闭；订阅只在手动点击时刷新")
 	}
-	last := "还没有更新过"
+	last := tr("还没有更新过")
 	if !p.LastAutoUpdate.IsZero() {
-		last = "上次 " + p.LastAutoUpdate.Format("01-02 15:04")
+		last = tr("上次 ") + p.LastAutoUpdate.Format("01-02 15:04")
 	}
-	return fmt.Sprintf("每 %d 小时刷新一次，更新后自动重载内核 · %s", p.AutoUpdateHours, last)
+	return fmt.Sprintf(tr("每 %d 小时刷新一次，更新后自动重载内核 · %s"), p.AutoUpdateHours, last)
 }
 
 // importLocalFile asks for a file and adds it as a profile.
 func (a *App) importLocalFile() {
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Title:   "选择 Clash / mihomo 配置",
+			Title:   tr("选择 Clash / mihomo 配置"),
 			Filters: []mygo.FileFilter{{Name: "YAML", Extensions: []string{"yaml", "yml"}}},
 		})
 		if err != nil || len(paths) == 0 {
 			return
 		}
 		if a.store == nil {
-			a.setSubErr("订阅目录不可用")
+			a.setSubErr(tr("订阅目录不可用"))
 			return
 		}
 		if !a.beginProfileWork() {
-			a.setSubErr("订阅正在更新，请稍后重试")
+			a.setSubErr(tr("订阅正在更新，请稍后重试"))
 			a.invalidate()
 			return
 		}
@@ -1593,3 +1614,10 @@ func (a *App) services() ui.Services {
 }
 
 func (a *App) invalidate() { a.services().Invalidate() }
+
+func (a *App) runtimeOverrides() patch.Overrides {
+	ov := a.ov
+	a.meshReservedPort.Store(uint32(a.mixedPort()))
+	ov.MeshIPs, ov.MeshProxyAddress, ov.MeshProxyPassword = a.meshRuntimeRoutes()
+	return ov
+}

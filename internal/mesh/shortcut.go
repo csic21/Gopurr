@@ -1,5 +1,7 @@
 package mesh
 
+import "gopurr/internal/localize"
+
 import (
 	"errors"
 	"fmt"
@@ -34,11 +36,11 @@ func (s Shortcut) Label() string {
 	case "ssh":
 		return "SSH"
 	case "rdp":
-		return "远程桌面"
+		return localize.Text("远程桌面")
 	case "vnc":
-		return "屏幕共享"
+		return localize.Text("屏幕共享")
 	}
-	return "连接"
+	return localize.Text("连接设备")
 }
 
 func TailnetIP(ip netip.Addr) bool {
@@ -48,24 +50,24 @@ func TailnetIP(ip netip.Addr) bool {
 func (s Shortcut) Validate(d Device) error {
 	ip, err := netip.ParseAddr(d.IP())
 	if err != nil || !TailnetIP(ip) || d.ID == "" {
-		return errors.New("设备没有有效的组网地址，请刷新后重试")
+		return errors.New(localize.Text("设备没有有效的组网地址，请刷新后重试"))
 	}
 	if s.Port == 0 {
-		return errors.New("端口须为 1–65535")
+		return errors.New(localize.Text("端口须为 1–65535"))
 	}
 	if s.Kind != "ssh" && s.Kind != "rdp" && s.Kind != "vnc" {
-		return errors.New("请选择支持的连接方式")
+		return errors.New(localize.Text("请选择支持的连接方式"))
 	}
 	if len(s.User) > 64 {
-		return errors.New("用户名过长")
+		return errors.New(localize.Text("用户名过长"))
 	}
 	for _, r := range s.User {
 		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.') {
-			return errors.New("用户名仅支持字母、数字、下划线、连字符和点；其他账号可在客户端中填写")
+			return errors.New(localize.Text("用户名仅支持字母、数字、下划线、连字符和点；其他账号可在客户端中填写"))
 		}
 	}
 	if strings.HasPrefix(s.User, "-") {
-		return errors.New("用户名不能以连字符开头")
+		return errors.New(localize.Text("用户名不能以连字符开头"))
 	}
 	return nil
 }
@@ -79,7 +81,7 @@ func (s Shortcut) URI(d Device) (string, error) {
 		return "", err
 	}
 	if s.Kind == "rdp" {
-		return "", errors.New("远程桌面使用本机连接文件打开")
+		return "", errors.New(localize.Text("远程桌面使用本机连接文件打开"))
 	}
 	u := url.URL{Scheme: s.Kind, Host: s.Address(d)}
 	if s.Kind == "ssh" && s.User != "" {
@@ -93,7 +95,7 @@ func (s Shortcut) SSHArguments(d Device) ([]string, error) {
 		return nil, err
 	}
 	if s.Kind != "ssh" {
-		return nil, errors.New("连接方式不是 SSH")
+		return nil, errors.New(localize.Text("连接方式不是 SSH"))
 	}
 	dst := d.IP()
 	if s.User != "" {
@@ -107,7 +109,7 @@ func (s Shortcut) RDPFile(d Device) ([]byte, error) {
 		return nil, err
 	}
 	if s.Kind != "rdp" {
-		return nil, errors.New("连接方式不是远程桌面")
+		return nil, errors.New(localize.Text("连接方式不是远程桌面"))
 	}
 	// No passwords, automatic drive sharing, or weakening of server identity
 	// checks. Authentication remains the remote client's responsibility.

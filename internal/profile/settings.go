@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"gopurr/internal/localize"
 )
 
 func (s *Store) SetProxyURL(fn func() *url.URL) { s.mu.Lock(); s.proxyURL = fn; s.mu.Unlock() }
@@ -18,7 +20,7 @@ func (s *Store) fetchProfile(p Profile) ([]byte, Info, string, error) {
 			proxy = fn()
 		}
 		if proxy == nil {
-			return nil, Info{}, "", fmt.Errorf("使用代理更新需要先启动内核，请启动后重试或关闭此选项")
+			return nil, Info{}, "", fmt.Errorf("%s", localize.Text("使用代理更新需要先启动内核，请启动后重试或关闭此选项"))
 		}
 	}
 	return fetchWith(p.URL, p.UserAgent, proxy)
@@ -26,18 +28,18 @@ func (s *Store) fetchProfile(p Profile) ([]byte, Info, string, error) {
 
 func ValidateSettings(p Profile) error {
 	if strings.TrimSpace(p.Name) == "" {
-		return fmt.Errorf("请填写配置名称")
+		return fmt.Errorf("%s", localize.Text("请填写配置名称"))
 	}
 	if !p.IsFile() {
 		u, err := url.Parse(p.URL)
 		if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || strings.ContainsAny(p.URL, " \t\r\n") {
-			return fmt.Errorf("请输入完整的 HTTP 或 HTTPS 订阅链接")
+			return fmt.Errorf("%s", localize.Text("请输入完整的 HTTP 或 HTTPS 订阅链接"))
 		}
 		if strings.ContainsAny(p.UserAgent, "\r\n") || len(p.UserAgent) > 512 {
-			return fmt.Errorf("UA 不能包含换行，且不能超过 512 字节")
+			return fmt.Errorf("%s", localize.Text("UA 不能包含换行，且不能超过 512 字节"))
 		}
 		if p.UpdateHours != nil && (*p.UpdateHours < 0 || *p.UpdateHours > 8760) {
-			return fmt.Errorf("更新间隔须为 0–8760 小时；0 表示关闭")
+			return fmt.Errorf("%s", localize.Text("更新间隔须为 0–8760 小时；0 表示关闭"))
 		}
 	}
 	return nil
@@ -65,5 +67,5 @@ func (s *Store) Edit(p Profile) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("没有这个订阅")
+	return fmt.Errorf("%s", localize.Text("没有这个订阅"))
 }

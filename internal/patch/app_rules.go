@@ -1,5 +1,7 @@
 package patch
 
+import "gopurr/internal/localize"
+
 import (
 	"fmt"
 	"regexp"
@@ -20,10 +22,10 @@ type AppRule struct {
 func AppRuleText(route AppRule) (string, error) {
 	app := route.Application
 	if !absoluteAppPath(app.Path) || !absoluteAppPath(app.Executable) || strings.ContainsAny(app.Path+app.Executable, "\r\n\x00") {
-		return "", fmt.Errorf("应用路径必须是完整路径，且不能包含换行")
+		return "", fmt.Errorf("%s", localize.Text("应用路径必须是完整路径，且不能包含换行"))
 	}
 	if route.Target == "" || strings.TrimSpace(route.Target) != route.Target || strings.ContainsAny(route.Target, ",\r\n\x00") {
-		return "", fmt.Errorf("请选择有效的直连、拦截或代理组策略")
+		return "", fmt.Errorf("%s", localize.Text("请选择有效的直连、拦截或代理组策略"))
 	}
 	quote := func(path string) string {
 		// Commas delimit mihomo rules even inside regex payloads.
@@ -32,7 +34,7 @@ func AppRuleText(route AppRule) (string, error) {
 	pattern := quote(app.Executable)
 	if route.IncludeHelpers {
 		if !app.IsBundle() {
-			return "", fmt.Errorf("仅 .app 应用包支持自动包含 Helper；其他程序请单独添加 Helper")
+			return "", fmt.Errorf("%s", localize.Text("仅 .app 应用包支持自动包含 Helper；其他程序请单独添加 Helper"))
 		}
 		pattern = "(?:" + pattern + "|" + quote(app.Path+"/Contents/") + ".+)"
 	}
@@ -56,7 +58,7 @@ func prependAppRules(doc map[string]any, routes []AppRule) error {
 	for i, route := range routes {
 		key := strings.ToLower(route.Application.Path)
 		if seen[key] {
-			return fmt.Errorf("应用 %q 重复，请为每个应用设置一个策略", route.Application.Name)
+			return fmt.Errorf(localize.Text("应用 %q 重复，请为每个应用设置一个策略"), route.Application.Name)
 		}
 		seen[key] = true
 		rule, err := AppRuleText(route)
@@ -64,7 +66,7 @@ func prependAppRules(doc map[string]any, routes []AppRule) error {
 			err = validateRule(doc, rule)
 		}
 		if err != nil {
-			return fmt.Errorf("第 %d 条应用分流（%s）无效：%w", i+1, route.Application.Name, err)
+			return fmt.Errorf(localize.Text("第 %d 条应用分流（%s）无效：%w"), i+1, route.Application.Name, err)
 		}
 		rules = append(rules, rule)
 	}

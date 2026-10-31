@@ -146,7 +146,7 @@ func softTopNavigation(c *ui.Context, selected *int) ui.Element {
 	hovers := make([]ui.Color, len(navItems))
 	track.Children(func() {
 		for i, it := range navItems {
-			item := parts.Segment(i).Width(widths[i]).Radius(8).Label(it.label)
+			item := parts.Segment(i).Width(widths[i]).Radius(8).Label(tr(it.label))
 			hover := float32(0)
 			if i != *selected && (item.Hovered() || item.Pressed()) {
 				hover = 1
@@ -158,7 +158,7 @@ func softTopNavigation(c *ui.Context, selected *int) ui.Element {
 				fg = pal.Accent
 			}
 			item.Children(func() {
-				ui.Text(c, it.label).FontSize(controlFontSize).SingleLine().TextColor(fg)
+				ui.Text(c, tr(it.label)).FontSize(controlFontSize).SingleLine().TextColor(fg)
 			})
 		}
 	})
@@ -204,9 +204,9 @@ func softSidebar(c *ui.Context, selected *string) ui.Element {
 				itemTheme.Accent, itemTheme.AccentText = pal.Accent, pal.Accent
 			}
 			c.SetTheme(&itemTheme)
-			item := ui.SidebarItem(c, it.id, it.icon, it.label).
+			item := ui.SidebarItem(c, it.id, it.icon, tr(it.label)).
 				Height(navigationRowHeight).Padding(8, 12).Gap(10).FontSize(13).
-				Background(ui.Transparent).TextColor(pal.Muted).Label(it.label)
+				Background(ui.Transparent).TextColor(pal.Muted).Label(tr(it.label))
 			if !c.Preferences().ReduceMotion {
 				item.Transition(colorMotion())
 			}

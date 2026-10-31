@@ -117,11 +117,11 @@ func (a *App) openMeshQuick(d mesh.Device) {
 
 func (a *App) selectedMeshShortcut() (mesh.Shortcut, error) {
 	if a.meshQuickKind < 0 || a.meshQuickKind >= len(meshConnectionKinds) {
-		return mesh.Shortcut{}, errors.New("请选择连接方式")
+		return mesh.Shortcut{}, errors.New(tr("请选择连接方式"))
 	}
 	port, err := strconv.ParseUint(a.meshQuickPort, 10, 16)
 	if err != nil || port == 0 {
-		return mesh.Shortcut{}, errors.New("端口须为 1–65535")
+		return mesh.Shortcut{}, errors.New(tr("端口须为 1–65535"))
 	}
 	s := mesh.Shortcut{Kind: meshConnectionKinds[a.meshQuickKind], Port: uint16(port), User: a.meshQuickUser}
 	if s.Kind != "ssh" {
@@ -147,7 +147,7 @@ func (a *App) launchMeshShortcut(c *ui.Context, d mesh.Device, s mesh.Shortcut, 
 	current, found := a.currentMeshPeer(d.ID)
 	if !found {
 		a.openMeshQuick(d)
-		a.meshQuickError = "设备已不在当前网络中，请刷新后重试"
+		a.meshQuickError = tr("设备已不在当前网络中，请刷新后重试")
 		return
 	}
 	d = current
@@ -162,7 +162,7 @@ func (a *App) launchMeshShortcut(c *ui.Context, d mesh.Device, s mesh.Shortcut, 
 		if !a.meshQuick {
 			a.openMeshQuick(d)
 		}
-		a.meshQuickError = "请先在此处准备本机网络，再打开客户端"
+		a.meshQuickError = tr("请先在此处准备本机网络，再打开客户端")
 		if a.meshRouteError != "" {
 			a.meshQuickError = a.meshRouteError
 		}
@@ -173,7 +173,7 @@ func (a *App) launchMeshShortcut(c *ui.Context, d mesh.Device, s mesh.Shortcut, 
 		if !a.meshQuick {
 			a.openMeshQuick(d)
 		}
-		a.meshQuickError = "组网路由仍在更新，请稍后重试"
+		a.meshQuickError = tr("组网路由仍在更新，请稍后重试")
 		return
 	}
 	a.meshLaunchGeneration++
@@ -187,7 +187,7 @@ func (a *App) launchMeshShortcut(c *ui.Context, d mesh.Device, s mesh.Shortcut, 
 			if !a.meshQuick {
 				a.openMeshQuick(d)
 			}
-			a.meshQuickError = "未能打开客户端；请确认已安装对应客户端，也可复制地址手动连接"
+			a.meshQuickError = tr("未能打开客户端；请确认已安装对应客户端，也可复制地址手动连接")
 			return
 		}
 		var saveErr error
@@ -199,9 +199,9 @@ func (a *App) launchMeshShortcut(c *ui.Context, d mesh.Device, s mesh.Shortcut, 
 		if !active {
 			return
 		}
-		a.meshQuickNotice = "已请求打开客户端，请在客户端完成登录"
+		a.meshQuickNotice = tr("已请求打开客户端，请在客户端完成登录")
 		if saveErr != nil {
-			a.meshQuickError = "已请求打开客户端，但快捷设置未能保存"
+			a.meshQuickError = tr("已请求打开客户端，但快捷设置未能保存")
 		}
 	}
 	if s.Kind == "ssh" && runtime.GOOS == "windows" {
@@ -298,43 +298,43 @@ func (a *App) meshQuickDialog(c *ui.Context, snap mesh.Snapshot) {
 			closeDialog()
 		}
 		back.Children(func() {
-			panel := ui.Column(c).Width(min(float32(560), width-64)).MaxHeight(height-72).Padding(24).Gap(16).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label("连接组网设备")
+			panel := ui.Column(c).Width(min(float32(560), width-64)).MaxHeight(height-72).Padding(24).Gap(16).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label(tr("连接组网设备"))
 			modalPanel(c, panel)
 			panel.Children(func() {
-				ui.Text(c, "连接 "+d.Name).FillWidth().MaxLines(2).Ellipsis("…").Tooltip(d.Name).FontSize(18).FontWeight(600).TextColor(pal.Text)
+				ui.Text(c, tr("连接 ")+d.Name).FillWidth().MaxLines(2).Ellipsis("…").Tooltip(d.Name).FontSize(18).FontWeight(600).TextColor(pal.Text)
 				ui.Scroll(c).FillWidth().Shrink(1).MinHeight(0).Children(func() {
 					ui.Column(c).FillWidth().Gap(12).Children(func() {
 						ui.Text(c, meshOwner(d)+" · "+d.IP()).FillWidth().SingleLine().Ellipsis("…").Tooltip(meshOwner(d) + " · " + d.IP()).FontSize(11.5).TextColor(pal.Muted)
 						previous := a.meshQuickKind
-						softSegmented(c, &a.meshQuickKind, "SSH", "远程桌面", "屏幕共享").Label("组网连接方式")
+						softSegmented(c, &a.meshQuickKind, "SSH", tr("远程桌面"), tr("屏幕共享")).Label(tr("组网连接方式"))
 						if previous != a.meshQuickKind {
 							a.meshQuickPort = []string{"22", "3389", "5900"}[a.meshQuickKind]
 							a.meshQuickError, a.meshQuickNotice = "", ""
 							a.cancelMeshProbe()
 						}
 						ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, "服务端口").FontSize(12).TextColor(pal.Text)
+							ui.Text(c, tr("服务端口")).FontSize(12).TextColor(pal.Text)
 							before := a.meshQuickPort
-							ui.TextInput(c, &a.meshQuickPort).Width(100).Label("连接服务端口")
+							ui.TextInput(c, &a.meshQuickPort).Width(100).Label(tr("连接服务端口"))
 							if before != a.meshQuickPort {
 								a.cancelMeshProbe()
 							}
 							if a.meshQuickKind == 0 {
-								ui.TextInput(c, &a.meshQuickUser).Grow(1).MinWidth(0).Label("SSH 用户名").Placeholder("用户名（留空用客户端默认）")
+								ui.TextInput(c, &a.meshQuickUser).Grow(1).MinWidth(0).Label(tr("SSH 用户名")).Placeholder(tr("用户名（留空用客户端默认）"))
 							}
 						})
 						remember := a.meshQuickRemember
-						ui.Checkbox(c, &remember, "记住连接方式（不保存密码）").Label("记住组网连接方式")
+						ui.Checkbox(c, &remember, tr("记住连接方式（不保存密码）")).Label(tr("记住组网连接方式"))
 						a.meshQuickRemember = remember
 						if !known {
-							ui.Text(c, "设备已不在当前网络中，请刷新").FillWidth().FontSize(11.5).TextColor(pal.Warn)
+							ui.Text(c, tr("设备已不在当前网络中，请刷新")).FillWidth().FontSize(11.5).TextColor(pal.Warn)
 						}
 						if !a.meshAccessReady() {
 							a.meshAccessPreparation(c, true)
 						}
 						busy, result := a.meshProbeSnapshot()
 						if busy {
-							ui.Text(c, "正在检测组网通路，最多等待 8 秒…").FillWidth().FontSize(11.5).TextColor(pal.Muted)
+							ui.Text(c, tr("正在检测组网通路，最多等待 8 秒…")).FillWidth().FontSize(11.5).TextColor(pal.Muted)
 						}
 						if result.Message != "" {
 							color := pal.Muted
@@ -351,23 +351,23 @@ func (a *App) meshQuickDialog(c *ui.Context, snap mesh.Snapshot) {
 						if a.meshQuickNotice != "" {
 							ui.Text(c, a.meshQuickNotice).FillWidth().FontSize(11.5).TextColor(pal.Success)
 						}
-						ui.Text(c, "对方需开放相应端口并启动服务；客户端会独立验证账号和主机身份。远程桌面需本机已安装兼容客户端。").FillWidth().FontSize(11).TextColor(pal.Muted)
+						ui.Text(c, tr("对方需开放相应端口并启动服务；客户端会独立验证账号和主机身份。远程桌面需本机已安装兼容客户端。")).FillWidth().FontSize(11).TextColor(pal.Muted)
 					})
 				})
 				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
-					softButton(c, "关闭").OnClick(closeDialog)
-					softButton(c, "复制地址").OnClick(func() {
+					softButton(c, tr("关闭")).OnClick(closeDialog)
+					softButton(c, tr("复制地址")).OnClick(func() {
 						if s, err := a.selectedMeshShortcut(); err == nil {
 							c.WriteClipboard(s.Address(d))
-							a.meshQuickNotice = "连接地址已复制"
+							a.meshQuickNotice = tr("连接地址已复制")
 						} else {
 							a.meshQuickError = err.Error()
 						}
 					})
 					busy, _ := a.meshProbeSnapshot()
-					label := "检测连接"
+					label := tr("检测连接")
 					if busy {
-						label = "取消检测"
+						label = tr("取消检测")
 					}
 					softButton(c, label).Disabled(!known || !snap.Status.Running).OnClick(func() {
 						if busy {
@@ -380,7 +380,7 @@ func (a *App) meshQuickDialog(c *ui.Context, snap mesh.Snapshot) {
 							a.meshQuickError = err.Error()
 						}
 					})
-					softPrimaryButton(c, "打开客户端").Disabled(!known || !snap.Status.Running || !a.meshAccessReady()).OnClick(func() {
+					softPrimaryButton(c, tr("打开客户端")).Disabled(!known || !snap.Status.Running || !a.meshAccessReady()).OnClick(func() {
 						if s, err := a.selectedMeshShortcut(); err == nil {
 							a.launchMeshShortcut(c, d, s, a.meshQuickRemember)
 						} else {

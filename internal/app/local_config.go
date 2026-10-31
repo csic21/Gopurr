@@ -10,7 +10,7 @@ func (a *App) saveLocalConfig() {
 	a.cfgText = a.rawDraft
 	if _, err := a.configBytes(); err != nil {
 		a.cfgText = previous
-		a.rawError = "配置验证失败: " + err.Error()
+		a.rawError = tr("配置验证失败: ") + err.Error()
 		return
 	}
 	running := a.k != nil && a.k.Running()
@@ -24,13 +24,13 @@ func (a *App) saveLocalConfig() {
 		if running {
 			a.startKernel()
 		}
-		a.rawError = "保存失败: " + err.Error()
+		a.rawError = tr("保存失败: ") + err.Error()
 		return
 	}
 	a.rawError, a.showRaw = "", false
-	a.notice = "本地配置已保存"
+	a.notice = tr("本地配置已保存")
 	if running {
-		a.notice += "并应用"
+		a.notice += tr("并应用")
 	}
 }
 

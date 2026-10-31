@@ -37,10 +37,10 @@ func (p Prefs) DockVisible(windowVisible bool) bool {
 func dockVisibilityDescription(value string) string {
 	switch value {
 	case DockHidden:
-		return "从菜单栏「显示窗口」打开界面"
+		return tr("从菜单栏「显示窗口」打开界面")
 	case DockFollowWindow:
-		return "打开窗口时显示，关闭窗口时隐藏"
+		return tr("打开窗口时显示，关闭窗口时隐藏")
 	default:
-		return "关窗后仍显示，点击图标重新打开窗口"
+		return tr("关窗后仍显示，点击图标重新打开窗口")
 	}
 }

@@ -1,5 +1,7 @@
 package mesh
 
+import "gopurr/internal/localize"
+
 import (
 	"context"
 	"errors"
@@ -26,14 +28,14 @@ func waitForLogin(ctx context.Context, client loginClient) error {
 			if ctx.Err() != nil {
 				return loginContextError(ctx)
 			}
-			return fmt.Errorf("无法读取组网登录状态：%w", err)
+			return fmt.Errorf(localize.Text("无法读取组网登录状态：%w"), err)
 		}
 		if s.BackendState == "Running" || s.BackendState == "NeedsMachineAuth" {
 			return nil
 		}
 		if s.AuthURL != "" {
 			if !ValidAuthURL(s.AuthURL) {
-				return errors.New("登录地址未通过验证，请重新连接")
+				return errors.New(localize.Text("登录地址未通过验证，请重新连接"))
 			}
 			return nil
 		}
@@ -42,7 +44,7 @@ func waitForLogin(ctx context.Context, client loginClient) error {
 				if ctx.Err() != nil {
 					return loginContextError(ctx)
 				}
-				return fmt.Errorf("无法发起 Tailscale 登录：%w", err)
+				return fmt.Errorf(localize.Text("无法发起 Tailscale 登录：%w"), err)
 			}
 			requested = true
 		}
@@ -56,7 +58,7 @@ func waitForLogin(ctx context.Context, client loginClient) error {
 
 func loginContextError(ctx context.Context) error {
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return errors.New("连接 Tailscale 超时，请检查网络或代理设置后重试")
+		return errors.New(localize.Text("连接 Tailscale 超时，请检查网络或代理设置后重试"))
 	}
 	return ctx.Err()
 }

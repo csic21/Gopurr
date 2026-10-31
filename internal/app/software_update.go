@@ -76,36 +76,36 @@ func softwareVersion() string {
 func (a *App) softwareUpdateSettings(c *ui.Context) {
 	a.initSoftwareUpdates()
 	s := a.softwareUpdates.Snapshot()
-	settingsGroup(c, "软件更新", func() {
-		settingsRow(c, "Gopurr "+softwareVersion(), "让连接简单一点 · mygo 原生界面 · mihomo 内核", nil)
+	settingsGroup(c, tr("软件更新"), func() {
+		settingsRow(c, "Gopurr "+softwareVersion(), tr("让连接简单一点 · mygo 原生界面 · mihomo 内核"), nil)
 		hairline(c)
 		on := a.Prefs().CheckAppUpdates
-		settingsRow(c, "自动检查更新", "每天检查新版本；下载与安装前由你确认", func() {
-			softSwitch(c, &on).Label("自动检查软件更新")
+		settingsRow(c, tr("自动检查更新"), tr("每天检查新版本；下载与安装前由你确认"), func() {
+			softSwitch(c, &on).Label(tr("自动检查软件更新"))
 		})
 		if on != a.Prefs().CheckAppUpdates {
 			if err := a.changePrefs(func(p *Prefs) { p.CheckAppUpdates = on }); err != nil {
-				a.generalSettingsError = "设置保存失败：" + err.Error()
+				a.generalSettingsError = tr("设置保存失败：") + err.Error()
 			}
 		}
 		hairline(c)
-		label, hint := "检查更新", "从 GitHub Releases 获取经过签名校验的更新"
+		label, hint := tr("检查更新"), tr("从 GitHub Releases 获取经过签名校验的更新")
 		switch s.Phase {
 		case update.Checking:
-			label, hint = "正在检查…", "正在连接发布服务器"
+			label, hint = tr("正在检查…"), tr("正在连接发布服务器")
 		case update.Available:
-			label, hint = "查看更新", "发现新版本 "+s.Version
+			label, hint = tr("查看更新"), tr("发现新版本 ")+s.Version
 		case update.Downloading:
-			label, hint = "查看进度", "正在下载版本 "+s.Version
+			label, hint = tr("查看进度"), tr("正在下载版本 ")+s.Version
 		case update.Ready:
-			label, hint = "重启并更新", "新版本已准备好，重启后生效"
+			label, hint = tr("重启并更新"), tr("新版本已准备好，重启后生效")
 		case update.Current:
-			hint = "当前已是最新版本"
+			hint = tr("当前已是最新版本")
 		}
 		if !s.Enabled {
-			hint = "安装正式发布包后可在应用内更新"
+			hint = tr("安装正式发布包后可在应用内更新")
 		}
-		settingsRow(c, "版本检查", hint, func() {
+		settingsRow(c, tr("版本检查"), hint, func() {
 			softButton(c, label).Disabled(s.Phase == update.Checking).OnClick(func() {
 				if s.Phase == update.Available || s.Phase == update.Downloading || s.Phase == update.Ready {
 					a.softwareUpdates.Show()
@@ -134,20 +134,20 @@ func (a *App) softwareUpdateModal(c *ui.Context) {
 	softModal(c, "software-update", &visible, func() {
 		ui.Column(c).Width(min(float32(560), width-64)).Padding(24).Radius(14).
 			Background(pal.Surface).Border(1, pal.Border).Gap(14).Children(func() {
-			title, message := "软件更新", "当前版本 "+softwareVersion()
+			title, message := tr("软件更新"), tr("当前版本 ")+softwareVersion()
 			switch s.Phase {
 			case update.Checking:
-				title, message = "正在检查更新", "正在连接 GitHub Releases…"
+				title, message = tr("正在检查更新"), tr("正在连接 GitHub Releases…")
 			case update.Available:
-				title, message = "发现新版本", fmt.Sprintf("Gopurr %s · 当前版本 %s", s.Version, softwareVersion())
+				title, message = tr("发现新版本"), fmt.Sprintf(tr("Gopurr %s · 当前版本 %s"), s.Version, softwareVersion())
 			case update.Current:
-				title, message = "已是最新版本", "你正在使用 Gopurr "+softwareVersion()
+				title, message = tr("已是最新版本"), tr("你正在使用 Gopurr ")+softwareVersion()
 			case update.Downloading:
-				title, message = "正在下载更新", "签名校验完成后安装；代理会继续运行"
+				title, message = tr("正在下载更新"), tr("签名校验完成后安装；代理会继续运行")
 			case update.Ready:
-				title, message = "更新已准备好", "重启 Gopurr 后使用新版本；订阅与设置会保留。"
+				title, message = tr("更新已准备好"), tr("重启 Gopurr 后使用新版本；订阅与设置会保留。")
 			case update.Failed:
-				title, message = "暂时无法检查更新", "请检查网络连接后重试。"
+				title, message = tr("暂时无法检查更新"), tr("请检查网络连接后重试。")
 			}
 			ui.Text(c, title).FontSize(18).Bold().TextColor(pal.Text)
 			ui.Text(c, message).FillWidth().FontSize(12).TextColor(pal.Muted)
@@ -173,17 +173,17 @@ func (a *App) softwareUpdateModal(c *ui.Context) {
 			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 				switch s.Phase {
 				case update.Checking, update.Downloading:
-					softButton(c, "取消").OnClick(func() { a.softwareUpdates.Cancel(); a.softwareUpdates.Hide() })
+					softButton(c, tr("取消")).OnClick(func() { a.softwareUpdates.Cancel(); a.softwareUpdates.Hide() })
 				case update.Available:
-					softButton(c, "稍后").OnClick(a.softwareUpdates.Hide)
-					softPrimaryButton(c, "下载并安装").OnClick(a.softwareUpdates.Install)
+					softButton(c, tr("稍后")).OnClick(a.softwareUpdates.Hide)
+					softPrimaryButton(c, tr("下载并安装")).OnClick(a.softwareUpdates.Install)
 				case update.Ready:
-					softButton(c, "稍后重启").OnClick(a.softwareUpdates.Hide)
-					softPrimaryButton(c, "立即重启").OnClick(func() { a.requestQuit(true) })
+					softButton(c, tr("稍后重启")).OnClick(a.softwareUpdates.Hide)
+					softPrimaryButton(c, tr("立即重启")).OnClick(func() { a.requestQuit(true) })
 				default:
-					softButton(c, "关闭").OnClick(a.softwareUpdates.Hide)
+					softButton(c, tr("关闭")).OnClick(a.softwareUpdates.Hide)
 					if s.Enabled {
-						softPrimaryButton(c, "重新检查").OnClick(func() { a.softwareUpdates.Check(true) })
+						softPrimaryButton(c, tr("重新检查")).OnClick(func() { a.softwareUpdates.Check(true) })
 					}
 				}
 			})

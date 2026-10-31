@@ -25,6 +25,8 @@ type Prefs struct {
 	Appearance string `json:"appearance"`
 	// SidebarCollapsed moves the same destinations into the window toolbar.
 	SidebarCollapsed bool `json:"sidebarCollapsed"`
+	// Language follows the system by default; unavailable languages use English.
+	Language string `json:"language"`
 	// DockVisibility controls the macOS Dock independently of window release.
 	DockVisibility string `json:"dockVisibility"`
 	// LightMode releases the interface after the window is closed, the way
@@ -50,6 +52,7 @@ func defaultPrefs() Prefs {
 		CheckAppUpdates: true,
 		CloseOnSwitch:   true,
 		Appearance:      AppearanceSystem,
+		Language:        LanguageSystem,
 		DockVisibility:  DockShown,
 		LightDelay:      60,
 		TestURL:         "https://www.gstatic.com/generate_204",
@@ -75,6 +78,9 @@ func (a *App) loadPrefs() {
 	}
 	if !validAppearance(p.Appearance) {
 		p.Appearance = AppearanceSystem
+	}
+	if !validLanguage(p.Language) {
+		p.Language = LanguageSystem
 	}
 	if !validDockVisibility(p.DockVisibility) {
 		p.DockVisibility = DockShown
@@ -131,7 +137,7 @@ func (a *App) changePrefs(edit func(*Prefs)) error {
 	if startupChanged {
 		if err := applyStartup(p.AutoLaunch); err != nil {
 			a.pmu.Unlock()
-			return fmt.Errorf("无法设置登录自启: %w", err)
+			return fmt.Errorf(tr("无法设置登录自启: %w"), err)
 		}
 	}
 	if err := writeSettingsFile(a.prefsPath, p); err != nil {
@@ -139,7 +145,7 @@ func (a *App) changePrefs(edit func(*Prefs)) error {
 			err = errors.Join(err, applyStartup(a.prefs.AutoLaunch))
 		}
 		a.pmu.Unlock()
-		return fmt.Errorf("无法保存偏好: %w", err)
+		return fmt.Errorf(tr("无法保存偏好: %w"), err)
 	}
 	a.prefs = p
 	hook := a.prefsHook
@@ -155,6 +161,9 @@ func (a *App) changePrefs(edit func(*Prefs)) error {
 // literals. The settings form validates explicit inputs before this step.
 func normalizePrefs(p Prefs) Prefs {
 	d := defaultPrefs()
+	if p.Language == "" {
+		p.Language = d.Language
+	}
 	if p.Appearance == "" {
 		p.Appearance = d.Appearance
 	}
@@ -178,14 +187,17 @@ func normalizePrefs(p Prefs) Prefs {
 }
 
 func validatePrefs(p Prefs) error {
+	if !validLanguage(p.Language) {
+		return fmt.Errorf("%s", tr("请选择跟随系统、简体中文或英文"))
+	}
 	if !validAppearance(p.Appearance) {
-		return fmt.Errorf("请选择跟随系统、浅色或深色主题")
+		return fmt.Errorf("%s", tr("请选择跟随系统、浅色或深色主题"))
 	}
 	if !validDockVisibility(p.DockVisibility) {
-		return fmt.Errorf("请选择隐藏、跟随窗口或显示程序坞图标")
+		return fmt.Errorf("%s", tr("请选择隐藏、跟随窗口或显示程序坞图标"))
 	}
 	if p.AutoUpdateHours < 0 {
-		return fmt.Errorf("订阅更新间隔不能为负数")
+		return fmt.Errorf("%s", tr("订阅更新间隔不能为负数"))
 	}
 	return validateTestSettings(p.TestURL, p.TestTimeoutMS, p.TestConcurrency)
 }
@@ -195,10 +207,10 @@ func validateTestSettings(testURL string, timeoutMS, concurrency int) error {
 		return err
 	}
 	if timeoutMS < 1000 || timeoutMS > 30000 {
-		return fmt.Errorf("测试超时须在 1000–30000 毫秒之间")
+		return fmt.Errorf("%s", tr("测试超时须在 1000–30000 毫秒之间"))
 	}
 	if concurrency < 1 || concurrency > 32 {
-		return fmt.Errorf("测试并发数须在 1–32 之间")
+		return fmt.Errorf("%s", tr("测试并发数须在 1–32 之间"))
 	}
 	return nil
 }
@@ -207,7 +219,7 @@ func validateTestURL(raw string) error {
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
 	if err != nil || u == nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || u.Fragment != "" || strings.ContainsAny(raw, " \t\r\n") {
-		return fmt.Errorf("请输入完整的 HTTP 或 HTTPS 测试地址，不含账号或片段")
+		return fmt.Errorf("%s", tr("请输入完整的 HTTP 或 HTTPS 测试地址，不含账号或片段"))
 	}
 	return nil
 }

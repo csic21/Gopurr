@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"gopurr/internal/localize"
 )
 
 func PrivateDir(path string) error {
@@ -49,7 +51,7 @@ func WriteFile(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	if err := root.Rename(name, filepath.Base(path)); err != nil {
-		return fmt.Errorf("替换文件失败: %w", err)
+		return fmt.Errorf(localize.Text("替换文件失败: %w"), err)
 	}
 	return nil
 }

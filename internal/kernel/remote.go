@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"gopurr/internal/core"
+	"gopurr/internal/localize"
 )
 
 // Remote is an HTTP client bound to a unix socket.
@@ -301,7 +302,7 @@ func (r *Remote) ConnectionsWithError() ([]core.Conn, error) {
 
 func (r *Remote) CloseConnection(id string) error {
 	if id == "" {
-		return fmt.Errorf("连接缺少标识，请刷新后重试")
+		return fmt.Errorf("%s", localize.Text("连接缺少标识，请刷新后重试"))
 	}
 	return r.request(http.MethodDelete, "/connections/"+url.PathEscape(id), nil, nil)
 }
@@ -446,13 +447,37 @@ func (r *Remote) SetMode(mode string) error {
 func (r *Remote) Reload(path string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("读取运行配置: %w", err)
+		return fmt.Errorf(localize.Text("读取运行配置: %w"), err)
 	}
 	body, _ := json.Marshal(map[string]string{"payload": string(raw)})
 	return r.request(http.MethodPut, "/configs?force=true", strings.NewReader(string(body)), nil)
 }
 
 // ---------- logs ----------
+
+// QueryDNS checks the active kernel resolver without changing its settings.
+func (r *Remote) QueryDNS(ctx context.Context, name string) error {
+	for _, kind := range []string{"A", "AAAA"} {
+		var response struct {
+			Status int
+			Answer []struct {
+				Type int `json:"type"`
+			}
+		}
+		if err := r.requestContext(ctx, r.call, http.MethodGet, "/dns/query?"+url.Values{"name": {name}, "type": {kind}}.Encode(), nil, &response); err != nil {
+			return err
+		}
+		if response.Status != 0 {
+			return fmt.Errorf(localize.Text("DNS 返回状态 %d"), response.Status)
+		}
+		for _, answer := range response.Answer {
+			if answer.Type == 1 || answer.Type == 28 {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%s", localize.Text("DNS 未返回地址"))
+}
 
 func (r *Remote) Logs() []core.LogLine {
 	r.mu.Lock()

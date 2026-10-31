@@ -1,5 +1,7 @@
 package mesh
 
+import "gopurr/internal/localize"
+
 import (
 	"net/netip"
 	"net/url"
@@ -60,16 +62,16 @@ func device(p *wirePeer, users map[int64]wireUser) Device {
 		d.Name = d.IP()
 	}
 	if len(d.Tags) > 0 {
-		d.Owner, d.Login = "带标签的设备", ""
+		d.Owner, d.Login = localize.Text("带标签的设备"), ""
 	}
 	if p.Active {
 		switch {
 		case p.CurAddr != "":
-			d.Path = "直连"
+			d.Path = localize.Text("直连")
 		case p.PeerRelay != "":
-			d.Path = "设备中继"
+			d.Path = localize.Text("设备中继")
 		case p.Relay != "":
-			d.Path = "加密中继"
+			d.Path = localize.Text("加密中继")
 		}
 	}
 	return d

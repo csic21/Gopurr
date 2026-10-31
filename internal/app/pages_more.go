@@ -52,18 +52,21 @@ func ruleAdapters(rules []core.Rule) []string {
 }
 
 func (a *App) rulesPage(c *ui.Context) {
-	a.initExtensionDrafts()
 	var rules []core.Rule
 	if a.k != nil {
 		rules = a.k.Rules()
 	}
 
-	a.pageHeader(c, "规则", fmt.Sprintf("%d 条生效 · 按顺序匹配，命中即停", len(rules)), nil)
-	softSegmented(c, &a.extensionTab, "生效规则", "应用分流", "额外规则", "YAML 覆写").AlignSelf(ui.Start).Label("规则视图")
+	a.pageHeader(c, tr("规则"), fmt.Sprintf(tr("%d 条生效 · 按顺序匹配，命中即停"), len(rules)), nil)
+	softSegmented(c, &a.extensionTab, tr("生效规则"), tr("应用分流"), tr("额外规则"), tr("YAML 覆写"), "DNS").AlignSelf(ui.Start).Label(tr("规则视图"))
+	if a.extensionTab >= 2 {
+		a.extensionScopeControls(c)
+	}
+	a.initExtensionDrafts()
 
 	// Separate keys keep the two editors' focus, selection and undo state
 	// from being reused for the other draft when switching tabs.
-	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Gap(12).Key(fmt.Sprintf("rules-tab-%d", a.extensionTab)).
+	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Gap(12).Key(fmt.Sprintf("rules-tab-%d-%s", a.extensionTab, a.extensionDraftKey)).
 		Children(func() {
 			switch a.extensionTab {
 			case 1:
@@ -72,10 +75,17 @@ func (a *App) rulesPage(c *ui.Context) {
 				a.extraRulesEditor(c)
 			case 3:
 				a.mergeYAMLEditor(c)
+			case 4:
+				if a.extensionScope == 1 {
+					a.profileDNSEditor(c)
+				} else {
+					a.featureSettingsPage(c, true)
+				}
 			default:
 				a.effectiveRules(c, rules)
 			}
 		})
+	a.rawConfigModal(c)
 }
 
 func (a *App) effectiveRules(c *ui.Context, rules []core.Rule) {
@@ -86,20 +96,20 @@ func (a *App) effectiveRules(c *ui.Context, rules []core.Rule) {
 	}
 
 	ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
-		searchRow(c, &a.ruleQuery, "搜索域名、IP 或规则类型…").Grow(1).MinWidth(0)
-		ui.Select(c, &a.ruleAdapter, options).Width(170).Label("筛选规则出口")
+		searchRow(c, &a.ruleQuery, tr("搜索域名、IP 或规则类型…")).Grow(1).MinWidth(0)
+		localizedSelect(c, &a.ruleAdapter, options, append([]string{tr(allAdapters)}, options[1:]...)).Width(170).Label(tr("筛选规则出口"))
 	})
 
 	if len(rules) == 0 {
-		emptyState(c, "暂无生效规则", "内核运行后会显示实际规则；额外规则和 YAML 覆写可先编辑并保存。")
+		emptyState(c, tr("暂无生效规则"), tr("内核运行后会显示实际规则；额外规则和 YAML 覆写可先编辑并保存。"))
 		return
 	}
 
 	shown := filterRules(rules, a.ruleQuery, a.ruleAdapter)
-	ui.Text(c, fmt.Sprintf("显示 %d / %d 条 · 出口是规则命中后交给的策略", len(shown), len(rules))).
+	ui.Text(c, fmt.Sprintf(tr("显示 %d / %d 条 · 出口是规则命中后交给的策略"), len(shown), len(rules))).
 		FontSize(11).TextColor(pal.Muted)
 	if len(shown) == 0 {
-		emptyState(c, "没有匹配的规则", "换个关键词，或把出口切回“全部出口”。")
+		emptyState(c, tr("没有匹配的规则"), tr("换个关键词，或把出口切回“全部出口”。"))
 		return
 	}
 
@@ -109,10 +119,10 @@ func (a *App) effectiveRules(c *ui.Context, rules []core.Rule) {
 	}
 	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Children(func() {
 		ui.Row(c).FillWidth().Padding(12, 14).Gap(10).Children(func() {
-			ui.Text(c, "顺序").Width(34).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, "匹配条件").Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, "类型").Width(112).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, "出口").Width(128).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("顺序")).Width(34).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("匹配条件")).Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("类型")).Width(112).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("出口")).Width(128).FontSize(11).TextColor(pal.Faint)
 		})
 		hairline(c)
 		ui.List(c, &a.ruleList, len(shown)).FillWidth().Grow(1).MinHeight(0).
@@ -132,7 +142,7 @@ func (a *App) effectiveRules(c *ui.Context, rules []core.Rule) {
 				ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
 					payload := r.Payload
 					if payload == "" {
-						payload = "全部流量"
+						payload = tr("全部流量")
 					}
 					ui.Text(c, payload).FillWidth().SingleLine().Ellipsis("…").Tooltip(payload).
 						FontSize(13).TextColor(pal.Text).Selectable()
@@ -223,21 +233,21 @@ func (a *App) logsPage(c *ui.Context) {
 
 	shown := searchLogs(filterLogs(lines, a.logLevelIdx), a.logQuery)
 
-	a.pageHeader(c, "日志", fmt.Sprintf("%d 行 · 内核输出", len(shown)), func() {
+	a.pageHeader(c, tr("日志"), fmt.Sprintf(tr("%d 行 · 内核输出"), len(shown)), func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			softButton(c, "复制日志").Disabled(len(shown) == 0).OnClick(func() { a.services().WriteClipboard(logText(shown)) })
+			softButton(c, tr("复制日志")).Disabled(len(shown) == 0).OnClick(func() { a.services().WriteClipboard(logText(shown)) })
 			if a.logPaused {
-				softPrimaryButton(c, "继续").OnClick(func() {
+				softPrimaryButton(c, tr("继续")).OnClick(func() {
 					a.logPaused = false
 					a.logFrozen = nil
 				})
 			} else {
-				softButton(c, "暂停").OnClick(func() {
+				softButton(c, tr("暂停")).OnClick(func() {
 					a.logPaused = true
 					a.logFrozen = live
 				})
 			}
-			softButton(c, "清空").OnClick(func() {
+			softButton(c, tr("清空")).OnClick(func() {
 				a.k.ClearLogs()
 				a.logPaused = false
 				a.logFrozen = nil
@@ -246,14 +256,14 @@ func (a *App) logsPage(c *ui.Context) {
 	})
 
 	ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
-		searchRow(c, &a.logQuery, "搜索日志…").Grow(1).MinWidth(0)
-		softSegmented(c, &a.logLevelIdx, logLevelLabels...).Label("日志级别")
+		searchRow(c, &a.logQuery, tr("搜索日志…")).Grow(1).MinWidth(0)
+		softSegmented(c, &a.logLevelIdx, translated(logLevelLabels)...).Label(tr("日志级别"))
 	})
 	if len(shown) == 0 {
 		if a.logQuery != "" || a.logLevelIdx != 0 {
-			emptyState(c, "没有匹配的日志", "调整关键词或日志级别后重试。")
+			emptyState(c, tr("没有匹配的日志"), tr("调整关键词或日志级别后重试。"))
 		} else {
-			emptyState(c, "没有日志", "启动内核并访问网络后，这里会实时刷新。")
+			emptyState(c, tr("没有日志"), tr("启动内核并访问网络后，这里会实时刷新。"))
 		}
 		return
 	}
@@ -269,15 +279,15 @@ func (a *App) logsPage(c *ui.Context) {
 	if a.logPaused || (scrollable && away) {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 			if a.logPaused {
-				label := "已暂停"
+				label := tr("已暂停")
 				if pending > 0 {
-					label = fmt.Sprintf("已暂停 · 新 %d 行", pending)
+					label = fmt.Sprintf(tr("已暂停 · 新 %d 行"), pending)
 				}
 				pill(c, label, pal.Warn, pal.Warn.Alpha(0.10))
 			}
 			ui.Spacer(c)
 			if scrollable && away {
-				softButton(c, "回到底部").OnClick(func() {
+				softButton(c, tr("回到底部")).OnClick(func() {
 					a.logScroll.ScrollTo(0, math.MaxFloat32, ui.Smooth)
 				})
 			}
@@ -286,9 +296,9 @@ func (a *App) logsPage(c *ui.Context) {
 
 	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Children(func() {
 		ui.Row(c).FillWidth().Padding(12, 16).Gap(12).Children(func() {
-			ui.Text(c, "时间").Width(64).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, "级别").Width(56).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, "消息").FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("时间")).Width(64).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("级别")).Width(56).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("消息")).FontSize(11).TextColor(pal.Faint)
 		})
 		hairline(c)
 		ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).TrackScroll(&a.logScroll).Children(func() {

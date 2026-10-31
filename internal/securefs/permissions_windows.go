@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"golang.org/x/sys/windows"
+
+	"gopurr/internal/localize"
 )
 
 // AdministratorDir is for persistent SYSTEM executables. The installing user's
@@ -29,7 +31,7 @@ func AdministratorDir(path string) error {
 		return err
 	}
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
-		return fmt.Errorf("服务目录不能是链接: %s", path)
+		return fmt.Errorf(localize.Text("服务目录不能是链接: %s"), path)
 	}
 	sd, err := windows.SecurityDescriptorFromString("O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
 	if err != nil {
@@ -66,7 +68,7 @@ func restrict(path string, directory bool) error {
 		return err
 	}
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || (info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0) != directory {
-		return fmt.Errorf("拒绝链接或非预期的文件类型: %s", path)
+		return fmt.Errorf(localize.Text("拒绝链接或非预期的文件类型: %s"), path)
 	}
 	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
 	if err != nil {

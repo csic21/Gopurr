@@ -87,7 +87,13 @@ func TestAppearanceSwitchesAndFollowsSystem(t *testing.T) {
 		{"深色", true, AppearanceDark},
 		{"跟随系统", true, AppearanceSystem},
 	} {
-		if err := tr.Click(step.label); err != nil {
+		if step.value == AppearanceSystem {
+			r, ok := tr.Find("外观主题")
+			if !ok {
+				t.Fatal("theme selector missing")
+			}
+			tr.ClickAt(r.X+15, r.Y+r.H/2)
+		} else if err := tr.Click(step.label); err != nil {
 			t.Fatal(err)
 		}
 		check(step.dark)

@@ -1,5 +1,7 @@
 package mesh
 
+import "gopurr/internal/localize"
+
 import (
 	"encoding/json"
 	"errors"
@@ -28,14 +30,14 @@ func newPrivateStore(path string) (*privateStore, error) {
 	}
 	info, err := os.Stat(path)
 	if err != nil || info.Size() > 8<<20 {
-		return nil, errors.New("组网身份文件无法读取或过大")
+		return nil, errors.New(localize.Text("组网身份文件无法读取或过大"))
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(b, &s.values); err != nil {
-		return nil, errors.New("组网身份文件损坏，未启动组网")
+		return nil, errors.New(localize.Text("组网身份文件损坏，未启动组网"))
 	}
 	return s, nil
 }

@@ -2,7 +2,7 @@
   "name": "Gopurr",
   "slug": "gopurr",
   "identifier": "io.github.gopurr.app",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "icon": "internal/brand/logo.png",
   "out": "bin",
   "publisher": "Gopurr",
@@ -16,5 +16,14 @@
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "licenses"
-  ]
+  ],
+  "macos": {
+    "infoPlist": {
+      "CFBundleDevelopmentRegion": "en",
+      "CFBundleLocalizations": [
+        "en",
+        "zh-Hans"
+      ]
+    }
+  }
 }

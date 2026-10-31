@@ -2,6 +2,12 @@
 
 package autostart
 
-import "fmt"
+import (
+	"fmt"
 
-func set(bool, string) error { return fmt.Errorf("当前平台暂不支持登录自启") }
+	"gopurr/internal/localize"
+)
+
+func set(bool, string) error {
+	return fmt.Errorf("%s", localize.Text("当前平台暂不支持登录自启"))
+}

@@ -1,5 +1,7 @@
 package mesh
 
+import "gopurr/internal/localize"
+
 import (
 	"context"
 	"encoding/json"
@@ -84,16 +86,16 @@ func NewEmbedded(dir string, reserved func(uint16) bool) *Embedded {
 	if err := securefs.PrivateFile(path); err == nil {
 		info, statErr := os.Stat(path)
 		if statErr != nil || info.Size() > 65536 {
-			b.initErr = errors.New("组网访问设置无法读取")
+			b.initErr = errors.New(localize.Text("组网访问设置无法读取"))
 			return b
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil || json.Unmarshal(raw, &b.policy) != nil {
-			b.initErr = errors.New("组网访问设置损坏，访问保持关闭")
+			b.initErr = errors.New(localize.Text("组网访问设置损坏，访问保持关闭"))
 		}
 		validated, err := ParseServices(FormatServices(b.policy.Services))
 		if err != nil || len(b.policy.Blocked) > 1000 {
-			b.initErr = errors.New("组网访问设置无效，访问保持关闭")
+			b.initErr = errors.New(localize.Text("组网访问设置无效，访问保持关闭"))
 		}
 		b.policy.Services = validated
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -123,7 +125,7 @@ func (b *Embedded) Read(ctx context.Context) (Status, error) {
 			n.peers = map[netip.Addr]bool{}
 		}
 		b.mu.Unlock()
-		return s, errors.New("无法读取内置组网内核状态")
+		return s, errors.New(localize.Text("无法读取内置组网内核状态"))
 	}
 	encoded, _ := json.Marshal(rawStatus)
 	var raw wireStatus
@@ -212,7 +214,7 @@ func (b *Embedded) Connect(ctx context.Context) (auth string, retErr error) {
 	for _, entry := range os.Environ() {
 		key, value, _ := strings.Cut(entry, "=")
 		if value != "" && (strings.HasPrefix(key, "TS_") || strings.HasPrefix(key, "TSNET_")) && key != "TS_NO_LOGS_NO_SUPPORT" {
-			return "", fmt.Errorf("请清除环境变量 %s 后连接内置组网", clean(key))
+			return "", fmt.Errorf(localize.Text("请清除环境变量 %s 后连接内置组网"), clean(key))
 		}
 	}
 	store, err := newPrivateStore(filepath.Join(b.dir, "identity.json"))
@@ -247,11 +249,11 @@ func (b *Embedded) Connect(ctx context.Context) (auth string, retErr error) {
 	}()
 	lc, err := n.server.LocalClient()
 	if err != nil {
-		return "", fmt.Errorf("内置组网内核启动失败：%w", err)
+		return "", fmt.Errorf(localize.Text("内置组网内核启动失败：%w"), err)
 	}
 	n.lc = lc
 	if _, err := lc.EditPrefs(ctx, safePrefs(true, true)); err != nil {
-		return "", fmt.Errorf("内置组网防护初始化失败：%w", err)
+		return "", fmt.Errorf(localize.Text("内置组网防护初始化失败：%w"), err)
 	}
 	if err := waitForLogin(ctx, lc); err != nil {
 		return "", err
@@ -293,7 +295,7 @@ func (b *Embedded) SetIncoming(ctx context.Context, allow bool) error {
 		b.blockLocked("")
 		if n == nil || len(b.policy.Services) == 0 || b.initErr != nil {
 			b.mu.Unlock()
-			return errors.New("请先连接组网并明确授权本机服务端口")
+			return errors.New(localize.Text("请先连接组网并明确授权本机服务端口"))
 		}
 	}
 	epoch := b.accessEpoch
@@ -304,24 +306,24 @@ func (b *Embedded) SetIncoming(ctx context.Context, allow bool) error {
 	if allow {
 		status, err := n.lc.Status(ctx)
 		if err != nil || status.BackendState != "Running" {
-			return errors.New("组网尚未连接，访问保持关闭")
+			return errors.New(localize.Text("组网尚未连接，访问保持关闭"))
 		}
 	}
 	prefs, err := n.lc.EditPrefs(ctx, safePrefs(true, !allow))
 	if err != nil || prefs.ShieldsUp != !allow {
-		return errors.New("内置组网设置未确认，访问保持关闭")
+		return errors.New(localize.Text("内置组网设置未确认，访问保持关闭"))
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.node != n {
-		return errors.New("组网已断开")
+		return errors.New(localize.Text("组网已断开"))
 	}
 	if allow {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if b.accessEpoch != epoch {
-			return errors.New("组网访问授权已撤销，请重新确认")
+			return errors.New(localize.Text("组网访问授权已撤销，请重新确认"))
 		}
 		b.allow = true
 	}
@@ -393,7 +395,7 @@ func (b *Embedded) SetServices(ctx context.Context, raw string) error {
 	defer b.mu.Unlock()
 	for _, s := range services {
 		if b.reservedLocked(s.Port) {
-			return errors.New("不能开放 Gopurr 自身的代理或控制端口")
+			return errors.New(localize.Text("不能开放 Gopurr 自身的代理或控制端口"))
 		}
 	}
 	next := b.policy
@@ -403,7 +405,7 @@ func (b *Embedded) SetServices(ctx context.Context, raw string) error {
 
 func (b *Embedded) SetDeviceBlocked(_ context.Context, id string, blocked bool) error {
 	if id == "" || len(id) > 256 {
-		return errors.New("无效的设备标识")
+		return errors.New(localize.Text("无效的设备标识"))
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -432,7 +434,7 @@ func (b *Embedded) savePolicyLocked(next accessPolicy) error {
 		return err
 	}
 	if err := securefs.WriteFile(filepath.Join(b.dir, "access.json"), raw, 0600); err != nil {
-		return errors.New("组网访问设置保存失败")
+		return errors.New(localize.Text("组网访问设置保存失败"))
 	}
 	b.policy = next
 	b.initErr = nil
@@ -461,7 +463,7 @@ func (b *Embedded) Accesses(context.Context) (Observation, error) {
 	if len(visits) > 100 {
 		visits = visits[:100]
 	}
-	return Observation{Visits: visits, Scope: "内置组网实际接收的 TCP / UDP 服务连接；账号来自加密网络的设备身份"}, nil
+	return Observation{Visits: visits, Scope: localize.Text("内置组网实际接收的 TCP / UDP 服务连接；账号来自加密网络的设备身份")}, nil
 }
 
 func (b *Embedded) ClearHistory() {
@@ -513,7 +515,7 @@ func (b *Embedded) forward(n *nodeSession, protocol string, src, dst netip.AddrP
 		Owner: clean(who.UserProfile.DisplayName), Login: clean(who.UserProfile.LoginName), Protocol: protocol,
 		Remote: src.String(), Local: dst.String(), FirstSeen: time.Now(), LastSeen: time.Now()}}
 	if len(who.Node.Tags) > 0 {
-		f.visit.Owner, f.visit.Login = "带标签的设备", ""
+		f.visit.Owner, f.visit.Login = localize.Text("带标签的设备"), ""
 	}
 	f.visit.Key = fmt.Sprintf("%s/%s/%s/%d", protocol, src, dst, f.visit.FirstSeen.UnixNano())
 	b.mu.Lock()

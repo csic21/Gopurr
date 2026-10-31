@@ -21,6 +21,8 @@ import (
 	"gopurr/internal/geodata"
 	"gopurr/internal/kernel"
 	"gopurr/internal/patch"
+
+	"github.com/miekg/dns"
 )
 
 // Keep mihomo's global state and signal handling in a separate process, just
@@ -59,6 +61,20 @@ func testDaemonLoadsSubscription(t *testing.T, datMode bool) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
+	upstream, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dnsServer := &dns.Server{PacketConn: upstream, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		reply := new(dns.Msg)
+		reply.SetReply(request)
+		if len(request.Question) > 0 {
+			reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.IPv4(203, 0, 113, 1)}}
+		}
+		_ = w.WriteMsg(reply)
+	})}
+	go dnsServer.ActivateAndServe()
+	t.Cleanup(func() { dnsServer.Shutdown(); upstream.Close() })
 
 	// Providers commonly ship HTTP/SOCKS ports. The app replaces these with
 	// one mixed listener; retaining the HTTP port would make it claim the port
@@ -87,7 +103,10 @@ rules:
 `, port, datMode))
 	ov := patch.Default()
 	ov.MixedPort = port
-	cfg, err := patch.Apply(raw, ov)
+	localDNS := patch.DefaultDNSSettings()
+	localDNS.EnhancedMode = "redir-host"
+	localDNS.Nameserver = []string{"udp://" + upstream.LocalAddr().String()}
+	cfg, err := patch.ApplyLayers(raw, ov, patch.ProfileOverrides{DNS: &localDNS, ExtraRules: []string{"DOMAIN,isolated.example,DIRECT"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,12 +186,31 @@ rules:
 			t.Fatalf("mixed port does not accept SOCKS: reply=%v err=%v", reply, err)
 		}
 	})
+	t.Run("kernel_DNS_diagnostic", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := r.QueryDNS(ctx, "isolated.example"); err != nil {
+			t.Fatalf("DNS diagnostic through authenticated gateway: %v", err)
+		}
+		found := false
+		for _, rule := range r.Rules() {
+			if rule.Payload == "isolated.example" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("subscription rule did not reach real kernel")
+		}
+	})
 
 	t.Run("HTTP", func(t *testing.T) {
 		origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}))
 		defer origin.Close()
+		if _, err := r.DelayContext(context.Background(), "DIRECT", origin.URL, 2000); err != nil {
+			t.Fatalf("DIRECT diagnostic against local origin: %v", err)
+		}
 		proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 		transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
 		defer transport.CloseIdleConnections()

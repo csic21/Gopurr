@@ -177,7 +177,7 @@ func latencyPill(c *ui.Context, d uint16, known bool) {
 	}
 	switch {
 	case d == 0:
-		pill(c, "超时", pal.Danger, pal.Danger.Alpha(0.10))
+		pill(c, tr("超时"), pal.Danger, pal.Danger.Alpha(0.10))
 	case d < 200:
 		pill(c, uintText(d), pal.Success, pal.Success.Alpha(0.10))
 	case d < 500:
@@ -204,11 +204,11 @@ func delayIndexOf(secs int) int {
 func delayLabelOf(secs int) string {
 	switch secs {
 	case 30:
-		return "30 秒"
+		return tr("30 秒")
 	case 300:
-		return "5 分钟"
+		return tr("5 分钟")
 	default:
-		return "1 分钟"
+		return tr("1 分钟")
 	}
 }
 
@@ -228,9 +228,9 @@ func settingsRow(c *ui.Context, title, desc string, control func()) {
 	pal := paletteFor(c)
 	ui.Row(c).FillWidth().Padding(12, 16).AlignItems(ui.Center).Gap(16).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
-			ui.Text(c, title).FontSize(13).FontWeight(500).TextColor(pal.Text)
+			ui.Text(c, title).FillWidth().FontSize(13).FontWeight(500).TextColor(pal.Text)
 			if desc != "" {
-				ui.Text(c, desc).FontSize(11).TextColor(pal.Faint)
+				ui.Text(c, desc).FillWidth().FontSize(11).TextColor(pal.Faint)
 			}
 		})
 		if control != nil {
@@ -277,7 +277,7 @@ func sectionHeading(c *ui.Context, title, detail string) {
 const allAdapters = "全部出口"
 
 // searchRow is our own search field: mygo's SearchField hardcodes an English
-// placeholder, and this app speaks Chinese.
+// placeholder, so the app can supply a localized one.
 func searchRow(c *ui.Context, value *string, placeholder string) ui.Element {
 	pal := paletteFor(c)
 	return ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).
@@ -288,7 +288,7 @@ func searchRow(c *ui.Context, value *string, placeholder string) ui.Element {
 			}
 			ui.TextInputBase(c, value).Grow(1).MinWidth(0).Placeholder(placeholder).FontSize(12).Label(placeholder)
 			if *value != "" {
-				iconButton(c, iconClose, "清空搜索").Size(24, 24).OnClick(func() { *value = "" })
+				iconButton(c, iconClose, tr("清空搜索")).Size(24, 24).OnClick(func() { *value = "" })
 			}
 		})
 }

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"gopurr/internal/localize"
 )
 
 // Decode one mapping document; yaml.Unmarshal alone silently ignores any later
@@ -19,21 +21,21 @@ func readConfigMap(raw []byte, label string) (map[string]any, error) {
 		if err == io.EOF {
 			return map[string]any{}, nil
 		}
-		return nil, fmt.Errorf("%s不是合法 YAML: %w", label, err)
+		return nil, fmt.Errorf(localize.Text("%s不是合法 YAML: %w"), label, err)
 	}
 	if len(node.Content) != 1 || node.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("%s必须是 YAML 键值映射（map），不能是列表、标量或 null", label)
+		return nil, fmt.Errorf(localize.Text("%s必须是 YAML 键值映射（map），不能是列表、标量或 null"), label)
 	}
 	var doc map[string]any
 	if err := node.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("%s不是合法 YAML: %w", label, err)
+		return nil, fmt.Errorf(localize.Text("%s不是合法 YAML: %w"), label, err)
 	}
 	var trailing yaml.Node
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err != nil {
-			return nil, fmt.Errorf("%s不是合法 YAML: %w", label, err)
+			return nil, fmt.Errorf(localize.Text("%s不是合法 YAML: %w"), label, err)
 		}
-		return nil, fmt.Errorf("%s只能包含一个 YAML 文档", label)
+		return nil, fmt.Errorf(localize.Text("%s只能包含一个 YAML 文档"), label)
 	}
 	return doc, nil
 }
@@ -42,7 +44,7 @@ func mergeUserYAML(doc map[string]any, raw string) (rulesReplaced bool, err erro
 	if strings.TrimSpace(raw) == "" {
 		return false, nil
 	}
-	addition, err := readConfigMap([]byte(raw), "扩展 YAML")
+	addition, err := readConfigMap([]byte(raw), localize.Text("扩展 YAML"))
 	if err != nil {
 		return false, err
 	}
@@ -51,7 +53,7 @@ func mergeUserYAML(doc map[string]any, raw string) (rulesReplaced bool, err erro
 		// controller variants, including pipe/TLS, rather than accepting a
 		// setting the app cannot honor or one that opens another controller.
 		if key == "secret" || key == "external-controller" || strings.HasPrefix(key, "external-controller-") {
-			return false, fmt.Errorf("扩展 YAML 不能修改 %q：controller 连接与密钥由应用管理", key)
+			return false, fmt.Errorf(localize.Text("扩展 YAML 不能修改 %q：controller 连接与密钥由应用管理"), key)
 		}
 	}
 	mergeMaps(doc, addition)

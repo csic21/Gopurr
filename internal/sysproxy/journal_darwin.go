@@ -2,6 +2,8 @@
 
 package sysproxy
 
+import "gopurr/internal/localize"
+
 import (
 	"context"
 	"encoding/json"
@@ -65,7 +67,7 @@ func lockJournalContext(ctx context.Context, path string) (func(), error) {
 		select {
 		case <-ctx.Done():
 			unix.Close(fd)
-			return nil, fmt.Errorf("等待系统代理恢复操作超时，请稍后重试: %w", ctx.Err())
+			return nil, fmt.Errorf(localize.Text("等待系统代理恢复操作超时，请稍后重试: %w"), ctx.Err())
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
@@ -115,10 +117,10 @@ func loadLeases(path string, command commandRunner) (*proxyLeases, error) {
 	}
 	var saved leaseJournal
 	if err := json.Unmarshal(raw, &saved); err != nil {
-		return nil, fmt.Errorf("系统代理恢复记录损坏: %w", err)
+		return nil, fmt.Errorf(localize.Text("系统代理恢复记录损坏: %w"), err)
 	}
 	if saved.OwnerPID <= 1 || len(saved.Services) == 0 {
-		return nil, errors.New("系统代理恢复记录缺少有效会话或网络服务")
+		return nil, errors.New(localize.Text("系统代理恢复记录缺少有效会话或网络服务"))
 	}
 	l.owner = saved.OwnerPID
 	for service, entry := range saved.Services {
@@ -130,7 +132,7 @@ func loadLeases(path string, command commandRunner) (*proxyLeases, error) {
 		for i, original := range entry.Original {
 			if original.Enabled {
 				if err := validateProxy(original.Server, original.Port); err != nil {
-					return nil, fmt.Errorf("系统代理恢复记录无效: %w", err)
+					return nil, fmt.Errorf(localize.Text("系统代理恢复记录无效: %w"), err)
 				}
 			}
 			lease.original[i] = proxySetting{original.Enabled, original.Server, original.Port}

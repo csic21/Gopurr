@@ -1,5 +1,7 @@
 package kernel
 
+import "gopurr/internal/localize"
+
 import (
 	"context"
 	"crypto/rand"
@@ -130,7 +132,7 @@ func (m *Manager) ServiceNeedsUpdate() bool {
 		return false
 	}
 	st, err := m.Status()
-	return err == nil && (st.SecurityVersion < core.SecurityVersion || (buildinfo.Version != "dev" && st.Version != buildinfo.Version))
+	return err == nil && (st.SecurityVersion < core.SecurityVersion || st.ControllerVersion < core.ControllerVersion || (buildinfo.Version != "dev" && st.Version != buildinfo.Version))
 }
 
 // Ensure makes sure a daemon is up. If one is already listening (installed as a
@@ -151,9 +153,9 @@ func (m *Manager) Ensure() error {
 			time.Sleep(150 * time.Millisecond)
 		}
 		if tail := service.LogTail(m.dir); tail != "" {
-			return fmt.Errorf("系统服务已安装，但内核没有启动：%s", tail)
+			return fmt.Errorf(localize.Text("系统服务已安装，但内核没有启动：%s"), tail)
 		}
-		return errors.New("系统服务已安装但没有响应：请重试，或在概览页重新安装")
+		return errors.New(localize.Text("系统服务已安装但没有响应：请重试，或在概览页重新安装"))
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -210,9 +212,9 @@ func (m *Manager) waitReady(exit *processExit, timeout time.Duration) error {
 	for {
 		select {
 		case <-exit.done:
-			return m.startupError(fmt.Sprintf("内核提前退出 (%v)", exit.err))
+			return m.startupError(fmt.Sprintf(localize.Text("内核提前退出 (%v)"), exit.err))
 		case <-deadline.C:
-			return m.startupError("内核启动超时")
+			return m.startupError(localize.Text("内核启动超时"))
 		case <-poll.C:
 			if m.healthy() {
 				return nil

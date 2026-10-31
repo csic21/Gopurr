@@ -14,7 +14,7 @@ import (
 // window services, which may have been released by light mode.
 func (a *App) TrayMenu(openWindow func()) *mygo.Menu {
 	if a.ShuttingDown() {
-		return mygo.NewMenu([]*mygo.MenuItem{{Label: "正在结束当前会话…", Disabled: true}})
+		return mygo.NewMenu([]*mygo.MenuItem{{Label: tr("正在结束当前会话…"), Disabled: true}})
 	}
 	running := a.k != nil && a.k.Running()
 	var groups []core.Group
@@ -43,10 +43,10 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 	tunEnabled := (tunReady || a.tunOn) && !svcBusy && a.k != nil
 
 	items := []*mygo.MenuItem{
-		{ID: "show-window", Label: "显示窗口", Click: func(*mygo.MenuItem, *mygo.Window) { openWindow() }},
+		{ID: "show-window", Label: tr("显示窗口"), Click: func(*mygo.MenuItem, *mygo.Window) { openWindow() }},
 		mygo.Separator(),
 		{
-			ID: "system-proxy", Label: "系统代理", Type: mygo.MenuItemCheckbox,
+			ID: "system-proxy", Label: tr("系统代理"), Type: mygo.MenuItemCheckbox,
 			Checked: a.sysApplied, Disabled: !sysproxy.Available() || a.k == nil || svcBusy,
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
 				a.notice = ""
@@ -59,7 +59,7 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 			},
 		},
 		{
-			ID: "tun", Label: "TUN 模式", Type: mygo.MenuItemCheckbox,
+			ID: "tun", Label: tr("TUN 模式"), Type: mygo.MenuItemCheckbox,
 			Checked: a.tunOn, Disabled: !tunEnabled, ToolTip: a.tunHint(),
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
 				a.applyTun(item.IsChecked())
@@ -72,9 +72,9 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 		},
 	}
 	if service.Available() && (!tunReady || svcBusy) {
-		label := "设置 TUN 服务…"
+		label := tr("设置 TUN 服务…")
 		if svcBusy {
-			label = "TUN 服务正在变更…"
+			label = tr("TUN 服务正在变更…")
 		}
 		items = append(items, &mygo.MenuItem{
 			ID: "tun-service", Label: label, Disabled: svcBusy || a.k == nil,
@@ -85,7 +85,7 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 	var modes []*mygo.MenuItem
 	for _, token := range routeTokens {
 		modes = append(modes, &mygo.MenuItem{
-			ID: "mode-" + token, Label: labelFor(token) + "模式", Type: mygo.MenuItemRadio,
+			ID: "mode-" + token, Label: modeLabelFor(token), Type: mygo.MenuItemRadio,
 			Checked: a.modeToken == token, Disabled: a.k == nil || svcBusy,
 			Click: func(*mygo.MenuItem, *mygo.Window) {
 				a.UseMode(token)
@@ -100,15 +100,15 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 		})
 	}
 	nodes := a.trayNodeItems(running, groups, svcBusy, openPage)
-	reloadLabel := "重新加载配置"
+	reloadLabel := tr("重新加载配置")
 	if !running {
-		reloadLabel = "启动内核"
+		reloadLabel = tr("启动内核")
 	}
 	items = append(items,
 		mygo.Separator(),
-		&mygo.MenuItem{ID: "routing-mode", Label: "路由模式", Submenu: modes},
-		&mygo.MenuItem{ID: "select-node", Label: "选择节点", Submenu: nodes},
-		&mygo.MenuItem{ID: "mesh", Label: "设备组网", Submenu: a.meshTrayItems(openPage)},
+		&mygo.MenuItem{ID: "routing-mode", Label: tr("路由模式"), Submenu: modes},
+		&mygo.MenuItem{ID: "select-node", Label: tr("选择节点"), Submenu: nodes},
+		&mygo.MenuItem{ID: "mesh", Label: tr("设备组网"), Submenu: a.meshTrayItems(openPage)},
 		mygo.Separator(),
 		&mygo.MenuItem{
 			ID: "reload", Label: reloadLabel, Disabled: a.k == nil || svcBusy,
@@ -120,14 +120,9 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 				}
 			},
 		},
-		&mygo.MenuItem{ID: "check-updates", Label: "检查软件更新…", Click: func(*mygo.MenuItem, *mygo.Window) {
-			a.initSoftwareUpdates()
-			openPage("settings")
-			a.settingsTab = 3
-			a.softwareUpdates.Check(true)
-		}},
+		a.checkUpdatesMenuItem(openWindow),
 		mygo.Separator(),
-		&mygo.MenuItem{ID: "quit", Label: "退出 Gopurr", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
+		&mygo.MenuItem{ID: "quit", Label: tr("退出 Gopurr"), Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
 	)
 	return items
 }
@@ -136,16 +131,16 @@ func (a *App) trayNodeItems(running bool, groups []core.Group, busy bool, openPa
 	var items []*mygo.MenuItem
 	switch {
 	case !running:
-		items = append(items, &mygo.MenuItem{Label: "启动内核后可选择节点", Disabled: true})
+		items = append(items, &mygo.MenuItem{Label: tr("启动内核后可选择节点"), Disabled: true})
 	case a.modeToken == "direct":
-		items = append(items, &mygo.MenuItem{Label: "直连模式无需选择节点", Disabled: true})
+		items = append(items, &mygo.MenuItem{Label: tr("直连模式无需选择节点"), Disabled: true})
 	default:
 		for _, group := range visibleGroups(groups, a.modeToken) {
 			members := filterMembers(group.Members, "")
 			var nodes []*mygo.MenuItem
 			if !manualGroup(group) {
 				nodes = append(nodes,
-					&mygo.MenuItem{Label: groupTypeLabel(group.Type) + " · 由内核自动调度", Disabled: true},
+					&mygo.MenuItem{Label: groupTypeLabel(group.Type) + tr(" · 由内核自动调度"), Disabled: true},
 					mygo.Separator(),
 				)
 			}
@@ -164,7 +159,7 @@ func (a *App) trayNodeItems(running bool, groups []core.Group, busy bool, openPa
 				})
 			}
 			if len(members) == 0 {
-				nodes = append(nodes, &mygo.MenuItem{Label: "此策略组暂无节点", Disabled: true})
+				nodes = append(nodes, &mygo.MenuItem{Label: tr("此策略组暂无节点"), Disabled: true})
 			}
 			label := trayLabel(group.Name, 18)
 			if group.Now != "" {
@@ -175,11 +170,11 @@ func (a *App) trayNodeItems(running bool, groups []core.Group, busy bool, openPa
 			})
 		}
 		if len(items) == 0 {
-			items = append(items, &mygo.MenuItem{Label: "暂无可选策略组", Disabled: true})
+			items = append(items, &mygo.MenuItem{Label: tr("暂无可选策略组"), Disabled: true})
 		}
 	}
 	return append(items, mygo.Separator(), &mygo.MenuItem{
-		ID: "open-proxies", Label: "打开代理页面…",
+		ID: "open-proxies", Label: tr("打开代理页面…"),
 		Click: func(*mygo.MenuItem, *mygo.Window) { openPage("proxies") },
 	})
 }

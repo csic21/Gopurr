@@ -11,6 +11,7 @@ import (
 )
 
 type connectionState struct {
+	connectionRuleState
 	connList        ui.ListState
 	connQuery       string
 	connFetched     time.Time
@@ -40,7 +41,7 @@ func (a *App) refreshConnections() {
 	rows, err := a.k.ConnectionsWithError()
 	a.connFetched = time.Now()
 	if err != nil {
-		a.connError = "读取连接失败: " + err.Error()
+		a.connError = tr("读取连接失败: ") + err.Error()
 		return
 	}
 	a.connRows, a.connError = rows, ""
@@ -53,21 +54,21 @@ func (a *App) connsPage(c *ui.Context) {
 		a.refreshConnections()
 	}
 	rows := filterConnections(a.connRows, a.connQuery)
-	a.pageHeader(c, "连接", fmt.Sprintf("%d 条活跃会话 · 显示 %d 条", len(a.connRows), len(rows)), func() {
-		softButton(c, "断开全部…").Disabled(len(a.connRows) == 0).OnClick(func() { a.confirmCloseAll = true })
+	a.pageHeader(c, tr("连接"), fmt.Sprintf(tr("%d 条活跃会话 · 显示 %d 条"), len(a.connRows), len(rows)), func() {
+		softButton(c, tr("断开全部…")).Disabled(len(a.connRows) == 0).OnClick(func() { a.confirmCloseAll = true })
 	})
 	ui.Row(c).FillWidth().Gap(8).Children(func() {
-		searchRow(c, &a.connQuery, "搜索主机、进程、IP、规则或链路").Grow(1).MinWidth(0).Label("搜索连接")
-		softButton(c, "刷新").OnClick(a.refreshConnections)
+		searchRow(c, &a.connQuery, tr("搜索主机、进程、IP、规则或链路")).Grow(1).MinWidth(0).Label(tr("搜索连接"))
+		softButton(c, tr("刷新")).OnClick(a.refreshConnections)
 	})
 	if a.connError != "" {
 		settingsFeedback(c, a.connError, true)
 	}
 	if len(rows) == 0 {
 		if a.connQuery != "" {
-			emptyState(c, "没有匹配的连接", "尝试主机名、进程名或 IP 地址。")
+			emptyState(c, tr("没有匹配的连接"), tr("尝试主机名、进程名或 IP 地址。"))
 		} else {
-			emptyState(c, "暂无连接", "打开系统代理或 TUN 后，这里会实时出现会话。")
+			emptyState(c, tr("暂无连接"), tr("打开系统代理或 TUN 后，这里会实时出现会话。"))
 		}
 	} else {
 		width, _ := c.Size()
@@ -76,12 +77,12 @@ func (a *App) connsPage(c *ui.Context) {
 		ui.Row(c).FillWidth().Grow(1).MinHeight(0).Gap(12).Children(func() {
 			ui.Column(c).Grow(1).MinWidth(0).FillHeight().Radius(12).Background(pal.Surface).Children(func() {
 				ui.Row(c).FillWidth().Padding(12).Gap(8).Children(func() {
-					ui.Text(c, "主机 / 进程").Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Faint)
+					ui.Text(c, tr("主机 / 进程")).Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Faint)
 					if showRouteColumn {
-						ui.Text(c, "规则 / 出口").Width(180).FontSize(11).TextColor(pal.Faint)
+						ui.Text(c, tr("规则 / 出口")).Width(180).FontSize(11).TextColor(pal.Faint)
 					}
-					ui.Text(c, "上行").Width(60).FontSize(11).TextColor(pal.Faint).TextAlign(ui.End)
-					ui.Text(c, "下行").Width(60).FontSize(11).TextColor(pal.Faint).TextAlign(ui.End)
+					ui.Text(c, tr("上行")).Width(60).FontSize(11).TextColor(pal.Faint).TextAlign(ui.End)
+					ui.Text(c, tr("下行")).Width(60).FontSize(11).TextColor(pal.Faint).TextAlign(ui.End)
 					ui.Box(c).Width(52)
 				})
 				hairline(c)
@@ -122,13 +123,13 @@ func (a *App) connsPage(c *ui.Context) {
 						}
 						ui.Text(c, fmtBytes(cn.Up)).Width(60).FontSize(11).FontFeatures("tnum").TextColor(pal.Text).TextAlign(ui.End)
 						ui.Text(c, fmtBytes(cn.Down)).Width(60).FontSize(11).FontFeatures("tnum").TextColor(pal.Text).TextAlign(ui.End)
-						softButton(c, "详情").Label("查看连接 " + cn.Host).OnClick(func() { a.connSelected = cn; a.showConn = true })
+						softButton(c, tr("详情")).Label(tr("查看连接 ") + cn.Host).OnClick(func() { a.connSelected = cn; a.showConn = true })
 					})
 				})
 			})
 			if detailSide {
 				ui.Column(c).Width(300).FillHeight().Padding(16).Gap(12).Radius(12).Background(pal.Surface).
-					Label("连接详情侧栏").Key("connection-inspector").Transition(ui.ElementTransition{
+					Label(tr("连接详情侧栏")).Key("connection-inspector").Transition(ui.ElementTransition{
 					Animation: &gentlePanel, Colors: true, Enter: &ui.Motion{X: 12, Opacity: 0},
 				}).Children(func() { a.connectionDetails(c, true) })
 			}
@@ -139,7 +140,7 @@ func (a *App) connsPage(c *ui.Context) {
 
 func (a *App) disconnectConnection(id string) {
 	if err := a.k.CloseConnection(id); err != nil {
-		a.connError = "断开失败: " + err.Error()
+		a.connError = tr("断开失败: ") + err.Error()
 		return
 	}
 	a.showConn = false
@@ -160,16 +161,16 @@ func (a *App) connectionDialogs(c *ui.Context) {
 	}
 	softModal(c, "close-connections", &a.confirmCloseAll, func() {
 		ui.Column(c).Width(440).Padding(20).Gap(16).Children(func() {
-			ui.Text(c, "断开全部连接？").FontSize(16).Bold().TextColor(pal.Text)
-			ui.Text(c, "当前会话会中断，应用通常会自动重新连接。").FillWidth().FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, tr("断开全部连接？")).FontSize(16).Bold().TextColor(pal.Text)
+			ui.Text(c, tr("当前会话会中断，应用通常会自动重新连接。")).FillWidth().FontSize(12).TextColor(pal.Muted)
 			if a.connError != "" {
 				settingsFeedback(c, a.connError, true)
 			}
 			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
-				softButton(c, "取消").OnClick(func() { a.confirmCloseAll = false })
-				softPrimaryButton(c, "断开全部").OnClick(func() {
+				softButton(c, tr("取消")).OnClick(func() { a.confirmCloseAll = false })
+				softPrimaryButton(c, tr("断开全部")).OnClick(func() {
 					if err := a.k.CloseAllConnections(); err != nil {
-						a.connError = "断开失败: " + err.Error()
+						a.connError = tr("断开失败: ") + err.Error()
 						return
 					}
 					a.confirmCloseAll = false
@@ -178,14 +179,15 @@ func (a *App) connectionDialogs(c *ui.Context) {
 			})
 		})
 	})
+	a.connectionRuleDialog(c)
 }
 
 func (a *App) connectionDetails(c *ui.Context, side bool) {
 	pal := paletteFor(c)
 	cn := a.connSelected
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "连接详情").Grow(1).FontSize(16).FontWeight(600).TextColor(pal.Text)
-		softButton(c, "关闭").OnClick(func() { a.showConn = false })
+		ui.Text(c, tr("连接详情")).Grow(1).FontSize(16).FontWeight(600).TextColor(pal.Text)
+		softButton(c, tr("关闭")).OnClick(func() { a.showConn = false })
 	})
 	scroll := ui.Scroll(c).FillWidth()
 	if side {
@@ -204,16 +206,16 @@ func (a *App) connectionDetails(c *ui.Context, side bool) {
 					ui.Text(c, value).FillWidth().FontSize(12).TextColor(pal.Text).Selectable()
 				})
 			}
-			detail("主机", cn.Host)
-			detail("进程", cn.Process)
-			detail("命中规则", strings.TrimSpace(cn.Rule+" "+cn.RulePayload))
-			detail("代理链路", cn.Chain)
-			detail("流量", fmt.Sprintf("上行 %s · 下行 %s", fmtBytes(cn.Up), fmtBytes(cn.Down)))
-			detail("源地址", connectionAddress(cn.SourceIP, cn.SourcePort))
-			detail("目标地址", connectionAddress(cn.DestinationIP, cn.DestinationPort))
-			detail("协议", strings.ToUpper(cn.Network))
-			detail("开始时间", cn.Start.Local().Format("2006-01-02 15:04:05"))
-			detail("进程路径", cn.ProcessPath)
+			detail(tr("主机"), cn.Host)
+			detail(tr("进程"), cn.Process)
+			detail(tr("命中规则"), strings.TrimSpace(cn.Rule+" "+cn.RulePayload))
+			detail(tr("代理链路"), cn.Chain)
+			detail(tr("流量"), fmt.Sprintf(tr("上行 %s · 下行 %s"), fmtBytes(cn.Up), fmtBytes(cn.Down)))
+			detail(tr("源地址"), connectionAddress(cn.SourceIP, cn.SourcePort))
+			detail(tr("目标地址"), connectionAddress(cn.DestinationIP, cn.DestinationPort))
+			detail(tr("协议"), strings.ToUpper(cn.Network))
+			detail(tr("开始时间"), cn.Start.Local().Format("2006-01-02 15:04:05"))
+			detail(tr("进程路径"), cn.ProcessPath)
 		})
 	})
 	if a.connError != "" {
@@ -221,9 +223,10 @@ func (a *App) connectionDetails(c *ui.Context, side bool) {
 	}
 	hairline(c)
 	ui.Row(c).FillWidth().Gap(8).Children(func() {
-		softButton(c, "复制主机名").OnClick(func() { a.services().WriteClipboard(cn.Host) })
+		softButton(c, tr("复制主机名")).OnClick(func() { a.services().WriteClipboard(cn.Host) })
+		softButton(c, tr("创建规则…")).Disabled(len(connectionRuleChoices(cn)) == 0).OnClick(func() { a.openConnectionRule(cn) })
 		ui.Spacer(c)
-		softButton(c, "断开连接").TextColor(pal.Danger).Disabled(cn.ID == "").OnClick(func() { a.disconnectConnection(cn.ID) })
+		softButton(c, tr("断开连接")).TextColor(pal.Danger).Disabled(cn.ID == "").OnClick(func() { a.disconnectConnection(cn.ID) })
 	})
 }
 func connectionAddress(ip, port string) string {

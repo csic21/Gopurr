@@ -9,6 +9,8 @@ import (
 	R "github.com/metacubex/mihomo/rules"
 	RC "github.com/metacubex/mihomo/rules/common"
 	"github.com/metacubex/mihomo/rules/logic"
+
+	"gopurr/internal/localize"
 )
 
 func prependExtraRules(doc map[string]any, extra []string) error {
@@ -19,7 +21,7 @@ func prependExtraRules(doc map[string]any, extra []string) error {
 			continue // blank editor lines also allow clearing all additions
 		}
 		if err := validateRule(doc, rule); err != nil {
-			return fmt.Errorf("第 %d 条额外规则无效: %w", i+1, err)
+			return fmt.Errorf(localize.Text("第 %d 条额外规则无效: %w"), i+1, err)
 		}
 		rules = append(rules, rule)
 	}
@@ -35,33 +37,33 @@ func prependExtraRules(doc map[string]any, extra []string) error {
 
 func validateRule(doc map[string]any, rule string) error {
 	if strings.ContainsAny(rule, "\r\n") {
-		return fmt.Errorf("每条规则只能占一行")
+		return fmt.Errorf("%s", localize.Text("每条规则只能占一行"))
 	}
 	kind, payload, target, params := RC.ParseRulePayload(rule, true)
 	count := strings.Count(rule, ",")
 	if (kind == "MATCH" && count != 1) || (kind != "MATCH" && count < 2) || target == "" {
-		return fmt.Errorf("规则格式应为 类型,匹配内容,目标策略（MATCH,目标策略）")
+		return fmt.Errorf("%s", localize.Text("规则格式应为 类型,匹配内容,目标策略（MATCH,目标策略）"))
 	}
 	parsed, err := parseRuleOffline(kind, payload, target, params, nil)
 	if err != nil {
-		return fmt.Errorf("%s 规则参数无效: %w", kind, err)
+		return fmt.Errorf(localize.Text("%s 规则参数无效: %w"), kind, err)
 	}
 	if kind == "SUB-RULE" {
 		// SUB-RULE's final field names a sub-rule, not a proxy policy.
 		subRules, _ := doc["sub-rules"].(map[string]any)
 		if _, ok := subRules[target]; !ok {
-			return fmt.Errorf("子规则 %q 不存在", target)
+			return fmt.Errorf(localize.Text("子规则 %q 不存在"), target)
 		}
-		if err := stringList(subRules[target], "sub-rules 中的 "+target); err != nil {
+		if err := stringList(subRules[target], localize.Text("sub-rules 中的 ")+target); err != nil {
 			return err
 		}
 	} else if !ruleTargets(doc)[target] {
-		return fmt.Errorf("目标策略 %q 不存在，请使用内置策略或当前配置中的策略组、代理名称", target)
+		return fmt.Errorf(localize.Text("目标策略 %q 不存在，请使用内置策略或当前配置中的策略组、代理名称"), target)
 	}
 	providers, _ := doc["rule-providers"].(map[string]any)
 	for _, name := range parsed.ProviderNames() {
 		if _, ok := providers[name]; !ok {
-			return fmt.Errorf("规则集 %q 不存在，请先在 rule-providers 中定义", name)
+			return fmt.Errorf(localize.Text("规则集 %q 不存在，请先在 rule-providers 中定义"), name)
 		}
 	}
 	return nil
@@ -91,11 +93,11 @@ func ruleTargets(doc map[string]any) map[string]bool {
 // the data-loading parser. This does not call config.Parse or alter core state.
 func parseRuleOffline(kind, payload, target string, params []string, subRules map[string][]C.Rule) (C.Rule, error) {
 	if kind != "MATCH" && payload == "" {
-		return nil, fmt.Errorf("缺少匹配内容")
+		return nil, fmt.Errorf("%s", localize.Text("缺少匹配内容"))
 	}
 	for _, param := range params {
 		if param != "no-resolve" && param != "src" {
-			return nil, fmt.Errorf("未知规则选项 %q，可用选项为 no-resolve、src", param)
+			return nil, fmt.Errorf(localize.Text("未知规则选项 %q，可用选项为 no-resolve、src"), param)
 		}
 	}
 	// mihomo's generic range parser narrows integers after parsing them. Catch
@@ -116,7 +118,7 @@ func parseRuleOffline(kind, payload, target string, params []string, subRules ma
 			}
 			for _, number := range strings.Split(segment, "-") {
 				if _, err := strconv.ParseUint(strings.Trim(number, "[ ]"), 10, bits); err != nil {
-					return nil, fmt.Errorf("%s 数值或范围 %q 无效或超出范围", kind, segment)
+					return nil, fmt.Errorf(localize.Text("%s 数值或范围 %q 无效或超出范围"), kind, segment)
 				}
 			}
 		}
@@ -127,20 +129,20 @@ func parseRuleOffline(kind, payload, target string, params []string, subRules ma
 	case "IP-ASN", "SRC-IP-ASN":
 		asn, err := strconv.ParseUint(payload, 10, 32)
 		if err != nil || asn == 0 {
-			return nil, fmt.Errorf("ASN 必须是有效的正整数")
+			return nil, fmt.Errorf("%s", localize.Text("ASN 必须是有效的正整数"))
 		}
 		return RC.NewMatch(target), nil
 	case "AND", "OR", "NOT", "SUB-RULE":
 		if strings.Trim(payload, "() \t,") == "" {
-			return nil, fmt.Errorf("匹配表达式不能为空")
+			return nil, fmt.Errorf("%s", localize.Text("匹配表达式不能为空"))
 		}
 		if !strings.HasPrefix(payload, "(") || !strings.HasSuffix(payload, ")") {
-			return nil, fmt.Errorf("匹配表达式必须用括号包围")
+			return nil, fmt.Errorf("%s", localize.Text("匹配表达式必须用括号包围"))
 		}
 		if kind != "SUB-RULE" {
 			conditions := strings.TrimSpace(payload[1 : len(payload)-1])
 			if !strings.HasPrefix(conditions, "(") || !strings.HasSuffix(conditions, ")") {
-				return nil, fmt.Errorf("逻辑规则中的每个条件必须用括号包围，例如 ((DOMAIN,example.com))")
+				return nil, fmt.Errorf("%s", localize.Text("逻辑规则中的每个条件必须用括号包围，例如 ((DOMAIN,example.com))"))
 			}
 		}
 		switch kind {

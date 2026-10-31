@@ -14,11 +14,13 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
 
 	"gopurr/internal/applications"
 	"gopurr/internal/backup"
 	"gopurr/internal/core"
+	"gopurr/internal/diagnostic"
 	"gopurr/internal/mesh"
 	"gopurr/internal/profile"
 	"gopurr/internal/update"
@@ -27,6 +29,8 @@ import (
 // TestRenderPages draws every page offscreen. It is the repeatable version of
 // "does the UI still build", and it needs no window server.
 func TestRenderPages(t *testing.T) {
+	text := tr
+	t.Cleanup(func() { i18n.SetLocaleFunc(func() string { return LanguageChinese }) })
 	previousVersion := mygo.App.Version()
 	configRaw, err := os.ReadFile(filepath.Join("..", "..", "mygo.json"))
 	if err != nil {
@@ -86,6 +90,34 @@ func TestRenderPages(t *testing.T) {
 		setup func()
 	}
 	shots := []shot{
+		{"profile-rules", func() { fixtureProfileEditor(a, 1) }},
+		{"profile-rules-error", func() {
+			fixtureProfileEditor(a, 1)
+			a.extraRulesError = text("第 1 条额外规则无效：目标策略“工作出口”不存在，请选择当前订阅中的策略组。")
+		}},
+		{"profile-yaml", func() { fixtureProfileEditor(a, 2) }},
+		{"profile-dns", func() { fixtureProfileEditor(a, 3) }},
+		{"profile-dns-servers", func() { fixtureProfileEditor(a, 3) }},
+		{"profile-preview", func() { fixtureProfileEditor(a, 2); a.previewExtensionConfig() }},
+		{"connection-rule", func() {
+			a.page = "conns"
+			a.openConnectionRule(core.Conn{ID: "demo", Host: "api.example.com", Process: "Browser", DestinationIP: "203.0.113.12"})
+		}},
+		{"connection-rule-preview", func() {
+			a.page = "conns"
+			a.openConnectionRule(core.Conn{ID: "demo", Host: "api.example.com", Process: "Browser", DestinationIP: "203.0.113.12"})
+			a.connRuleTarget, a.connRuleDisconnect = "REJECT", true
+		}},
+		{"connection-rule-error", func() {
+			a.page = "conns"
+			a.openConnectionRule(core.Conn{Host: "api.example.com", Process: "Browser"})
+			a.connRuleError = text("内核未接受配置，原有规则和连接已保留，请检查目标策略。")
+		}},
+		{"diagnostics", func() { fixtureDiagnostics(a, "idle") }},
+		{"diagnostics-running", func() { fixtureDiagnostics(a, "running") }},
+		{"diagnostics-result", func() { fixtureDiagnostics(a, "result") }},
+		{"diagnostics-result-bottom", func() { fixtureDiagnostics(a, "result") }},
+		{"diagnostics-canceled", func() { fixtureDiagnostics(a, "canceled") }},
 		{"software-update", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Available) }},
 		{"software-update-downloading", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Downloading) }},
 		{"software-update-ready", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Ready) }},
@@ -117,7 +149,7 @@ func TestRenderPages(t *testing.T) {
 		{"overview-proxy-error", func() {
 			a.page = "overview"
 			a.sysApplied, a.sysOn = true, true
-			a.setSysErr("恢复系统代理失败，应用保持运行。请重新开启系统代理后重试。")
+			a.setSysErr(text("恢复系统代理失败，应用保持运行。请重新开启系统代理后重试。"))
 		}},
 		{"subs", func() { a.page = "subs" }},
 		{"subs-empty", func() { a.page, a.store.Items, a.store.Active = "subs", nil, "" }},
@@ -276,7 +308,7 @@ func TestRenderPages(t *testing.T) {
 		{"connection-detail", func() { a.page = "conns"; a.refreshConnections(); a.connSelected = a.connRows[0]; a.showConn = true }},
 		{"connection-error", func() {
 			a.page = "conns"
-			a.connError = "读取连接失败：内核暂时无法响应，请稍后刷新。"
+			a.connError = text("读取连接失败：内核暂时无法响应，请稍后刷新。")
 			a.connFetched = time.Now()
 		}},
 		{"disconnect-dialog", func() { a.page = "conns"; a.confirmCloseAll = true }},
@@ -296,7 +328,7 @@ func TestRenderPages(t *testing.T) {
 			a.openSubscriptionEditor(profile.Profile{ID: "demo", Name: "测试订阅", URL: "https://subscription.example.com"})
 			a.editSubPolicy = 2
 			a.editSubHours = "0"
-			a.editSubError = "更新间隔须为 1–8760 小时"
+			a.editSubError = text("更新间隔须为 1–8760 小时")
 		}},
 		{"backup-restore", func() {
 			a.page = "settings"
@@ -309,7 +341,7 @@ func TestRenderPages(t *testing.T) {
 		{"backup-error", func() {
 			a.page = "settings"
 			a.settingsTab = 3
-			a.backupError = "备份文件损坏或版本不受支持，当前配置未更改。"
+			a.backupError = text("备份文件损坏或版本不受支持，当前配置未更改。")
 		}},
 		{"settings-startup", func() { a.page = "settings"; a.settingsTab = 0; a.settingsReady = false }},
 		{"settings-startup-enabled", func() {
@@ -390,7 +422,7 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"settings-error", func() {
 			a.page, a.settingsTab = "settings", 0
-			a.generalSettingsError = "设置保存失败：数据目录暂时不可写，请检查权限后重试。"
+			a.generalSettingsError = text("设置保存失败：数据目录暂时不可写，请检查权限后重试。")
 		}},
 		{"settings-network", func() { a.page, a.settingsTab = "settings", 1 }},
 		{"settings-network-dirty", func() {
@@ -428,7 +460,7 @@ func TestRenderPages(t *testing.T) {
 			a.resetDNSDraft()
 			a.dnsDraft.Source, a.dnsDraft.Enable = 1, true
 			a.dnsDraft.Bootstrap = "https://bootstrap.example.com/dns-query"
-			a.dnsError = "引导 DNS 的服务器必须使用 IP 地址或 system，请修改后重新保存。"
+			a.dnsError = text("引导 DNS 的服务器必须使用 IP 地址或 system，请修改后重新保存。")
 		}},
 		{"settings-sniffer-follow", func() {
 			a.page, a.settingsTab = "settings", 5
@@ -481,256 +513,276 @@ func TestRenderPages(t *testing.T) {
 		{"raw-config-error", func() {
 			a.page, a.showRaw, a.rawReadOnly = "settings", true, false
 			a.rawDraft = "mixed-port: 7890\nmode: rule\nrules:\n  - MATCH,DIRECT\n"
-			a.rawError = "配置校验失败：请检查规则与代理组名称后重新保存，原有运行配置已保留。"
+			a.rawError = text("配置校验失败：请检查规则与代理组名称后重新保存，原有运行配置已保留。")
 		}},
 	}
 
-	for _, appearance := range []string{AppearanceDark, AppearanceLight} {
-		if err := a.changePrefs(func(p *Prefs) { p.Appearance = appearance }); err != nil {
-			t.Fatal(err)
-		}
-		a.settingsReady = false
-		a.mu.Lock()
-		a.hist, a.last = nil, core.Sample{}
-		a.mu.Unlock()
-		for _, collapsed := range []bool{false, true} {
-			if err := a.changePrefs(func(p *Prefs) { p.SidebarCollapsed = collapsed }); err != nil {
+	for _, language := range []string{LanguageChinese, LanguageEnglish} {
+		i18n.SetLocaleFunc(func() string { return language })
+		for _, appearance := range []string{AppearanceDark, AppearanceLight} {
+			if err := a.changePrefs(func(p *Prefs) { p.Appearance = appearance }); err != nil {
 				t.Fatal(err)
 			}
-			for _, shot := range shots {
-				if only := os.Getenv("GOPURR_RENDER_ONLY"); only != "" && !strings.HasPrefix(shot.name, only) {
-					continue
+			a.settingsReady = false
+			a.mu.Lock()
+			a.hist, a.last = nil, core.Sample{}
+			a.mu.Unlock()
+			for _, collapsed := range []bool{false, true} {
+				if err := a.changePrefs(func(p *Prefs) { p.SidebarCollapsed = collapsed }); err != nil {
+					t.Fatal(err)
 				}
-				// Every fixture is checked at both sizes; legacy compact entries are
-				// covered by the matching full-size fixture below.
-				if strings.HasSuffix(shot.name, "-compact") {
-					continue
-				}
-				for _, size := range [][2]int{{1060, 720}, {840, 560}} {
-					page := shot.name
-					a.shutdown = shutdownState{}
-					a.shutdownPending.Store(false)
-					a.bmu.Lock()
-					a.testing = ""
-					a.bmu.Unlock()
-					a.confirmInstall, a.confirmUninstall, a.showDeleteSub, a.showRaw = false, false, false, false
-					a.logPaused, a.logLevelIdx, a.extensionTab = false, 0, 0
-					a.applicationRulesState = applicationRulesState{}
-					a.meshState = meshState{meshClient: &meshFixture{}}
-					a.tunOn, a.ov.TunEnable, a.ov.TunAutoRout = false, false, true
-					a.ov.AppRules, a.ov.Mode = nil, "rule"
-					a.ruleQuery, a.ruleAdapter = "", allAdapters
-					a.generalSettingsError, a.mergeYAMLError = "", ""
-					a.dnsError, a.snifferError = "", ""
-					a.rawError = ""
-					a.showConn, a.confirmCloseAll, a.showEditSub, a.showRestore = false, false, false, false
-					a.showOverviewNodes, a.showAddSub, a.subAddPending = false, false, false
-					a.overviewQuery, a.logQuery, a.subURL, a.subName, a.notice = "", "", "", "", ""
-					a.overviewList, a.ruleList, a.nodeList, a.connList = ui.ListState{}, ui.ListState{}, ui.ListState{}, ui.ListState{}
-					a.logScroll = ui.ScrollState{}
-					a.store.Items, a.store.Active = append([]profile.Profile(nil), profiles...), activeProfile
-					a.modeToken, a.modeIdx, a.proxyGroup = "rule", 0, "节点选择"
-					a.setSubErr("")
-					a.mu.Lock()
-					a.hist, a.last = nil, core.Sample{}
-					a.mu.Unlock()
-					a.pmu.Lock()
-					a.prefs.AutoLaunch, a.prefs.SilentStart = false, false
-					a.pmu.Unlock()
-					a.settingsReady = false
-					a.featureState = featureState{}
-					a.networkError, a.networkStatus, a.testSettingsError, a.testSettingsStatus = "", "", "", ""
-					a.connQuery, a.connError, a.backupError, a.backupStatus = "", "", "", ""
-					a.setSysErr("")
-					a.sysApplied, a.sysOn = false, false
-					a.svcInstalled = false
-					if a.softwareUpdates != nil {
-						a.softwareUpdates.Hide()
+				for _, shot := range shots {
+					if only := os.Getenv("GOPURR_RENDER_ONLY"); only != "" && !strings.HasPrefix(shot.name, only) {
+						continue
 					}
-					if a.Prefs().DockVisibility != DockShown {
-						if err := a.changePrefs(func(p *Prefs) { p.DockVisibility = DockShown }); err != nil {
+					// Every fixture is checked at both sizes; legacy compact entries are
+					// covered by the matching full-size fixture below.
+					if strings.HasSuffix(shot.name, "-compact") {
+						continue
+					}
+					for _, size := range [][2]int{{1060, 720}, {840, 560}} {
+						page := shot.name
+						a.shutdown = shutdownState{}
+						a.shutdownPending.Store(false)
+						a.bmu.Lock()
+						a.testing = ""
+						a.bmu.Unlock()
+						a.confirmInstall, a.confirmUninstall, a.showDeleteSub, a.showRaw = false, false, false, false
+						a.rawPreview, a.showConnRule = false, false
+						a.extensionScope, a.extensionProfileID, a.extensionReady, a.extensionDrafts = 0, "", false, nil
+						a.initExtensionDrafts()
+						a.diagSteps, a.diagRunning, a.diagError, a.diagNotice = nil, false, "", ""
+						a.logPaused, a.logLevelIdx, a.extensionTab = false, 0, 0
+						a.applicationRulesState = applicationRulesState{}
+						a.meshState = meshState{meshClient: &meshFixture{}}
+						a.tunOn, a.ov.TunEnable, a.ov.TunAutoRout = false, false, true
+						a.ov.AppRules, a.ov.Mode = nil, "rule"
+						a.ruleQuery, a.ruleAdapter = "", allAdapters
+						a.generalSettingsError, a.mergeYAMLError = "", ""
+						a.dnsError, a.snifferError = "", ""
+						a.rawError = ""
+						a.showConn, a.confirmCloseAll, a.showEditSub, a.showRestore = false, false, false, false
+						a.showOverviewNodes, a.showAddSub, a.subAddPending = false, false, false
+						a.overviewQuery, a.logQuery, a.subURL, a.subName, a.notice = "", "", "", "", ""
+						a.overviewList, a.ruleList, a.nodeList, a.connList = ui.ListState{}, ui.ListState{}, ui.ListState{}, ui.ListState{}
+						a.logScroll = ui.ScrollState{}
+						a.store.Items, a.store.Active = append([]profile.Profile(nil), profiles...), activeProfile
+						a.modeToken, a.modeIdx, a.proxyGroup = "rule", 0, "节点选择"
+						a.setSubErr("")
+						a.mu.Lock()
+						a.hist, a.last = nil, core.Sample{}
+						a.mu.Unlock()
+						a.pmu.Lock()
+						a.prefs.AutoLaunch, a.prefs.SilentStart = false, false
+						a.pmu.Unlock()
+						a.settingsReady = false
+						a.featureState = featureState{}
+						a.networkError, a.networkStatus, a.testSettingsError, a.testSettingsStatus = "", "", "", ""
+						a.connQuery, a.connError, a.backupError, a.backupStatus = "", "", "", ""
+						a.setSysErr("")
+						a.sysApplied, a.sysOn = false, false
+						a.svcInstalled = false
+						if a.softwareUpdates != nil {
+							a.softwareUpdates.Hide()
+						}
+						if a.Prefs().DockVisibility != DockShown {
+							if err := a.changePrefs(func(p *Prefs) { p.DockVisibility = DockShown }); err != nil {
+								t.Fatal(err)
+							}
+						}
+						shot.setup()
+						width, height := size[0], size[1]
+						if width == 840 {
+							page += "-compact"
+						}
+						if collapsed {
+							page = "top-" + page
+						}
+						if appearance == AppearanceLight {
+							page = "light-" + page
+						}
+						if language == LanguageEnglish {
+							page = "en-" + page
+						}
+						tr := ui.NewTester(a.View, width, height)
+						// Static fixtures show settled UI; motion tests cover animated frames.
+						tr.SetPreferences(ui.Preferences{ReduceMotion: true})
+						tr.SetLocale(language)
+						tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 80})
+						tr.SetDark(appearance == AppearanceDark)
+						tr.Advance(400 * time.Millisecond)
+						tr.Frame()
+						if strings.HasPrefix(shot.name, "mesh") {
+							controls := []string{"邀请成员", "刷新组网", "允许组网访问本机", "断开组网"}
+							switch shot.name {
+							case "mesh-invite", "mesh-invite-long-network", "mesh-invite-offline", "mesh-invite-browser-error":
+								controls = []string{"复制控制台地址", "关闭", "打开邀请页面"}
+							case "mesh-setup":
+								controls = []string{"连接内置组网"}
+							case "mesh-allow-dialog":
+								controls = []string{"取消", "允许访问本机"}
+							case "mesh-ports-dialog":
+								controls = []string{"取消", "保存并关闭访问", "授权端口"}
+							case "mesh-blocked-device":
+								controls = []string{"解除本机封禁", "复制虚拟 IP", "完成"}
+							case "mesh-connect-dialog":
+								controls = []string{"稍后设置", "完成设置", "组网启动自动连接"}
+							case "mesh-detail":
+								controls = []string{"复制虚拟 IP", "在控制台管理", "完成"}
+							case "mesh-guide-first", "mesh-guide-ready", "mesh-guide-error", "mesh-guide-services":
+								controls = []string{"稍后设置", "完成设置", "组网启动自动连接"}
+							case "mesh-guide-connecting":
+								controls = []string{"正在连接…", "取消连接", "稍后设置", "完成设置", "组网启动自动连接"}
+							case "mesh-guide-timeout":
+								controls = []string{"连接并登录", "稍后设置", "完成设置", "组网启动自动连接"}
+							case "mesh-quick-ssh", "mesh-quick-rdp", "mesh-quick-vnc", "mesh-quick-unprepared", "mesh-quick-checked", "mesh-quick-error", "mesh-quick-handshake":
+								controls = []string{"关闭", "复制地址", "检测连接", "打开客户端"}
+							case "mesh-quick-checking":
+								controls = []string{"关闭", "取消检测", "打开客户端"}
+							case "mesh-prepare-dialog":
+								controls = []string{"取消", "安装并准备"}
+							case "mesh-login":
+								controls = append(controls, "继续登录 Tailscale")
+							}
+							for _, label := range controls {
+								r, ok := tr.Find(text(label))
+								if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
+									t.Fatalf("%s: mesh control %q missing or clipped: %+v", page, label, r)
+								}
+							}
+						}
+						if strings.HasPrefix(shot.name, "software-update-restart") {
+							controls := []string{"正在重启…"}
+							if shot.name == "software-update-restart-error" {
+								controls = []string{"返回应用", "重试重启"}
+							}
+							for _, label := range controls {
+								r, ok := tr.Find(text(label))
+								if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
+									t.Fatalf("%s: control %q is missing or clipped: %+v", page, label, r)
+								}
+								if label == "重试重启" {
+									tr.Move(r.X+r.W/2, r.Y+r.H/2)
+								}
+							}
+						}
+						if strings.HasPrefix(shot.name, "application-") {
+							controls := []string{"添加应用…", "保存应用分流"}
+							switch {
+							case strings.HasPrefix(shot.name, "application-picker"):
+								controls = []string{"搜索应用名称或路径…", "重新扫描", "选择文件…", "取消"}
+							case strings.HasPrefix(shot.name, "application-editor"):
+								controls = []string{"应用连接方式", "包含应用 Helper", "取消"}
+								if shot.name == "application-editor-single" {
+									controls = append(controls, "添加到草稿")
+								} else {
+									controls = append(controls, "更新草稿", "应用代理组")
+								}
+							}
+							for _, label := range controls {
+								r, ok := tr.Find(text(label))
+								if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
+									t.Fatalf("%s: control %q is missing or clipped: %+v (found=%v)", page, label, r, ok)
+								}
+							}
+							if shot.name == "application-picker" {
+								if r, ok := tr.Find(text("选择应用 Mail")); ok {
+									tr.Move(r.X+r.W/2, r.Y+r.H/2)
+								}
+							}
+						}
+						if shot.name == "overview" || shot.name == "overview-live" || shot.name == "overview-proxy-error" {
+							controls := []string{"系统代理开关", "TUN 模式", "概览DNS开关", "概览域名嗅探开关", "DNS 设置", "域名嗅探 设置"}
+							for _, label := range controls {
+								r, ok := tr.Find(text(label))
+								if !ok || r.Y < 38 || r.Y+r.H > float32(height-24) || r.X+r.W > float32(width-24) {
+									t.Fatalf("%s: control %q is outside the overview: %+v (found=%v)", page, label, r, ok)
+								}
+							}
+						}
+						switch shot.name {
+						case "profile-dns-servers":
+							tr.Scroll(700, 360, 0, 330)
+						case "connection-rule-preview":
+							tr.Scroll(float32(width/2), float32(height/2), 0, 1000)
+						case "diagnostics-result-bottom":
+							tr.Scroll(700, 360, 0, 2000)
+						case "subscription-edit":
+							tr.Scroll(float32(width/2), float32(height/2), 0, 1000)
+						case "settings-cleanup":
+							tr.Scroll(700, 420, 0, 1000)
+						case "overview-features":
+							tr.Scroll(700, 420, 0, 1000)
+						case "settings-dns-lists", "settings-sniffer-lists":
+							tr.Scroll(700, 420, 0, 2000)
+						case "settings-sniffer-ports":
+							tr.Scroll(700, 420, 0, 290)
+						case "settings-dns-servers":
+							tr.Scroll(700, 420, 0, 330)
+						}
+						if shot.name == "settings-dns" {
+							if r, ok := tr.Find(text("保存 DNS 设置")); ok {
+								tr.Move(r.X+r.W/2, r.Y+r.H/2)
+							}
+						}
+						if shot.name == "conns" {
+							if r, ok := tr.Find(text("查看连接 api.github.com")); ok {
+								tr.Move(r.X+r.W/2, r.Y+r.H/2)
+							}
+						}
+						if shot.name == "proxies-hover" {
+							if r, ok := tr.Find(text("选择 日本 02")); ok {
+								tr.Move(r.X+20, r.Y+r.H/2)
+							}
+						}
+						if shot.name == "overview-service-update" {
+							if r, ok := tr.Find(text("重新安装…")); ok {
+								tr.Move(r.X+r.W/2, r.Y+r.H/2)
+							}
+						}
+						if shot.name == "proxies-groups-scrolled" {
+							if r, ok := tr.Find(text("策略组列表")); ok {
+								tr.Scroll(r.X+r.W/2, r.Y+r.H/2, 0, 10000)
+								tr.Move(r.X+r.W-6, r.Y+r.H-24)
+							}
+						}
+						if strings.HasSuffix(shot.name, "-error") && shot.name != "raw-config-error" && shot.name != "backup-error" {
+							tr.Scroll(700, 420, 0, 1000)
+						}
+						// Stable fixtures show the settled hover/selection appearance;
+						// motion_test.go separately captures and checks transient frames.
+						tr.Advance(200 * time.Millisecond)
+						img := tr.Image()
+						if img == nil {
+							t.Fatalf("%s: nil image", page)
+						}
+
+						colors := map[uint32]int{}
+						b := img.Bounds()
+						for y := b.Min.Y; y < b.Max.Y; y += 7 {
+							for x := b.Min.X; x < b.Max.X; x += 7 {
+								r, g, bl, _ := img.At(x, y).RGBA()
+								colors[uint32(r>>8)<<16|uint32(g>>8)<<8|uint32(bl>>8)]++
+							}
+						}
+						if len(colors) < 5 {
+							t.Fatalf("%s: looks blank (%d colours)", page, len(colors))
+						}
+
+						f, err := os.Create(filepath.Join(outDir, "render-"+page+".png"))
+						if err != nil {
 							t.Fatal(err)
 						}
-					}
-					shot.setup()
-					width, height := size[0], size[1]
-					if width == 840 {
-						page += "-compact"
-					}
-					if collapsed {
-						page = "top-" + page
-					}
-					if appearance == AppearanceLight {
-						page = "light-" + page
-					}
-					tr := ui.NewTester(a.View, width, height)
-					tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 80})
-					tr.SetDark(appearance == AppearanceDark)
-					tr.Advance(400 * time.Millisecond)
-					tr.Frame()
-					if strings.HasPrefix(shot.name, "mesh") {
-						controls := []string{"邀请成员", "刷新组网", "允许组网访问本机", "断开组网"}
-						switch shot.name {
-						case "mesh-invite", "mesh-invite-long-network", "mesh-invite-offline", "mesh-invite-browser-error":
-							controls = []string{"复制控制台地址", "关闭", "打开邀请页面"}
-						case "mesh-setup":
-							controls = []string{"连接内置组网"}
-						case "mesh-allow-dialog":
-							controls = []string{"取消", "允许访问本机"}
-						case "mesh-ports-dialog":
-							controls = []string{"取消", "保存并关闭访问", "授权端口"}
-						case "mesh-blocked-device":
-							controls = []string{"解除本机封禁", "复制虚拟 IP", "完成"}
-						case "mesh-connect-dialog":
-							controls = []string{"稍后设置", "完成设置", "组网启动自动连接"}
-						case "mesh-detail":
-							controls = []string{"复制虚拟 IP", "在控制台管理", "完成"}
-						case "mesh-guide-first", "mesh-guide-ready", "mesh-guide-error", "mesh-guide-services":
-							controls = []string{"稍后设置", "完成设置", "组网启动自动连接"}
-						case "mesh-guide-connecting":
-							controls = []string{"正在连接…", "取消连接", "稍后设置", "完成设置", "组网启动自动连接"}
-						case "mesh-guide-timeout":
-							controls = []string{"连接并登录", "稍后设置", "完成设置", "组网启动自动连接"}
-						case "mesh-quick-ssh", "mesh-quick-rdp", "mesh-quick-vnc", "mesh-quick-unprepared", "mesh-quick-checked", "mesh-quick-error", "mesh-quick-handshake":
-							controls = []string{"关闭", "复制地址", "检测连接", "打开客户端"}
-						case "mesh-quick-checking":
-							controls = []string{"关闭", "取消检测", "打开客户端"}
-						case "mesh-prepare-dialog":
-							controls = []string{"取消", "安装并准备"}
-						case "mesh-login":
-							controls = append(controls, "继续登录 Tailscale")
+						if err := png.Encode(f, img); err != nil {
+							t.Fatal(err)
 						}
-						for _, label := range controls {
-							r, ok := tr.Find(label)
-							if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
-								t.Fatalf("%s: mesh control %q missing or clipped: %+v", page, label, r)
-							}
-						}
+						f.Close()
 					}
-					if strings.HasPrefix(shot.name, "software-update-restart") {
-						controls := []string{"正在重启…"}
-						if shot.name == "software-update-restart-error" {
-							controls = []string{"返回应用", "重试重启"}
-						}
-						for _, label := range controls {
-							r, ok := tr.Find(label)
-							if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
-								t.Fatalf("%s: control %q is missing or clipped: %+v", page, label, r)
-							}
-							if label == "重试重启" {
-								tr.Move(r.X+r.W/2, r.Y+r.H/2)
-							}
-						}
-					}
-					if strings.HasPrefix(shot.name, "application-") {
-						controls := []string{"添加应用…", "保存应用分流"}
-						switch {
-						case strings.HasPrefix(shot.name, "application-picker"):
-							controls = []string{"搜索应用名称或路径…", "重新扫描", "选择文件…", "取消"}
-						case strings.HasPrefix(shot.name, "application-editor"):
-							controls = []string{"应用连接方式", "包含应用 Helper", "取消"}
-							if shot.name == "application-editor-single" {
-								controls = append(controls, "添加到草稿")
-							} else {
-								controls = append(controls, "更新草稿", "应用代理组")
-							}
-						}
-						for _, label := range controls {
-							r, ok := tr.Find(label)
-							if !ok || r.X < 0 || r.Y < 38 || r.X+r.W > float32(width) || r.Y+r.H > float32(height) {
-								t.Fatalf("%s: control %q is missing or clipped: %+v (found=%v)", page, label, r, ok)
-							}
-						}
-						if shot.name == "application-picker" {
-							if r, ok := tr.Find("选择应用 Mail"); ok {
-								tr.Move(r.X+r.W/2, r.Y+r.H/2)
-							}
-						}
-					}
-					if shot.name == "overview" || shot.name == "overview-live" || shot.name == "overview-proxy-error" {
-						controls := []string{"系统代理开关", "TUN 模式", "概览DNS开关", "概览域名嗅探开关", "DNS 设置", "域名嗅探 设置"}
-						for _, label := range controls {
-							r, ok := tr.Find(label)
-							if !ok || r.Y < 38 || r.Y+r.H > float32(height-24) || r.X+r.W > float32(width-24) {
-								t.Fatalf("%s: control %q is outside the overview: %+v (found=%v)", page, label, r, ok)
-							}
-						}
-					}
-					switch shot.name {
-					case "subscription-edit":
-						tr.Scroll(float32(width/2), float32(height/2), 0, 1000)
-					case "settings-cleanup":
-						tr.Scroll(700, 420, 0, 1000)
-					case "overview-features":
-						tr.Scroll(700, 420, 0, 1000)
-					case "settings-dns-lists", "settings-sniffer-lists":
-						tr.Scroll(700, 420, 0, 2000)
-					case "settings-sniffer-ports":
-						tr.Scroll(700, 420, 0, 290)
-					case "settings-dns-servers":
-						tr.Scroll(700, 420, 0, 330)
-					}
-					if shot.name == "settings-dns" {
-						if r, ok := tr.Find("保存 DNS 设置"); ok {
-							tr.Move(r.X+r.W/2, r.Y+r.H/2)
-						}
-					}
-					if shot.name == "conns" {
-						if r, ok := tr.Find("查看连接 api.github.com"); ok {
-							tr.Move(r.X+r.W/2, r.Y+r.H/2)
-						}
-					}
-					if shot.name == "proxies-hover" {
-						if r, ok := tr.Find("选择 日本 02"); ok {
-							tr.Move(r.X+20, r.Y+r.H/2)
-						}
-					}
-					if shot.name == "overview-service-update" {
-						if r, ok := tr.Find("重新安装…"); ok {
-							tr.Move(r.X+r.W/2, r.Y+r.H/2)
-						}
-					}
-					if shot.name == "proxies-groups-scrolled" {
-						if r, ok := tr.Find("策略组列表"); ok {
-							tr.Scroll(r.X+r.W/2, r.Y+r.H/2, 0, 10000)
-							tr.Move(r.X+r.W-6, r.Y+r.H-24)
-						}
-					}
-					if strings.HasSuffix(shot.name, "-error") && shot.name != "raw-config-error" && shot.name != "backup-error" {
-						tr.Scroll(700, 420, 0, 1000)
-					}
-					// Stable fixtures show the settled hover/selection appearance;
-					// motion_test.go separately captures and checks transient frames.
-					tr.Advance(200 * time.Millisecond)
-					img := tr.Image()
-					if img == nil {
-						t.Fatalf("%s: nil image", page)
-					}
-
-					colors := map[uint32]int{}
-					b := img.Bounds()
-					for y := b.Min.Y; y < b.Max.Y; y += 7 {
-						for x := b.Min.X; x < b.Max.X; x += 7 {
-							r, g, bl, _ := img.At(x, y).RGBA()
-							colors[uint32(r>>8)<<16|uint32(g>>8)<<8|uint32(bl>>8)]++
-						}
-					}
-					if len(colors) < 5 {
-						t.Fatalf("%s: looks blank (%d colours)", page, len(colors))
-					}
-
-					f, err := os.Create(filepath.Join(outDir, "render-"+page+".png"))
-					if err != nil {
-						t.Fatal(err)
-					}
-					if err := png.Encode(f, img); err != nil {
-						t.Fatal(err)
-					}
-					f.Close()
 				}
 			}
 		}
 	}
+
 }
 
 func fixtureOverviewTraffic(a *App) {
@@ -914,4 +966,44 @@ func startFakeCore(t *testing.T, dir, secret string) {
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
+}
+
+func fixtureProfileEditor(a *App, tab int) {
+	items := a.store.List()
+	if len(items) == 0 {
+		return
+	}
+	a.openProfileOverrides(items[0])
+	a.extensionTab = tab + 1
+	a.initExtensionDrafts()
+	a.extraRulesDraft = "DOMAIN-SUFFIX,work.example.com,DIRECT\nDOMAIN,ads.example.com,REJECT"
+	a.mergeYAMLDraft = "# 只影响这个订阅\ntcp-concurrent: true\nprofile:\n  store-selected: true\n"
+	a.profileDNSDraft = dnsDraft{Source: 1, Enable: true, Mode: "fake-ip", Servers: "https://doh.pub/dns-query\n223.5.5.5", Bootstrap: "223.5.5.5\n1.1.1.1", Filter: "*.lan\n+.local"}
+}
+
+func fixtureDiagnostics(a *App, phase string) {
+	a.page, a.settingsTab, a.diagURL = "settings", 6, "https://www.gstatic.com/generate_204"
+	if phase == "idle" {
+		return
+	}
+	a.diagSteps = diagnostic.Steps()
+	for i := range a.diagSteps {
+		a.diagSteps[i].State, a.diagSteps[i].Duration = diagnostic.Passed, 45*time.Millisecond
+		a.diagSteps[i].Detail = "检测通过"
+	}
+	a.diagSteps[2].State, a.diagSteps[2].Detail = diagnostic.Info, "系统代理未开启；使用 TUN 时可忽略"
+	if phase == "running" {
+		a.diagRunning = true
+		a.diagSteps[4].State, a.diagSteps[4].Detail = diagnostic.Running, "正在查询内核 DNS"
+		for i := 5; i < len(a.diagSteps); i++ {
+			a.diagSteps[i].State, a.diagSteps[i].Detail = diagnostic.Pending, "等待前项检测完成"
+		}
+	} else if phase == "canceled" {
+		for i := 3; i < len(a.diagSteps); i++ {
+			a.diagSteps[i].State, a.diagSteps[i].Detail = diagnostic.Skipped, "已取消"
+		}
+	} else {
+		a.diagSteps[5].State, a.diagSteps[5].Detail, a.diagSteps[5].Duration = diagnostic.Failed, "请求超时，请检查网络或更换测试地址", 5*time.Second
+		a.diagSteps[6].Detail = "收到 HTTP 204 响应"
+	}
 }

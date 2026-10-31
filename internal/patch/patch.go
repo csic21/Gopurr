@@ -7,9 +7,11 @@ import (
 
 	"github.com/metacubex/mihomo/common/utils"
 	"gopurr/internal/configyaml"
-	"gopurr/internal/controllerconfig"
 
 	"go.yaml.in/yaml/v3"
+
+	"gopurr/internal/controllerconfig"
+	"gopurr/internal/localize"
 )
 
 // Overrides combines app-owned runtime settings with optional user additions.
@@ -41,6 +43,14 @@ type Overrides struct {
 	Sniffer *SnifferSettings `json:"sniffer,omitempty"`
 }
 
+// ProfileOverrides belongs to one subscription. Listener settings stay owned
+// by the application even when a subscription has its own YAML additions.
+type ProfileOverrides struct {
+	ExtraRules []string     `json:"extraRules,omitempty"`
+	MergeYAML  string       `json:"mergeYaml,omitempty"`
+	DNS        *DNSSettings `json:"dns,omitempty"`
+}
+
 // Default is what a fresh install runs with: mixed port 7890, rule mode, TUN
 // off until the user asks for it.
 func Default() Overrides {
@@ -60,7 +70,13 @@ func Default() Overrides {
 // YAML is merged first; application rules precede extra rules, which precede
 // the merged profile rules. App-owned network settings win last.
 func Apply(raw []byte, ov Overrides) ([]byte, error) {
-	doc, err := readConfigMap(raw, "订阅配置")
+	return ApplyLayers(raw, ov, ProfileOverrides{})
+}
+
+// ApplyLayers composes source, global additions, subscription additions, then
+// application network settings. Subscription rules precede global rules.
+func ApplyLayers(raw []byte, ov Overrides, local ProfileOverrides) ([]byte, error) {
+	doc, err := readConfigMap(raw, localize.Text("订阅配置"))
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +85,17 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := applyNetworkFeatures(doc, Overrides{DNS: ov.DNS, Sniffer: ov.Sniffer}); err != nil {
+		return nil, err
+	}
+	localRules, err := mergeUserYAML(doc, local.MergeYAML)
+	if err != nil {
+		return nil, fmt.Errorf(localize.Text("订阅覆写：%w"), err)
+	}
+	rulesReplaced = rulesReplaced || localRules
+	if err := applyNetworkFeatures(doc, Overrides{DNS: local.DNS}); err != nil {
+		return nil, fmt.Errorf(localize.Text("订阅 DNS：%w"), err)
+	}
 	if err := validateConfigStructure(doc); err != nil {
 		return nil, err
 	}
@@ -76,11 +103,11 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 		rules, _ := doc["rules"].([]any)
 		for i, rule := range rules {
 			if err := validateRule(doc, rule.(string)); err != nil {
-				return nil, fmt.Errorf("扩展 YAML 中第 %d 条 rules 规则无效: %w", i+1, err)
+				return nil, fmt.Errorf(localize.Text("扩展 YAML 中第 %d 条 rules 规则无效: %w"), i+1, err)
 			}
 		}
 	}
-	if err := prependExtraRules(doc, ov.ExtraRules); err != nil {
+	if err := prependExtraRules(doc, append(append([]string{}, local.ExtraRules...), ov.ExtraRules...)); err != nil {
 		return nil, err
 	}
 	if err := prependAppRules(doc, ov.AppRules); err != nil {
@@ -104,7 +131,7 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 				}
 				ports, err := utils.NewUnsignedRanges[uint16](fmt.Sprint(listener["port"]))
 				if err == nil && len(ports) > 0 && ports.Check(uint16(ov.MixedPort)) {
-					return nil, fmt.Errorf("自定义入站 %q 的端口 %d 与应用混合端口冲突，请修改入站端口", listener["name"], ov.MixedPort)
+					return nil, fmt.Errorf(localize.Text("自定义入站 %q 的端口 %d 与应用混合端口冲突，请修改入站端口"), listener["name"], ov.MixedPort)
 				}
 			}
 		}
@@ -135,8 +162,8 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 	if err := applyMeshRoutes(doc, ov); err != nil {
 		return nil, err
 	}
-	if err := applyNetworkFeatures(doc, ov); err != nil {
-		return nil, err
+	if dns, _ := doc["dns"].(map[string]any); ov.TunEnable && dns != nil && dns["enable"] == false {
+		return nil, fmt.Errorf("%s", localize.Text("TUN 模式需要内置 DNS，请先关闭 TUN，再关闭 DNS"))
 	}
 
 	// A TUN device needs a DNS the kernel answers locally.
@@ -159,7 +186,7 @@ func Apply(raw []byte, ov Overrides) ([]byte, error) {
 
 	out, err := configyaml.Marshal(raw, doc, []byte(ov.MergeYAML))
 	if err != nil {
-		return nil, fmt.Errorf("生成运行配置失败: %w", err)
+		return nil, fmt.Errorf(localize.Text("生成运行配置失败: %w"), err)
 	}
 	return out, nil
 }

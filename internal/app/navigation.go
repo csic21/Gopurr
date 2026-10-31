@@ -54,7 +54,7 @@ func (a *App) navigationTitleBar(c *ui.Context, collapsed bool, progress float32
 				p.Fill(r, pal.Side, 0)
 				p.Fill(ui.Rect{X: r.X + sidebar - 1, Y: r.Y, W: 1, H: r.H}, pal.Border, 0)
 			}
-		}).DragWindow().Label("窗口标题栏").Children(func() {
+		}).DragWindow().Label(tr("窗口标题栏")).Children(func() {
 		brand := ui.Row(c.Key("toolbar-brand")).Width(leading).Shrink(0).Padding(0, 0, 0, bar.Left+8).
 			AlignItems(ui.Center).Gap(6)
 		if moving {
@@ -62,14 +62,14 @@ func (a *App) navigationTitleBar(c *ui.Context, collapsed bool, progress float32
 		}
 		brand.Children(func() {
 			if collapsed {
-				ui.Image(c, brandLogo).Size(24, 24).Shrink(0).Label("Gopurr 蜷睡猫标记")
+				ui.Image(c, brandLogo).Size(24, 24).Shrink(0).Label(tr("Gopurr 蜷睡猫标记"))
 				ui.Text(c, "Gopurr").FontSize(13).FontWeight(600).SingleLine().TextColor(pal.Text)
 			}
 		})
 		ui.Row(c).PaddingX(4).AlignItems(ui.Center).Children(func() {
-			label := "收起侧栏"
+			label := tr("收起侧栏")
 			if collapsed {
-				label = "展开侧栏"
+				label = tr("展开侧栏")
 			}
 			iconButton(c, iconSidebar, label).OnClick(a.toggleSidebar)
 		})
@@ -87,11 +87,11 @@ func (a *App) navigationTitleBar(c *ui.Context, collapsed bool, progress float32
 				}
 				ui.Row(c.Key("breadcrumb")).Absolute().Left(0).Top(0).Bottom(0).AlignItems(ui.Center).Gap(8).
 					Opacity(1 - progress).Children(func() {
-					ui.Text(c, "工作区").FontSize(11.5).TextColor(pal.Faint)
+					ui.Text(c, tr("工作区")).FontSize(11.5).TextColor(pal.Faint)
 					ui.Icon(c, iconChevron).Size(12, 12).TextColor(pal.Faint).Role(ui.RoleNone)
 					for _, it := range navItems {
 						if it.id == a.page {
-							ui.Text(c, it.label).FontSize(11.5).FontWeight(600).TextColor(pal.Muted).Role(ui.RoleNone)
+							ui.Text(c, tr(it.label)).FontSize(11.5).FontWeight(600).TextColor(pal.Muted).Role(ui.RoleNone)
 						}
 					}
 				})
@@ -117,7 +117,7 @@ func (a *App) topNavigation(c *ui.Context) ui.Element {
 			selected = i
 		}
 	}
-	return softTopNavigation(c, &selected).Label("页面导航").OnChange(func() {
+	return softTopNavigation(c, &selected).Label(tr("页面导航")).OnChange(func() {
 		a.page = navItems[selected].id
 	})
 }
@@ -144,7 +144,7 @@ func (a *App) topNavigationBounds(c *ui.Context) (x, width float32) {
 func topNavigationWidths(c *ui.Context) []float32 {
 	widths := make([]float32, len(navItems))
 	for i, it := range navItems {
-		w, _ := c.MeasureText(0, ui.Span{Text: it.label, Size: controlFontSize})
+		w, _ := c.MeasureText(0, ui.Span{Text: tr(it.label), Size: controlFontSize})
 		widths[i] = w + 2*topNavigationPadding(c)
 	}
 	return widths
@@ -152,17 +152,30 @@ func topNavigationWidths(c *ui.Context) []float32 {
 
 func topNavigationPadding(c *ui.Context) float32 {
 	width, _ := c.Size()
+	padding := float32(12)
 	if width < 900 {
-		return 10
+		padding = 10
 	}
-	return 12
+	var labels float32
+	for _, it := range navItems {
+		w, _ := c.MeasureText(0, ui.Span{Text: tr(it.label), Size: controlFontSize})
+		labels += w
+	}
+	var status float32
+	for _, label := range []string{tr("内核运行中"), tr("内核已停止")} {
+		w, _ := c.MeasureText(0, ui.Span{Text: label, Size: 11})
+		status = max(status, w)
+	}
+	available := width - (navigationLeading(c) + 50) - (c.TitleBar().Right + 43 + status)
+	fit := (available - labels - float32(len(navItems)-1)*2) / float32(2*len(navItems))
+	return max(4, min(padding, fit))
 }
 
 func (a *App) navigationStatus() string {
 	if a.k.Running() {
-		return "内核运行中"
+		return tr("内核运行中")
 	}
-	return "内核已停止"
+	return tr("内核已停止")
 }
 
 // Paint the same destinations between their two native layouts. A single
@@ -197,7 +210,7 @@ func (a *App) navigationFlight(c *ui.Context, progress float32) {
 			ui.Box(c).Width(16 * (1 - progress)).Height(16).Shrink(0).Children(func() {
 				ui.Icon(c, it.icon).Size(16, 16).TextColor(icon).Opacity(max(0, 1-3*progress)).Role(ui.RoleNone)
 			})
-			ui.Text(c, it.label).FontSize(lerp(13, controlFontSize)).FontWeight(weight).
+			ui.Text(c, tr(it.label)).FontSize(lerp(13, controlFontSize)).FontWeight(weight).
 				TextColor(fg).SingleLine().Role(ui.RoleNone)
 		})
 		x += widths[i] + 2

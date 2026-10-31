@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"gopurr/internal/localize"
 )
 
 const helperFlag = "--sysproxy-helper"
@@ -212,12 +214,12 @@ func (c *helperController) request(request helperRequest) error {
 	_ = c.conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if err := json.NewEncoder(c.conn).Encode(request); err != nil {
 		c.disconnect()
-		return fmt.Errorf("系统代理助手连接中断: %w", err)
+		return fmt.Errorf(localize.Text("系统代理助手连接中断: %w"), err)
 	}
 	if !c.input.Scan() {
 		err := errors.Join(io.EOF, c.input.Err())
 		c.disconnect()
-		return fmt.Errorf("系统代理助手未响应: %w", err)
+		return fmt.Errorf(localize.Text("系统代理助手未响应: %w"), err)
 	}
 	var response helperResponse
 	if err := json.Unmarshal(c.input.Bytes(), &response); err != nil {
@@ -268,14 +270,14 @@ func startProxyHelper() (net.Conn, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if strings.Contains(strings.ToLower(string(output)), "cancel") || strings.Contains(string(output), "-128") {
-			return nil, errors.New("已取消授权")
+			return nil, errors.New(localize.Text("已取消授权"))
 		}
-		return nil, fmt.Errorf("启动系统代理助手失败: %s: %w", strings.TrimSpace(string(output)), err)
+		return nil, fmt.Errorf(localize.Text("启动系统代理助手失败: %s: %w"), strings.TrimSpace(string(output)), err)
 	}
 	_ = listener.SetDeadline(time.Now().Add(5 * time.Second))
 	conn, err := listener.AcceptUnix()
 	if err != nil {
-		return nil, fmt.Errorf("系统代理助手未连接: %w", err)
+		return nil, fmt.Errorf(localize.Text("系统代理助手未连接: %w"), err)
 	}
 	if err := checkHelperPeer(conn, 0, 0); err != nil {
 		conn.Close()
@@ -297,13 +299,13 @@ func checkHelperPeer(conn *net.UnixConn, wantUID, wantPID int) error {
 			return
 		}
 		if wantUID >= 0 && credential.Uid != uint32(wantUID) {
-			peerErr = errors.New("系统代理助手身份验证失败")
+			peerErr = errors.New(localize.Text("系统代理助手身份验证失败"))
 			return
 		}
 		if wantPID > 0 {
 			pid, err := unix.GetsockoptInt(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERPID)
 			if err != nil || pid != wantPID {
-				peerErr = errors.New("系统代理助手的应用进程不匹配")
+				peerErr = errors.New(localize.Text("系统代理助手的应用进程不匹配"))
 			}
 		}
 	}); err != nil {
@@ -327,7 +329,7 @@ func HandleCommand(args []string) (bool, error) {
 		return true, err
 	}
 	if os.Geteuid() != 0 || *parent <= 1 || !filepath.IsAbs(*path) || fs.NArg() != 0 {
-		return true, errors.New("系统代理助手需要管理员权限和有效的应用连接")
+		return true, errors.New(localize.Text("系统代理助手需要管理员权限和有效的应用连接"))
 	}
 	conn, err := net.DialTimeout("unix", *path, 5*time.Second)
 	if err != nil {
@@ -359,7 +361,7 @@ func privilegedCommand(name string, args ...string) (string, error) {
 	case "route":
 		return run("/sbin/route", args...)
 	default:
-		return "", errors.New("不支持的系统代理命令")
+		return "", errors.New(localize.Text("不支持的系统代理命令"))
 	}
 }
 
@@ -379,7 +381,7 @@ func serveProxyHelper(conn net.Conn, command commandRunner) (result error) {
 			case "restore":
 				err = leases.restore()
 			default:
-				err = errors.New("不支持的系统代理操作")
+				err = errors.New(localize.Text("不支持的系统代理操作"))
 			}
 		}
 		response := helperResponse{}

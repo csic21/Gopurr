@@ -1,5 +1,7 @@
 package patch
 
+import "gopurr/internal/localize"
+
 import (
 	"fmt"
 	"net"
@@ -46,13 +48,13 @@ func applyMeshRoutes(doc map[string]any, ov Overrides) error {
 	proxies, _ := doc["proxies"].([]any)
 	for _, item := range proxies {
 		if p, ok := item.(map[string]any); ok && p["name"] == meshDirect {
-			return fmt.Errorf("订阅使用了组网保留的出口名称 %s，请重命名", meshDirect)
+			return fmt.Errorf(localize.Text("订阅使用了组网保留的出口名称 %s，请重命名"), meshDirect)
 		}
 	}
 	host, portText, err := net.SplitHostPort(ov.MeshProxyAddress)
 	port, portErr := strconv.Atoi(portText)
 	if err != nil || portErr != nil || host != "127.0.0.1" || port < 1 || port > 65535 || len(ov.MeshProxyPassword) < 32 {
-		return fmt.Errorf("内置组网桥接地址或凭据无效")
+		return fmt.Errorf("%s", localize.Text("内置组网桥接地址或凭据无效"))
 	}
 	direct := map[string]any{"name": meshDirect, "type": "ss", "server": host, "port": port,
 		"cipher": "chacha20-ietf-poly1305", "password": ov.MeshProxyPassword, "udp": true}

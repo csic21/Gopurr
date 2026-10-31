@@ -11,6 +11,8 @@ import (
 	"github.com/metacubex/mihomo/component/trie"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/dns"
+
+	"gopurr/internal/localize"
 )
 
 type DNSSettings struct {
@@ -53,7 +55,7 @@ func DefaultSnifferSettings() SnifferSettings {
 func FeatureSettings(raw []byte) (DNSSettings, SnifferSettings, error) {
 	cfg, err := config.UnmarshalRawConfig(raw)
 	if err != nil {
-		return DefaultDNSSettings(), DefaultSnifferSettings(), fmt.Errorf("读取 DNS 与嗅探配置失败：%w", err)
+		return DefaultDNSSettings(), DefaultSnifferSettings(), fmt.Errorf(localize.Text("读取 DNS 与嗅探配置失败：%w"), err)
 	}
 	d, s := cfg.DNS, cfg.Sniffer
 	dnsSettings := DNSSettings{Enable: d.Enable, EnhancedMode: d.EnhancedMode.String(), IPv6: d.IPv6,
@@ -97,7 +99,7 @@ func applyNetworkFeatures(doc map[string]any, ov Overrides) error {
 			return err
 		}
 		if ov.TunEnable && !d.Enable {
-			return fmt.Errorf("TUN 模式需要内置 DNS，请先关闭 TUN，再关闭 DNS")
+			return fmt.Errorf("%s", localize.Text("TUN 模式需要内置 DNS，请先关闭 TUN，再关闭 DNS"))
 		}
 		current := configSection(doc, "dns")
 		current["enable"], current["enhanced-mode"], current["ipv6"] = d.Enable, d.EnhancedMode, d.IPv6
@@ -157,22 +159,23 @@ func sniffAddressRanges(values []string) []string {
 
 func (d DNSSettings) Validate() error {
 	if d.EnhancedMode != "fake-ip" && d.EnhancedMode != "redir-host" {
-		return fmt.Errorf("DNS 模式须为 fake-ip 或 redir-host")
+		return fmt.Errorf("%s", localize.Text("DNS 模式须为 fake-ip 或 redir-host"))
 	}
 	if d.Enable && len(d.Nameserver) == 0 {
-		return fmt.Errorf("请至少填写一个 DNS 解析服务器")
+		return fmt.Errorf("%s", localize.Text("请至少填写一个 DNS 解析服务器"))
 	}
 	if d.Enable && len(d.DefaultNameserver) == 0 {
-		return fmt.Errorf("请至少填写一个引导 DNS")
+		return fmt.Errorf("%s", localize.Text("请至少填写一个引导 DNS"))
 	}
 	for _, field := range []struct {
-		name   string
-		values []string
+		name      string
+		values    []string
+		bootstrap bool
 	}{
-		{"解析服务器", d.Nameserver}, {"引导 DNS", d.DefaultNameserver}, {"备用 DNS", d.Fallback},
+		{localize.Text("解析服务器"), d.Nameserver, false}, {localize.Text("引导 DNS"), d.DefaultNameserver, true}, {localize.Text("备用 DNS"), d.Fallback, false},
 	} {
 		for _, value := range field.values {
-			if err := validateDNSServer(value, field.name == "引导 DNS"); err != nil {
+			if err := validateDNSServer(value, field.bootstrap); err != nil {
 				return fmt.Errorf("%s：%w", field.name, err)
 			}
 		}
@@ -182,13 +185,13 @@ func (d DNSSettings) Validate() error {
 
 func validateDNSServer(value string, bootstrap bool) error {
 	if strings.TrimSpace(value) != value || strings.ContainsAny(value, " \t\r\n") || value == "" {
-		return fmt.Errorf("无效的服务器地址 %q", value)
+		return fmt.Errorf(localize.Text("无效的服务器地址 %q"), value)
 	}
 	// Use the kernel's parser to accept the same schemes and # parameters.
 	// Parsing constructs descriptors only; it does not send DNS requests.
 	servers, err := dns.ParseNameServer([]string{value})
 	if err != nil || len(servers) != 1 {
-		return fmt.Errorf("无效的 DNS 地址 %q：%v", value, err)
+		return fmt.Errorf(localize.Text("无效的 DNS 地址 %q：%v"), value, err)
 	}
 	server := servers[0]
 	_, port, splitErr := net.SplitHostPort(server.Addr)
@@ -200,7 +203,7 @@ func validateDNSServer(value string, bootstrap bool) error {
 	if port != "" {
 		n, err := strconv.Atoi(port)
 		if err != nil || n < 1 || n > 65535 {
-			return fmt.Errorf("DNS 端口须为 1–65535：%s", value)
+			return fmt.Errorf(localize.Text("DNS 端口须为 1–65535：%s"), value)
 		}
 	}
 	if bootstrap && server.Net != "system" {
@@ -211,7 +214,7 @@ func validateDNSServer(value string, bootstrap bool) error {
 			}
 		}
 		if _, err := netip.ParseAddr(host); err != nil {
-			return fmt.Errorf("引导 DNS 的服务器必须使用 IP 地址或 system：%s", value)
+			return fmt.Errorf(localize.Text("引导 DNS 的服务器必须使用 IP 地址或 system：%s"), value)
 		}
 	}
 	return nil
@@ -228,18 +231,18 @@ func ParseSniffPorts(raw string) ([]string, error) {
 		part = strings.TrimSpace(part)
 		bounds := strings.Split(part, "-")
 		if len(bounds) > 2 {
-			return nil, fmt.Errorf("端口须为 1–65535 的整数或范围，例如 443、8080-8880")
+			return nil, fmt.Errorf("%s", localize.Text("端口须为 1–65535 的整数或范围，例如 443、8080-8880"))
 		}
 		first, last := 0, 0
 		for i, bound := range bounds {
 			for _, c := range bound {
 				if c < '0' || c > '9' {
-					return nil, fmt.Errorf("端口格式无效：%s", part)
+					return nil, fmt.Errorf(localize.Text("端口格式无效：%s"), part)
 				}
 			}
 			port, err := strconv.Atoi(bound)
 			if err != nil || port < 1 || port > 65535 {
-				return nil, fmt.Errorf("端口范围应为 1–65535：%s", part)
+				return nil, fmt.Errorf(localize.Text("端口范围应为 1–65535：%s"), part)
 			}
 			if i == 0 {
 				first = port
@@ -247,7 +250,7 @@ func ParseSniffPorts(raw string) ([]string, error) {
 			last = port
 		}
 		if first > last {
-			return nil, fmt.Errorf("端口范围起点不能大于终点：%s", part)
+			return nil, fmt.Errorf(localize.Text("端口范围起点不能大于终点：%s"), part)
 		}
 		result = append(result, part)
 	}
@@ -256,7 +259,7 @@ func ParseSniffPorts(raw string) ([]string, error) {
 
 func (s SnifferSettings) Validate() error {
 	if s.Enable && len(s.HTTPPorts)+len(s.TLSPorts)+len(s.QUICPorts) == 0 {
-		return fmt.Errorf("请至少为一种嗅探协议填写端口")
+		return fmt.Errorf("%s", localize.Text("请至少为一种嗅探协议填写端口"))
 	}
 	for _, field := range []struct {
 		name  string
@@ -269,18 +272,18 @@ func (s SnifferSettings) Validate() error {
 	for _, field := range []struct {
 		name   string
 		values []string
-	}{{"跳过来源地址", s.SkipSrcAddress}, {"跳过目标地址", s.SkipDstAddress}} {
+	}{{localize.Text("跳过来源地址"), s.SkipSrcAddress}, {localize.Text("跳过目标地址"), s.SkipDstAddress}} {
 		for _, value := range field.values {
 			if strings.HasPrefix(strings.ToLower(value), "geoip:") || strings.HasPrefix(strings.ToLower(value), "rule-set:") {
 				_, reference, _ := strings.Cut(value, ":")
 				if strings.TrimSpace(reference) == "" {
-					return fmt.Errorf("%s的规则引用不能为空", field.name)
+					return fmt.Errorf(localize.Text("%s的规则引用不能为空"), field.name)
 				}
 				continue
 			}
 			if _, err := netip.ParsePrefix(value); err != nil {
 				if addr, err := netip.ParseAddr(value); err != nil || addr.Zone() != "" {
-					return fmt.Errorf("%s须为 IP 或 CIDR 网段：%s", field.name, value)
+					return fmt.Errorf(localize.Text("%s须为 IP 或 CIDR 网段：%s"), field.name, value)
 				}
 			}
 		}
@@ -288,13 +291,13 @@ func (s SnifferSettings) Validate() error {
 	for _, field := range []struct {
 		name   string
 		values []string
-	}{{"跳过域名嗅探", s.SkipDomain}, {"强制域名嗅探", s.ForceDomain}} {
+	}{{localize.Text("跳过域名嗅探"), s.SkipDomain}, {localize.Text("强制域名嗅探"), s.ForceDomain}} {
 		builder := &trie.DomainSetBuilder{}
 		for _, value := range field.values {
 			if strings.HasPrefix(strings.ToLower(value), "geosite:") || strings.HasPrefix(strings.ToLower(value), "rule-set:") {
 				_, reference, _ := strings.Cut(value, ":")
 				if strings.TrimSpace(reference) == "" {
-					return fmt.Errorf("%s的规则引用不能为空", field.name)
+					return fmt.Errorf(localize.Text("%s的规则引用不能为空"), field.name)
 				}
 				continue
 			}

@@ -12,13 +12,14 @@ import (
 	"syscall"
 	"time"
 
-	"gopurr/internal/process"
-	"gopurr/internal/securefs"
-
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
+
+	"gopurr/internal/localize"
+	"gopurr/internal/process"
+	"gopurr/internal/securefs"
 )
 
 func Available() bool { return true }
@@ -41,7 +42,7 @@ func Installed() bool {
 
 func Install(binary, dataDir string) error {
 	if !filepath.IsAbs(binary) || !filepath.IsAbs(dataDir) {
-		return errors.New("安装服务需要绝对路径")
+		return errors.New(localize.Text("安装服务需要绝对路径"))
 	}
 	if _, err := os.Stat(binary); err != nil {
 		return err
@@ -51,7 +52,7 @@ func Install(binary, dataDir string) error {
 
 func Uninstall(dataDir string) error {
 	if !filepath.IsAbs(dataDir) {
-		return errors.New("数据目录必须是绝对路径")
+		return errors.New(localize.Text("数据目录必须是绝对路径"))
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -85,7 +86,7 @@ func elevate(binary, action, dataDir string) error {
 	}
 	if err := windows.ShellExecute(0, verb, file, params, nil, windows.SW_HIDE); err != nil {
 		if errors.Is(err, windows.ERROR_CANCELLED) {
-			return errors.New("已取消管理员授权")
+			return errors.New(localize.Text("已取消管理员授权"))
 		}
 		return err
 	}
@@ -101,7 +102,7 @@ func elevate(binary, action, dataDir string) error {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return errors.New("等待管理员操作超时，请重试")
+	return errors.New(localize.Text("等待管理员操作超时，请重试"))
 }
 
 // HandleCommand runs before any UI initialization, both for the UAC child and
@@ -113,10 +114,10 @@ func HandleCommand(args []string, run func([]string) error) (bool, error) {
 	switch args[0] {
 	case "--service-admin":
 		if len(args) != 4 {
-			return true, errors.New("服务管理参数不完整")
+			return true, errors.New(localize.Text("服务管理参数不完整"))
 		}
 		if !windows.GetCurrentProcessToken().IsElevated() {
-			return true, errors.New("服务管理需要管理员权限")
+			return true, errors.New(localize.Text("服务管理需要管理员权限"))
 		}
 		var err error
 		switch args[1] {
@@ -125,7 +126,7 @@ func HandleCommand(args []string, run func([]string) error) (bool, error) {
 		case "uninstall":
 			err = uninstallWindowsService()
 		default:
-			err = errors.New("未知服务操作")
+			err = errors.New(localize.Text("未知服务操作"))
 		}
 		result := adminResult{}
 		if err != nil {
@@ -138,11 +139,11 @@ func HandleCommand(args []string, run func([]string) error) (bool, error) {
 		return true, err
 	case "--windows-service":
 		if len(args) != 2 || !filepath.IsAbs(args[1]) {
-			return true, errors.New("服务数据目录无效")
+			return true, errors.New(localize.Text("服务数据目录无效"))
 		}
 		isService, err := svc.IsWindowsService()
 		if err != nil || !isService {
-			return true, errors.New("此入口只能由 Windows 服务管理器运行")
+			return true, errors.New(localize.Text("此入口只能由 Windows 服务管理器运行"))
 		}
 		return true, svc.Run(Label, &windowsHandler{dir: args[1], run: run})
 	}
@@ -181,15 +182,15 @@ func stopWindowsService(s *mgr.Service) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return errors.New("停止 TUN 服务超时")
+	return errors.New(localize.Text("停止 TUN 服务超时"))
 }
 
 func installWindowsService(dataDir string) error {
 	if !filepath.IsAbs(dataDir) {
-		return errors.New("服务数据目录必须是绝对路径")
+		return errors.New(localize.Text("服务数据目录必须是绝对路径"))
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "runtime.yaml")); err != nil {
-		return fmt.Errorf("请先运行应用生成配置: %w", err)
+		return fmt.Errorf(localize.Text("请先运行应用生成配置: %w"), err)
 	}
 	manager, err := mgr.Connect()
 	if err != nil {

@@ -73,7 +73,7 @@ func (a *App) overviewPage(c *ui.Context) {
 	if hasGroup {
 		a.proxyGroup = group.Name
 	}
-	a.pageHeader(c, "概览", "连接状态与实时网络活动", func() {
+	a.pageHeader(c, tr("概览"), tr("连接状态与实时网络活动"), func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 			a.modeControl(c)
 			if !running {
@@ -96,37 +96,37 @@ func (a *App) overviewPage(c *ui.Context) {
 					a.overviewRoute(c, all, group, hasGroup, running)
 				})
 				ui.Column(c).Grow(1).MinWidth(0).Padding(16).Gap(8).Children(func() {
-					peak := "等待采样"
+					peak := tr("等待采样")
 					if len(hist) > 0 {
-						peak = "峰值 " + fmtRate(trafficPeak(hist))
+						peak = tr("峰值 ") + fmtRate(trafficPeak(hist))
 					}
-					sectionHeading(c, "实时流量", peak)
+					sectionHeading(c, tr("实时流量"), peak)
 					ui.Row(c).FillWidth().Gap(20).Children(func() {
-						overviewRate(c, iconDown, "下行", fmtRate(snap.DownNow), pal.Down)
-						overviewRate(c, iconUp, "上行", fmtRate(snap.UpNow), pal.Up)
+						overviewRate(c, iconDown, tr("下行"), fmtRate(snap.DownNow), pal.Down)
+						overviewRate(c, iconUp, tr("上行"), fmtRate(snap.UpNow), pal.Up)
 					})
 					a.chart(c, hist)
 					ui.Row(c).FillWidth().Children(func() {
-						start := "实时更新"
+						start := tr("实时更新")
 						if len(hist) > 1 {
-							start = fmt.Sprintf("%d 秒前", len(hist)-1)
+							start = fmt.Sprintf(tr("%d 秒前"), len(hist)-1)
 						}
 						ui.Text(c, start).FontSize(11).TextColor(pal.Faint)
 						ui.Spacer(c)
-						ui.Text(c, "现在").FontSize(11).TextColor(pal.Faint)
+						ui.Text(c, tr("现在")).FontSize(11).TextColor(pal.Faint)
 					})
 				})
 			})
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
-				sectionHeading(c, "网络控制", labelFor(a.modeToken)+"模式")
+				sectionHeading(c, tr("网络控制"), labelFor(a.modeToken)+tr("模式"))
 				settingsGroup(c, "", func() { a.overviewNetworkControls(c) })
 			})
 			ui.Row(c).FillWidth().Gap(16).Children(func() {
 				for _, item := range []string{
-					fmt.Sprintf("活跃连接 %d", snap.Conns),
-					fmt.Sprintf("生效规则 %d", len(a.k.Rules())),
-					"累计下行 " + fmtBytes(snap.DownTotal),
-					"累计上行 " + fmtBytes(snap.UpTotal),
+					fmt.Sprintf(tr("活跃连接 %d"), snap.Conns),
+					fmt.Sprintf(tr("生效规则 %d"), len(a.k.Rules())),
+					tr("累计下行 ") + fmtBytes(snap.DownTotal),
+					tr("累计上行 ") + fmtBytes(snap.UpTotal),
 				} {
 					ui.Text(c, item).FontSize(11).FontFeatures("tnum").TextColor(pal.Faint)
 				}
@@ -134,12 +134,12 @@ func (a *App) overviewPage(c *ui.Context) {
 		})
 	})
 	if a.confirmInstall {
-		if softAlertDialog(c, &a.confirmInstall, "安装 TUN 服务", service.InstallDescription(), "取消", "安装") == 1 {
+		if softAlertDialog(c, &a.confirmInstall, tr("安装 TUN 服务"), service.InstallDescription(), tr("取消"), tr("安装")) == 1 {
 			a.installService()
 		}
 	}
 	if a.confirmUninstall {
-		if softAlertDialog(c, &a.confirmUninstall, "卸载 TUN 服务", service.UninstallDescription(), "取消", "卸载") == 1 {
+		if softAlertDialog(c, &a.confirmUninstall, tr("卸载 TUN 服务"), service.UninstallDescription(), tr("取消"), tr("卸载")) == 1 {
 			a.uninstallService()
 		}
 	}
@@ -148,24 +148,24 @@ func (a *App) overviewPage(c *ui.Context) {
 
 func (a *App) overviewRoute(c *ui.Context, groups []core.Group, group core.Group, hasGroup, running bool) {
 	pal := paletteFor(c)
-	status, color := "系统代理未开启", pal.Muted
+	status, color := tr("系统代理未开启"), pal.Muted
 	switch {
 	case !running:
-		status, color = "内核尚未就绪", pal.Warn
+		status, color = tr("内核尚未就绪"), pal.Warn
 	case a.sysErrText() != "":
-		status, color = "系统代理需要处理", pal.Danger
+		status, color = tr("系统代理需要处理"), pal.Danger
 	case a.tunOn && a.sysApplied:
-		status, color = "系统代理与 TUN 已开启", pal.Success
+		status, color = tr("系统代理与 TUN 已开启"), pal.Success
 	case a.tunOn:
-		status, color = "TUN 已开启", pal.Success
+		status, color = tr("TUN 已开启"), pal.Success
 	case a.sysApplied:
-		status, color = "系统代理已开启", pal.Success
+		status, color = tr("系统代理已开启"), pal.Success
 	}
 	ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(6, 6).Radius(3).Background(color).Transition(colorMotion())
 		ui.Text(c, status).FontSize(12).TextColor(color).ContentTransition(contentMotion())
 	})
-	name, caption, detail := "未配置代理", "添加订阅后选择代理节点", "暂无延迟记录"
+	name, caption, detail := tr("未配置代理"), tr("添加订阅后选择代理节点"), tr("暂无延迟记录")
 	exitGroup, exit, resolved := resolveGroupExit(groups, group)
 	if hasGroup {
 		name, caption = group.Now, group.Name+" · "+groupTypeLabel(group.Type)
@@ -175,22 +175,22 @@ func (a *App) overviewRoute(c *ui.Context, groups []core.Group, group core.Group
 		if resolved {
 			name = exit
 			if d, known := a.memberDelay(exitGroup, exit); known {
-				detail = latencyText(d) + " · 最近测试"
+				detail = latencyText(d) + tr(" · 最近测试")
 			}
 			if isBuiltin(exit) {
-				detail = "当前策略出口"
+				detail = tr("当前策略出口")
 			}
 		}
 	}
 	if a.modeToken == "direct" {
-		name, caption, detail = "直连", "所有流量直接访问网络", "不经过代理节点"
+		name, caption, detail = tr("直连"), tr("所有流量直接访问网络"), tr("不经过代理节点")
 	}
 	if !running {
-		name, caption, detail = "等待内核就绪", "就绪后显示当前策略出口", "节点状态暂不可用"
+		name, caption, detail = tr("等待内核就绪"), tr("就绪后显示当前策略出口"), tr("节点状态暂不可用")
 	}
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		ui.Text(c, name).FillWidth().SingleLine().Ellipsis("…").Tooltip(name).
-			FontSize(27).FontWeight(600).TextColor(pal.Text).Label("当前出口 " + name).ContentTransition(contentMotion())
+			FontSize(27).FontWeight(600).TextColor(pal.Text).Label(tr("当前出口 ") + name).ContentTransition(contentMotion())
 		ui.Text(c, caption).FillWidth().SingleLine().Ellipsis("…").Tooltip(caption).
 			FontSize(11).TextColor(pal.Muted).ContentTransition(contentMotion())
 	})
@@ -198,17 +198,17 @@ func (a *App) overviewRoute(c *ui.Context, groups []core.Group, group core.Group
 	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, detail).Grow(1).MinWidth(0).MaxLines(2).FontSize(11).FontFeatures("tnum").TextColor(pal.Muted).ContentTransition(contentMotion())
 		if hasGroup && running {
-			label := "切换节点"
+			label := tr("切换节点")
 			if !manualGroup(group) {
-				label = "查看节点"
+				label = tr("查看节点")
 			}
 			softPrimaryButton(c, label).OnClick(func() {
 				a.overviewQuery, a.showOverviewNodes = "", true
 			})
 		} else if a.modeToken == "direct" || !running {
-			softButton(c, "查看代理").OnClick(func() { a.page = "proxies" })
+			softButton(c, tr("查看代理")).OnClick(func() { a.page = "proxies" })
 		} else {
-			softPrimaryButton(c, "添加订阅").OnClick(func() { a.page, a.showAddSub = "subs", true })
+			softPrimaryButton(c, tr("添加订阅")).OnClick(func() { a.page, a.showAddSub = "subs", true })
 		}
 	})
 }
@@ -241,8 +241,8 @@ func (a *App) overviewNetworkControls(c *ui.Context) {
 	if a.sysErrText() != "" {
 		proxyColor = pal.Danger
 	}
-	overviewControlRow(c, "系统代理", a.sysProxyHint(), proxyColor, func() {
-		softSwitch(c, &a.sysOn).Label("系统代理开关")
+	overviewControlRow(c, tr("系统代理"), a.sysProxyHint(), proxyColor, func() {
+		softSwitch(c, &a.sysOn).Label(tr("系统代理开关"))
 	})
 	hairline(c)
 	installed, busy, svcErr := a.svcState()
@@ -256,19 +256,19 @@ func (a *App) overviewNetworkControls(c *ui.Context) {
 	if svcErr != "" || a.tunErrText() != "" {
 		tunColor = pal.Danger
 	}
-	overviewControlRow(c, "TUN 模式", a.tunHint(), tunColor, func() {
+	overviewControlRow(c, tr("TUN 模式"), a.tunHint(), tunColor, func() {
 		switch {
 		case busy:
-			ui.Text(c, "等待授权…").FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, tr("等待授权…")).FontSize(11).TextColor(pal.Muted)
 		case !service.Available():
 		case !installed:
-			softButton(c, "安装服务…").OnClick(func() { a.confirmInstall = true })
+			softButton(c, tr("安装服务…")).OnClick(func() { a.confirmInstall = true })
 		case !root || a.mgr.ServiceNeedsUpdate():
-			softButton(c, "重新安装…").OnClick(func() { a.confirmInstall = true })
+			softButton(c, tr("重新安装…")).OnClick(func() { a.confirmInstall = true })
 		default:
-			softButton(c, "卸载服务").OnClick(func() { a.confirmUninstall = true })
+			softButton(c, tr("卸载服务")).OnClick(func() { a.confirmUninstall = true })
 		}
-		softSwitch(c, &a.tunOn).Disabled(!root || busy).Label("TUN 模式")
+		softSwitch(c, &a.tunOn).Disabled(!root || busy).Label(tr("TUN 模式"))
 		if a.tunOn != a.ov.TunEnable {
 			a.applyTun(a.tunOn)
 		}
@@ -293,20 +293,20 @@ func (a *App) overviewNodePicker(c *ui.Context, compact bool) {
 		}
 		ui.Column(c).Width(560).Padding(20).Gap(12).Children(func() {
 			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
-				label := "切换节点"
+				label := tr("切换节点")
 				if !manualGroup(group) {
-					label = "查看节点"
+					label = tr("查看节点")
 				}
 				ui.Text(c, label).Grow(1).FontSize(16).FontWeight(600).TextColor(pal.Text)
 				names := make([]string, len(groups))
 				for i, g := range groups {
 					names[i] = g.Name
 				}
-				ui.Select(c, &a.proxyGroup, names).Width(230).Label("概览策略组")
+				ui.Select(c, &a.proxyGroup, names).Width(230).Label(tr("概览策略组"))
 			})
-			searchRow(c, &a.overviewQuery, "搜索要切换的节点…")
+			searchRow(c, &a.overviewQuery, tr("搜索要切换的节点…"))
 			if !manualGroup(group) {
-				ui.Text(c, "此组由内核自动调度，勾选表示当前出口。").FontSize(11).TextColor(pal.Muted)
+				ui.Text(c, tr("此组由内核自动调度，勾选表示当前出口。")).FontSize(11).TextColor(pal.Muted)
 			}
 			if a.notice != "" {
 				settingsFeedback(c, a.notice, true)
@@ -317,7 +317,7 @@ func (a *App) overviewNodePicker(c *ui.Context, compact bool) {
 				a.overviewIdentity, a.overviewList = identity, ui.ListState{KeepOffset: true}
 			}
 			if len(members) == 0 {
-				emptyState(c, "没有匹配的节点", "试试更短的名称或切换策略组。")
+				emptyState(c, tr("没有匹配的节点"), tr("试试更短的名称或切换策略组。"))
 			} else {
 				ui.List(c, &a.overviewList, len(members)).FillWidth().Height(listHeight).Radius(10).Background(pal.Surface).
 					ItemKey(func(i int) any { return members[i] }).Rows(func(row ui.ListRow) {
@@ -325,9 +325,9 @@ func (a *App) overviewNodePicker(c *ui.Context, compact bool) {
 				})
 			}
 			ui.Row(c).FillWidth().Gap(8).Children(func() {
-				softButton(c, "管理代理…").OnClick(func() { a.showOverviewNodes, a.page = false, "proxies" })
+				softButton(c, tr("管理代理…")).OnClick(func() { a.showOverviewNodes, a.page = false, "proxies" })
 				ui.Spacer(c)
-				softButton(c, "关闭").OnClick(func() { a.showOverviewNodes = false })
+				softButton(c, tr("关闭")).OnClick(func() { a.showOverviewNodes = false })
 			})
 		})
 	})

@@ -40,17 +40,22 @@ type DaemonOptions struct {
 
 // DaemonStatus is what the app needs to know about a running daemon.
 type DaemonStatus struct {
-	SecurityVersion int    `json:"securityVersion"`
-	Version         string `json:"version,omitempty"`
-	PID             int    `json:"pid"`
-	UID             int    `json:"uid"`
-	Socket          string `json:"socket"`
-	Home            string `json:"home"`
+	SecurityVersion   int    `json:"securityVersion"`
+	ControllerVersion int    `json:"controllerVersion"`
+	Version           string `json:"version,omitempty"`
+	PID               int    `json:"pid"`
+	UID               int    `json:"uid"`
+	Socket            string `json:"socket"`
+	Home              string `json:"home"`
 }
 
 // Increment when an installed privileged daemon must be reinstalled even if
 // the application version has not changed (for example a development build).
 const SecurityVersion = 1
+
+// ControllerVersion changes when the UI needs endpoints absent from an older
+// installed service. Such a service stays running until explicitly updated.
+const ControllerVersion = 1
 
 // RunDaemon is the privileged side of the app. It is the same kernel code as
 // before, just owned by a process that can legally create TUN devices.
@@ -142,7 +147,7 @@ func RunDaemon(opts DaemonOptions) error {
 	defer controller.Close()
 
 	if opts.StatusPath != "" {
-		status := DaemonStatus{SecurityVersion: SecurityVersion, Version: buildinfo.Version, PID: os.Getpid(), UID: process.UID(), Socket: opts.Socket, Home: opts.Home}
+		status := DaemonStatus{SecurityVersion: SecurityVersion, ControllerVersion: ControllerVersion, Version: buildinfo.Version, PID: os.Getpid(), UID: process.UID(), Socket: opts.Socket, Home: opts.Home}
 		if b, err := json.Marshal(status); err == nil {
 			if err := securefs.WriteFile(opts.StatusPath, b, 0o644); err != nil {
 				return err

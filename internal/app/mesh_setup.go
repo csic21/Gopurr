@@ -27,13 +27,13 @@ func (a *App) beginMeshConnect() {
 
 func (a *App) openMeshAuth(c *ui.Context, raw string) {
 	if !mesh.ValidAuthURL(raw) {
-		a.meshAuthError = "登录地址未通过验证，请重新连接"
+		a.meshAuthError = tr("登录地址未通过验证，请重新连接")
 		return
 	}
 	a.meshOpenedAuthURL, a.meshOpenAuth = raw, false
 	c.OpenURLThen(raw, func(err error) {
 		if err != nil {
-			a.meshAuthError = "未能打开浏览器，请重新点击登录按钮重试"
+			a.meshAuthError = tr("未能打开浏览器，请重新点击登录按钮重试")
 		} else {
 			a.meshAuthError = ""
 		}
@@ -83,7 +83,7 @@ func (a *App) reconcileMeshPreparation() {
 		return
 	}
 	if !installed || a.k == nil || !a.k.IsRoot() {
-		a.meshPrepareError = "系统服务尚未就绪，请重试准备访问"
+		a.meshPrepareError = tr("系统服务尚未就绪，请重试准备访问")
 		return
 	}
 	a.applyMeshPreparation()
@@ -93,7 +93,7 @@ func (a *App) reconcileMeshPreparation() {
 func (a *App) applyMeshPreparation() bool {
 	a.meshPrepareError = ""
 	if a.k == nil || !a.k.IsRoot() {
-		a.meshPrepareError = "需要先安装 Gopurr 系统服务"
+		a.meshPrepareError = tr("需要先安装 Gopurr 系统服务")
 		return false
 	}
 	previous := a.ov
@@ -102,15 +102,15 @@ func (a *App) applyMeshPreparation() bool {
 	a.ov = next
 	if !a.startKernel() {
 		a.ov = previous
-		a.meshPrepareError = "网络准备失败：" + a.notice
+		a.meshPrepareError = tr("网络准备失败：") + a.notice
 		return false
 	}
 	if err := a.saveOverridesAtomic(); err != nil {
 		a.ov = previous
-		a.meshPrepareError = "网络设置保存失败：" + err.Error()
+		a.meshPrepareError = tr("网络设置保存失败：") + err.Error()
 		if !a.startKernel() {
 			a.ov = next
-			a.meshPrepareError += "；恢复原内核配置失败，请重试"
+			a.meshPrepareError += tr("；恢复原内核配置失败，请重试")
 		}
 		a.tunOn, a.modeToken = a.ov.TunEnable, a.ov.Mode
 		a.modePick, a.modeIdx = labelFor(a.modeToken), modeIndex(a.modeToken)
@@ -129,10 +129,10 @@ func (a *App) meshAccessPreparation(c *ui.Context, detailed bool) {
 	pal := paletteFor(c)
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			hint, label := "准备本机网络后，即可用普通应用访问其他设备", "准备访问"
+			hint, label := tr("准备本机网络后，即可用普通应用访问其他设备"), tr("准备访问")
 			_, busy, _ := a.svcState()
 			if a.meshPreparePending || busy {
-				hint, label = "等待系统授权与服务启动…", "正在准备…"
+				hint, label = tr("等待系统授权与服务启动…"), tr("正在准备…")
 			}
 			ui.Text(c, hint).Grow(1).FontSize(11).TextColor(pal.Muted)
 			softButton(c, label).Disabled(busy || a.meshPreparePending).OnClick(a.requestMeshPreparation)
@@ -141,7 +141,7 @@ func (a *App) meshAccessPreparation(c *ui.Context, detailed bool) {
 			ui.Text(c, a.meshPrepareError).FillWidth().MaxLines(3).Tooltip(a.meshPrepareError).FontSize(11.5).TextColor(pal.Danger)
 		}
 		if detailed {
-			ui.Text(c, "自动完成 TUN、规则模式与所需系统服务设置；如果只让其他设备访问本机，可稍后再准备。").FillWidth().FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, tr("自动完成 TUN、规则模式与所需系统服务设置；如果只让其他设备访问本机，可稍后再准备。")).FillWidth().FontSize(11).TextColor(pal.Muted)
 		}
 	})
 }
@@ -151,17 +151,17 @@ func (a *App) meshPreparationDialog(c *ui.Context) {
 		return
 	}
 	needsService := a.k == nil || !a.k.IsRoot()
-	description := "将启用 Gopurr TUN 自动路由并切换到规则模式，使普通应用能够访问组网 IP。本机服务仍由访问开关单独控制。"
-	button := "启用并准备"
+	description := tr("将启用 Gopurr TUN 自动路由并切换到规则模式，使普通应用能够访问组网 IP。本机服务仍由访问开关单独控制。")
+	button := tr("启用并准备")
 	if needsService {
-		description = "将安装 Gopurr 自带的系统服务，启用 TUN 自动路由并切换到规则模式。系统会请求管理员授权，无需另装 Tailscale。本机服务仍由访问开关单独控制。"
-		button = "安装并准备"
+		description = tr("将安装 Gopurr 自带的系统服务，启用 TUN 自动路由并切换到规则模式。系统会请求管理员授权，无需另装 Tailscale。本机服务仍由访问开关单独控制。")
+		button = tr("安装并准备")
 	}
-	choice := softAlertDialog(c, &a.meshPrepareConfirm, "准备访问其他设备", description, "取消", button)
+	choice := softAlertDialog(c, &a.meshPrepareConfirm, tr("准备访问其他设备"), description, tr("取消"), button)
 	if choice == 1 {
 		if needsService {
 			if !service.Available() {
-				a.meshPrepareError = "当前平台不支持 TUN 系统服务"
+				a.meshPrepareError = tr("当前平台不支持 TUN 系统服务")
 			} else {
 				a.meshPreparePending = true
 				a.installService()
@@ -188,10 +188,10 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 			a.meshGuide = false
 		}
 		back.Children(func() {
-			panel := ui.Column(c).Width(min(float32(580), width-64)).MaxHeight(height-72).Padding(24).Gap(16).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label("组网连接设置")
+			panel := ui.Column(c).Width(min(float32(580), width-64)).MaxHeight(height-72).Padding(24).Gap(16).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label(tr("组网连接设置"))
 			modalPanel(c, panel)
 			panel.Children(func() {
-				ui.Text(c, "连接准备").FontSize(18).FontWeight(600).TextColor(pal.Text)
+				ui.Text(c, tr("连接准备")).FontSize(18).FontWeight(600).TextColor(pal.Text)
 				ui.Scroll(c).FillWidth().Shrink(1).MinHeight(0).Children(func() {
 					ui.Column(c).FillWidth().Gap(16).Children(func() {
 						if snap.Error != "" {
@@ -202,17 +202,17 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 						}
 						ui.Column(c).FillWidth().Gap(6).Children(func() {
 							ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-								ui.Text(c, "1 · 加入同一个网络").Grow(1).FontSize(13).FontWeight(550).TextColor(pal.Text)
+								ui.Text(c, tr("1 · 加入同一个网络")).Grow(1).FontSize(13).FontWeight(550).TextColor(pal.Text)
 								if snap.Status.Running {
-									ui.Text(c, "已连接").FontSize(12).TextColor(pal.Success)
+									ui.Text(c, tr("已连接")).FontSize(12).TextColor(pal.Success)
 								} else {
-									label := "连接并登录"
+									label := tr("连接并登录")
 									if snap.Status.AuthURL != "" {
-										label = "浏览器登录"
+										label = tr("浏览器登录")
 									}
 									if snap.Busy && snap.Action == "connect" {
-										label = "正在连接…"
-										softButton(c, "取消连接").OnClick(func() {
+										label = tr("正在连接…")
+										softButton(c, tr("取消连接")).OnClick(func() {
 											a.meshOpenAuth = false
 											a.meshClient.Do("disconnect")
 										})
@@ -226,19 +226,19 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 									})
 								}
 							})
-							ui.Text(c, "两台设备分别用官方账号加入同一网络，无需互填配对码。首次登录在浏览器完成。").FillWidth().FontSize(11.5).TextColor(pal.Muted)
+							ui.Text(c, tr("两台设备分别用官方账号加入同一网络，无需互填配对码。首次登录在浏览器完成。")).FillWidth().FontSize(11.5).TextColor(pal.Muted)
 							if snap.Busy && snap.Action == "connect" {
-								ui.Text(c, "正在获取官方登录链接，成功后会自动打开浏览器；最多等待 30 秒。").FillWidth().FontSize(11.5).TextColor(pal.Muted)
+								ui.Text(c, tr("正在获取官方登录链接，成功后会自动打开浏览器；最多等待 30 秒。")).FillWidth().FontSize(11.5).TextColor(pal.Muted)
 							}
 							if snap.Status.State == "NeedsMachineAuth" {
-								ui.Text(c, "正在等待网络管理员批准此设备").FillWidth().FontSize(11.5).TextColor(pal.Warn)
+								ui.Text(c, tr("正在等待网络管理员批准此设备")).FillWidth().FontSize(11.5).TextColor(pal.Warn)
 							}
 						})
 						hairline(c)
 						ui.Column(c).FillWidth().Gap(6).Children(func() {
-							ui.Text(c, "2 · 访问其他设备").FontSize(13).FontWeight(550).TextColor(pal.Text)
+							ui.Text(c, tr("2 · 访问其他设备")).FontSize(13).FontWeight(550).TextColor(pal.Text)
 							if a.meshAccessReady() {
-								ui.Text(c, "本机网络已准备好，可从设备列表直接连接").FillWidth().FontSize(11.5).TextColor(pal.Success)
+								ui.Text(c, tr("本机网络已准备好，可从设备列表直接连接")).FillWidth().FontSize(11.5).TextColor(pal.Success)
 							} else {
 								a.meshAccessPreparation(c, true)
 							}
@@ -246,27 +246,27 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 						hairline(c)
 						ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
 							ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
-								ui.Text(c, "3 · 让对方访问本机（可选）").FontSize(13).FontWeight(550).TextColor(pal.Text)
-								description, color := "选择 SSH、远程桌面或屏幕共享；仅开放你确认的端口。", pal.Muted
+								ui.Text(c, tr("3 · 让对方访问本机（可选）")).FontSize(13).FontWeight(550).TextColor(pal.Text)
+								description, color := tr("选择 SSH、远程桌面或屏幕共享；仅开放你确认的端口。"), pal.Muted
 								if snap.Status.ShieldsKnown && !snap.Status.ShieldsUp {
-									description, color = "已开放："+mesh.FormatServices(snap.Status.Services), pal.Warn
+									description, color = tr("已开放：")+mesh.FormatServices(snap.Status.Services), pal.Warn
 								}
 								ui.Text(c, description).FillWidth().FontSize(11.5).TextColor(color)
 							})
-							softButton(c, "选择本机服务").Disabled(!snap.Status.Running || !snap.Status.ShieldsKnown || snap.Busy).OnClick(func() { a.meshGuide = false; a.meshGuideAfterServices = true; a.openMeshServices(snap, true) })
+							softButton(c, tr("选择本机服务")).Disabled(!snap.Status.Running || !snap.Status.ShieldsKnown || snap.Busy).OnClick(func() { a.meshGuide = false; a.meshGuideAfterServices = true; a.openMeshServices(snap, true) })
 						})
 						hairline(c)
 						auto := snap.AutoConnect
-						ui.Checkbox(c, &auto, "启动 Gopurr 时自动连接组网").Label("组网启动自动连接")
+						ui.Checkbox(c, &auto, tr("启动 Gopurr 时自动连接组网")).Label(tr("组网启动自动连接"))
 						if auto != snap.AutoConnect {
 							a.meshClient.SetAutoConnect(auto)
 						}
-						ui.Text(c, "自动连接只恢复网络，不会自动开放本机服务；授权失效时仍需重新登录。").FillWidth().FontSize(11).TextColor(pal.Muted)
+						ui.Text(c, tr("自动连接只恢复网络，不会自动开放本机服务；授权失效时仍需重新登录。")).FillWidth().FontSize(11).TextColor(pal.Muted)
 					})
 				})
 				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
-					softButton(c, "稍后设置").OnClick(func() { a.meshGuide = false })
-					softPrimaryButton(c, "完成设置").Disabled(!snap.Status.Running).OnClick(func() { a.meshGuide = false })
+					softButton(c, tr("稍后设置")).OnClick(func() { a.meshGuide = false })
+					softPrimaryButton(c, tr("完成设置")).Disabled(!snap.Status.Running).OnClick(func() { a.meshGuide = false })
 				})
 			})
 		})

@@ -107,12 +107,12 @@ func (a *App) reconcileMeshRoutes() {
 	if a.startKernel() {
 		a.meshRouteKey, a.meshRouteError = key, ""
 	} else {
-		a.meshRouteError = "内置组网路由更新失败：" + a.notice
+		a.meshRouteError = tr("内置组网路由更新失败：") + a.notice
 	}
 }
 
 func (a *App) meshTrayItems(openPage func(string)) []*mygo.MenuItem {
-	items := []*mygo.MenuItem{{ID: "mesh-open", Label: "打开组网", Click: func(*mygo.MenuItem, *mygo.Window) { openPage("mesh") }}}
+	items := []*mygo.MenuItem{{ID: "mesh-open", Label: tr("打开组网"), Click: func(*mygo.MenuItem, *mygo.Window) { openPage("mesh") }}}
 	if a.meshClient == nil {
 		return items
 	}
@@ -120,22 +120,22 @@ func (a *App) meshTrayItems(openPage func(string)) []*mygo.MenuItem {
 	if !s.Status.Installed {
 		return items
 	}
-	status := "入站防护待确认"
+	status := tr("入站防护待确认")
 	if s.Status.ShieldsKnown {
 		if s.Status.ShieldsUp {
-			status = "本机入站访问已关闭"
+			status = tr("本机入站访问已关闭")
 		} else {
-			status = "本机入站访问已开放"
+			status = tr("本机入站访问已开放")
 		}
 	}
 	items = append(items,
 		&mygo.MenuItem{Label: status, Disabled: true},
-		&mygo.MenuItem{ID: "mesh-block", Label: "关闭本机组网访问", Click: func(*mygo.MenuItem, *mygo.Window) { a.meshClient.Do("block") }},
-		&mygo.MenuItem{ID: "mesh-disconnect", Label: "断开组网", Click: func(*mygo.MenuItem, *mygo.Window) { a.meshClient.Do("disconnect") }})
+		&mygo.MenuItem{ID: "mesh-block", Label: tr("关闭本机组网访问"), Click: func(*mygo.MenuItem, *mygo.Window) { a.meshClient.Do("block") }},
+		&mygo.MenuItem{ID: "mesh-disconnect", Label: tr("断开组网"), Click: func(*mygo.MenuItem, *mygo.Window) { a.meshClient.Do("disconnect") }})
 	if !s.Status.Running {
-		label := "连接组网"
+		label := tr("连接组网")
 		if s.Status.AuthURL != "" {
-			label = "继续登录组网…"
+			label = tr("继续登录组网…")
 		}
 		items = append(items, &mygo.MenuItem{ID: "mesh-connect", Label: label, Disabled: s.Busy, Click: func(*mygo.MenuItem, *mygo.Window) {
 			openPage("mesh")
@@ -157,27 +157,27 @@ func meshOwner(d mesh.Device) string {
 	if d.Owner != "" {
 		return d.Owner
 	}
-	return "账号身份未知"
+	return tr("账号身份未知")
 }
 
 func meshLabel(s mesh.Status) string {
 	switch {
 	case !s.Installed:
-		return "内置组网尚未连接"
+		return tr("内置组网尚未连接")
 	case s.State == "NeedsMachineAuth":
-		return "等待管理员批准设备"
+		return tr("等待管理员批准设备")
 	case s.State == "NeedsLogin":
-		return "等待登录 Tailscale"
+		return tr("等待登录 Tailscale")
 	case s.State == "Starting":
-		return "正在连接"
+		return tr("正在连接")
 	case s.Running && !s.Official:
-		return "当前使用其他组网服务"
+		return tr("当前使用其他组网服务")
 	case s.Running:
-		return "已连接 Tailscale"
+		return tr("已连接 Tailscale")
 	case s.State == "Stopped":
-		return "组网已断开"
+		return tr("组网已断开")
 	default:
-		return "内置组网已就绪"
+		return tr("内置组网已就绪")
 	}
 }
 
@@ -191,10 +191,10 @@ func (a *App) meshPage(c *ui.Context) {
 	snap := a.meshClient.Snapshot()
 	s := snap.Status
 	pal := paletteFor(c)
-	a.pageHeader(c, "组网", "通过 Tailscale 连接自己的电脑、手机和服务器", func() {
-		softButton(c, "邀请成员").OnClick(func() { a.meshInvite, a.meshInviteError = true, "" })
-		softButton(c, "连接设置").OnClick(func() { a.meshGuide = true })
-		softButton(c, "刷新组网").Disabled(snap.Busy).OnClick(a.meshClient.Refresh)
+	a.pageHeader(c, tr("组网"), tr("通过 Tailscale 连接自己的电脑、手机和服务器"), func() {
+		softButton(c, tr("邀请成员")).OnClick(func() { a.meshInvite, a.meshInviteError = true, "" })
+		softButton(c, tr("连接设置")).OnClick(func() { a.meshGuide = true })
+		softButton(c, tr("刷新组网")).Disabled(snap.Busy).OnClick(a.meshClient.Refresh)
 	})
 	a.meshMaybeOpenAuth(c, snap)
 	if a.meshAuthError != "" {
@@ -216,45 +216,45 @@ func (a *App) meshPage(c *ui.Context) {
 			ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 				label := meshLabel(s)
 				if snap.Error != "" && !s.ShieldsKnown {
-					label = "组网状态待确认"
+					label = tr("组网状态待确认")
 				}
 				if snap.Busy && snap.Action != "refresh" {
-					label = "正在更新组网设置…"
-					if text := map[string]string{"connect": "正在安全连接…", "allow": "正在开放访问…", "block": "正在关闭访问…", "disconnect": "正在断开组网…"}[snap.Action]; text != "" {
+					label = tr("正在更新组网设置…")
+					if text := map[string]string{"connect": tr("正在安全连接…"), "allow": tr("正在开放访问…"), "block": tr("正在关闭访问…"), "disconnect": tr("正在断开组网…")}[snap.Action]; text != "" {
 						label = text
 					}
 				}
 				ui.Text(c, label).FontSize(15).FontWeight(600).TextColor(pal.Text).SingleLine()
-				caption := "先关闭本机入站访问，再连接官方网络"
+				caption := tr("先关闭本机入站访问，再连接官方网络")
 				if s.Self.IP() != "" {
 					caption = s.Self.Name + " · " + s.Self.IP()
 				}
 				ui.Text(c, caption).FillWidth().SingleLine().Ellipsis("…").Tooltip(caption).FontSize(11.5).TextColor(pal.Muted)
 			})
 			if s.Running || s.AuthURL != "" || s.State == "Starting" || s.State == "NeedsMachineAuth" || (snap.Busy && snap.Action == "connect") {
-				softButton(c, "断开组网").Disabled(snap.Busy && snap.Action == "disconnect").OnClick(func() { a.meshClient.Do("disconnect") })
+				softButton(c, tr("断开组网")).Disabled(snap.Busy && snap.Action == "disconnect").OnClick(func() { a.meshClient.Do("disconnect") })
 			} else if s.AuthURL == "" {
-				softPrimaryButton(c, "连接组网").Disabled(snap.Busy || !s.ShieldsKnown || !s.Official).OnClick(func() { a.beginMeshConnect() })
+				softPrimaryButton(c, tr("连接组网")).Disabled(snap.Busy || !s.ShieldsKnown || !s.Official).OnClick(func() { a.beginMeshConnect() })
 			}
 		})
 		hairline(c)
 		ui.Row(c).FillWidth().Padding(12, 16).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-				ui.Text(c, "允许组网设备访问本机").FontSize(13).FontWeight(550).TextColor(pal.Text)
-				hint, color := "防护状态待确认，请刷新或断开组网", pal.Warn
+				ui.Text(c, tr("允许组网设备访问本机")).FontSize(13).FontWeight(550).TextColor(pal.Text)
+				hint, color := tr("防护状态待确认，请刷新或断开组网"), pal.Warn
 				if s.ShieldsKnown && s.ShieldsUp {
-					hint, color = "入站访问已关闭；仍可主动访问其他设备", pal.Muted
+					hint, color = tr("入站访问已关闭；仍可主动访问其他设备"), pal.Muted
 				}
 				if s.ShieldsKnown && !s.ShieldsUp {
-					hint, color = "已开放 · 仅限授权端口："+mesh.FormatServices(s.Services), pal.Warn
+					hint, color = tr("已开放 · 仅限授权端口：")+mesh.FormatServices(s.Services), pal.Warn
 				}
 				if s.State == "Stopped" {
-					hint, color = "组网已断开；再次连接时会先关闭入站访问", pal.Muted
+					hint, color = tr("组网已断开；再次连接时会先关闭入站访问"), pal.Muted
 				}
 				ui.Text(c, hint).FillWidth().FontSize(11).TextColor(color)
 			})
 			allow := s.ShieldsKnown && !s.ShieldsUp
-			softSwitch(c, &allow).Label("允许组网访问本机").Disabled(snap.Busy || !s.ShieldsKnown || (!s.Running && !allow) || (!s.Official && !allow))
+			softSwitch(c, &allow).Label(tr("允许组网访问本机")).Disabled(snap.Busy || !s.ShieldsKnown || (!s.Running && !allow) || (!s.Official && !allow))
 			if allow != (s.ShieldsKnown && !s.ShieldsUp) {
 				if allow {
 					a.openMeshServices(snap, true)
@@ -269,8 +269,8 @@ func (a *App) meshPage(c *ui.Context) {
 	}
 	if s.AuthURL != "" && mesh.ValidAuthURL(s.AuthURL) && !s.Running {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "请在浏览器完成官方账号授权").Grow(1).FontSize(12).TextColor(pal.Muted)
-			softPrimaryButton(c, "继续登录 Tailscale").Disabled(snap.Busy).OnClick(func() {
+			ui.Text(c, tr("请在浏览器完成官方账号授权")).Grow(1).FontSize(12).TextColor(pal.Muted)
+			softPrimaryButton(c, tr("继续登录 Tailscale")).Disabled(snap.Busy).OnClick(func() {
 				if snap.Managed && s.ShieldsKnown && s.ShieldsUp {
 					a.openMeshAuth(c, s.AuthURL)
 				} else {
@@ -279,7 +279,7 @@ func (a *App) meshPage(c *ui.Context) {
 			})
 		})
 	}
-	softSegmented(c, &a.meshTab, "设备", "本机访问", "安全设置").AlignSelf(ui.Start).Label("组网分类")
+	softSegmented(c, &a.meshTab, tr("设备"), tr("本机访问"), tr("安全设置")).AlignSelf(ui.Start).Label(tr("组网分类"))
 	switch a.meshTab {
 	case 1:
 		a.meshVisits(c, snap)
@@ -295,16 +295,16 @@ func (a *App) meshSetup(c *ui.Context) {
 	pal := paletteFor(c)
 	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Padding(24).Gap(16).Children(func() {
 		ui.Icon(c, iconNetwork).Size(36, 36).TextColor(pal.Accent).Role(ui.RoleNone)
-		ui.Text(c, "把分散的设备连接起来").FontSize(18).FontWeight(600).TextColor(pal.Text)
-		ui.Text(c, "Tailscale 组网内核已内置。登录官方账号即可加入网络，无需另装客户端或自建服务器。").FillWidth().FontSize(13).TextColor(pal.Muted)
+		ui.Text(c, tr("把分散的设备连接起来")).FontSize(18).FontWeight(600).TextColor(pal.Text)
+		ui.Text(c, tr("Tailscale 组网内核已内置。登录官方账号即可加入网络，无需另装客户端或自建服务器。")).FillWidth().FontSize(13).TextColor(pal.Muted)
 		ui.Column(c).FillWidth().Gap(10).Children(func() {
-			for i, hint := range []string{"点击连接，在浏览器授权 Tailscale 官方账号", "其他设备登录同一网络，支持同时连接多台设备", "开启 Gopurr TUN 后，普通应用可通过虚拟 IP 访问设备"} {
+			for i, hint := range []string{tr("点击连接，在浏览器授权 Tailscale 官方账号"), tr("其他设备登录同一网络，支持同时连接多台设备"), tr("开启 Gopurr TUN 后，普通应用可通过虚拟 IP 访问设备")} {
 				ui.Text(c, fmt.Sprintf("%d. %s", i+1, hint)).FillWidth().FontSize(12).TextColor(pal.Text)
 			}
 		})
-		ui.Text(c, "首次连接关闭入站访问。需要远程访问这台电脑时，再由你主动开放。").FillWidth().FontSize(11.5).TextColor(pal.Muted)
+		ui.Text(c, tr("首次连接关闭入站访问。需要远程访问这台电脑时，再由你主动开放。")).FillWidth().FontSize(11.5).TextColor(pal.Muted)
 		ui.Row(c).Gap(8).Children(func() {
-			softPrimaryButton(c, "连接内置组网").OnClick(func() { a.meshGuide = true })
+			softPrimaryButton(c, tr("连接内置组网")).OnClick(func() { a.meshGuide = true })
 		})
 	})
 	a.meshDialogs(c, a.meshClient.Snapshot())
@@ -312,7 +312,7 @@ func (a *App) meshSetup(c *ui.Context) {
 
 func (a *App) meshDevices(c *ui.Context, snap mesh.Snapshot) {
 	pal := paletteFor(c)
-	searchRow(c, &a.meshQuery, "搜索设备、账号或虚拟 IP").Label("搜索组网设备")
+	searchRow(c, &a.meshQuery, tr("搜索设备、账号或虚拟 IP")).Label(tr("搜索组网设备"))
 	var rows []mesh.Device
 	q := strings.ToLower(strings.TrimSpace(a.meshQuery))
 	if snap.Status.Self.ID != "" {
@@ -344,13 +344,13 @@ func (a *App) meshDevices(c *ui.Context, snap mesh.Snapshot) {
 	})
 	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Children(func() {
 		ui.Row(c).FillWidth().Padding(12).Children(func() {
-			ui.Text(c, fmt.Sprintf("%d 台设备 · 最近连接优先", len(rows))).Grow(1).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, "状态").Width(52).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, "快捷操作").Width(222).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, fmt.Sprintf(tr("%d 台设备 · 最近连接优先"), len(rows))).Grow(1).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("状态")).Width(52).FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("快捷操作")).Width(222).FontSize(11).TextColor(pal.Faint)
 		})
 		hairline(c)
 		if len(rows) == 0 {
-			emptyState(c, "没有可显示的设备", "完成登录后，显示当前账号有权限看见的组网设备。")
+			emptyState(c, tr("没有可显示的设备"), tr("完成登录后，显示当前账号有权限看见的组网设备。"))
 		} else {
 			ui.List(c, &a.meshList, len(rows)).FillWidth().Grow(1).MinHeight(0).ItemKey(func(i int) any { return rows[i].ID }).Rows(func(row ui.ListRow) {
 				d, c := rows[row.Index], row.Context
@@ -358,30 +358,30 @@ func (a *App) meshDevices(c *ui.Context, snap mesh.Snapshot) {
 					ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 						name := d.Name
 						if d.ID == snap.Status.Self.ID {
-							name += " · 本机"
+							name += tr(" · 本机")
 						}
 						if slices.Contains(snap.Status.Blocked, d.ID) {
-							name += " · 入站已封禁"
+							name += tr(" · 入站已封禁")
 						}
 						ui.Text(c, name).FillWidth().FontSize(13).FontWeight(550).SingleLine().Ellipsis("…").Tooltip(name).TextColor(pal.Text)
 						caption := meshOwner(d) + " · " + d.IP()
 						ui.Text(c, caption).FillWidth().FontSize(11).SingleLine().Ellipsis("…").Tooltip(caption).TextColor(pal.Muted)
 					})
-					state, color := "离线", pal.Faint
+					state, color := tr("离线"), pal.Faint
 					if d.Online {
-						state, color = "在线", pal.Success
+						state, color = tr("在线"), pal.Success
 					}
 					ui.Text(c, state).Width(52).FontSize(11.5).TextColor(color)
 					ui.Row(c).Width(222).Gap(6).Justify(ui.End).Children(func() {
 						if d.ID != snap.Status.Self.ID {
 							shortcut, saved := a.meshShortcuts[d.ID]
-							label := "连接"
+							label := tr("连接设备")
 							if saved && shortcut.Validate(d) == nil {
-								label = shortcut.Label()
+								label = tr(shortcut.Label())
 							} else {
 								saved = false
 							}
-							softButton(c, label).Label("快捷连接 " + d.ID).Disabled(!snap.Status.Running || snap.Busy || d.IP() == "").OnClick(func() {
+							softButton(c, label).Label(tr("快捷连接 ") + d.ID).Disabled(!snap.Status.Running || snap.Busy || d.IP() == "").OnClick(func() {
 								if saved && a.meshAccessReady() && d.Online {
 									a.launchMeshShortcut(c, d, shortcut, true)
 								} else {
@@ -389,21 +389,21 @@ func (a *App) meshDevices(c *ui.Context, snap mesh.Snapshot) {
 								}
 							})
 						}
-						softButton(c, "复制 IP").Label("复制设备 IP " + d.ID).Disabled(d.IP() == "").OnClick(func() { c.WriteClipboard(d.IP()) })
-						softButton(c, "详情").Label("组网设备详情 " + d.ID).OnClick(func() { a.meshSelected, a.meshShowDevice = d, true })
+						softButton(c, tr("复制 IP")).Label(tr("复制设备 IP ") + d.ID).Disabled(d.IP() == "").OnClick(func() { c.WriteClipboard(d.IP()) })
+						softButton(c, tr("详情")).Label(tr("组网设备详情 ") + d.ID).OnClick(func() { a.meshSelected, a.meshShowDevice = d, true })
 					})
 				})
 			})
 		}
 	})
-	ui.Text(c, "在线不等于服务可用，可在连接窗口检测；记住连接方式后可直接打开客户端，详情中可修改。").FillWidth().FontSize(11).TextColor(pal.Faint)
+	ui.Text(c, tr("在线不等于服务可用，可在连接窗口检测；记住连接方式后可直接打开客户端，详情中可修改。")).FillWidth().FontSize(11).TextColor(pal.Faint)
 }
 
 func (a *App) meshVisits(c *ui.Context, snap mesh.Snapshot) {
 	pal := paletteFor(c)
 	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "入站 TCP / UDP 连接 · 最近 100 条").Grow(1).FontSize(12).TextColor(pal.Muted)
-		softButton(c, "清除已结束记录").Disabled(snap.Busy || len(snap.Visits) == 0).OnClick(a.meshClient.ClearHistory)
+		ui.Text(c, tr("入站 TCP / UDP 连接 · 最近 100 条")).Grow(1).FontSize(12).TextColor(pal.Muted)
+		softButton(c, tr("清除已结束记录")).Disabled(snap.Busy || len(snap.Visits) == 0).OnClick(a.meshClient.ClearHistory)
 	})
 	if snap.MonitorError != "" {
 		ui.Text(c, snap.MonitorError).FillWidth().FontSize(11.5).TextColor(pal.Warn)
@@ -413,11 +413,11 @@ func (a *App) meshVisits(c *ui.Context, snap mesh.Snapshot) {
 	}
 	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Children(func() {
 		if len(snap.Visits) == 0 {
-			title := "暂未观察到本机访问"
+			title := tr("暂未观察到本机访问")
 			if snap.MonitorError != "" {
-				title = "当前访问状态未知"
+				title = tr("当前访问状态未知")
 			}
-			emptyState(c, title, "设备在线或有组网流量，并不表示它正在访问本机服务。")
+			emptyState(c, title, tr("设备在线或有组网流量，并不表示它正在访问本机服务。"))
 		} else {
 			ui.List(c, &a.meshList, len(snap.Visits)).FillWidth().Grow(1).MinHeight(0).ItemKey(func(i int) any { return snap.Visits[i].Key + snap.Visits[i].FirstSeen.String() }).Rows(func(row ui.ListRow) {
 				v, c := snap.Visits[row.Index], row.Context
@@ -436,66 +436,66 @@ func (a *App) meshVisits(c *ui.Context, snap mesh.Snapshot) {
 						ui.Text(c, endpoints).FillWidth().SingleLine().Ellipsis("…").Tooltip(endpoints).FontSize(11).TextColor(pal.Faint)
 					})
 					ui.Column(c).Width(92).Gap(4).AlignItems(ui.End).Children(func() {
-						state, color := "已结束", pal.Faint
+						state, color := tr("已结束"), pal.Faint
 						if v.Active {
-							state, color = "连接中", pal.Warn
+							state, color = tr("连接中"), pal.Warn
 						}
 						if v.Active && snap.Status.ShieldsKnown && snap.Status.ShieldsUp {
-							state, color = "入站已阻断", pal.Muted
+							state, color = tr("入站已阻断"), pal.Muted
 						}
 						if v.Active && (snap.MonitorError != "" || !snap.Status.ShieldsKnown) {
-							state, color = "状态待确认", pal.Warn
+							state, color = tr("状态待确认"), pal.Warn
 						}
 						ui.Text(c, state).FontSize(11.5).TextColor(color)
-						ui.Text(c, v.LastSeen.Local().Format("01-02 15:04:05")).FontSize(10.5).TextColor(pal.Faint).Tooltip("首次观察 " + v.FirstSeen.Local().Format(time.DateTime))
+						ui.Text(c, v.LastSeen.Local().Format("01-02 15:04:05")).FontSize(10.5).TextColor(pal.Faint).Tooltip(tr("首次观察 ") + v.FirstSeen.Local().Format(time.DateTime))
 					})
 				})
 			})
 		}
 	})
-	ui.Text(c, "记录内置组网实际接收的服务连接，含短连接；不含网络层已拦截的尝试。账号为设备所属身份。").FillWidth().FontSize(11).TextColor(pal.Faint)
+	ui.Text(c, tr("记录内置组网实际接收的服务连接，含短连接；不含网络层已拦截的尝试。账号为设备所属身份。")).FillWidth().FontSize(11).TextColor(pal.Faint)
 }
 
 func (a *App) meshSecurity(c *ui.Context, snap mesh.Snapshot) {
 	pal := paletteFor(c)
 	ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
 		ui.Column(c).FillWidth().Gap(12).Children(func() {
-			settingsGroup(c, "授权本机服务", func() {
+			settingsGroup(c, tr("授权本机服务"), func() {
 				ports := mesh.FormatServices(snap.Status.Services)
 				if ports == "" {
-					ports = "尚未授权任何端口，所有本机服务保持关闭"
+					ports = tr("尚未授权任何端口，所有本机服务保持关闭")
 				}
-				settingsRow(c, "允许访问的端口", ports, func() {
-					softButton(c, "编辑端口").Disabled(snap.Busy).OnClick(func() {
+				settingsRow(c, tr("允许访问的端口"), ports, func() {
+					softButton(c, tr("编辑端口")).Disabled(snap.Busy).OnClick(func() {
 						a.openMeshServices(snap, false)
 					})
 				})
 			})
-			settingsGroup(c, "网络权限", func() {
-				settingsRow(c, "谁能访问哪些服务", "在官方控制台按人员、设备和端口授权；新网络的初始策略可能允许所有成员互访", func() {
-					softButton(c, "访问控制").OnClick(func() { c.OpenURL(mesh.PolicyURL) })
+			settingsGroup(c, tr("网络权限"), func() {
+				settingsRow(c, tr("谁能访问哪些服务"), tr("在官方控制台按人员、设备和端口授权；新网络的初始策略可能允许所有成员互访"), func() {
+					softButton(c, tr("访问控制")).OnClick(func() { c.OpenURL(mesh.PolicyURL) })
 				})
 				hairline(c)
-				settingsRow(c, "新设备审批", "建议启用审批；批准后设备才能收发组网流量", func() {
-					softButton(c, "设备审批").OnClick(func() { c.OpenURL(mesh.ApprovalURL) })
+				settingsRow(c, tr("新设备审批"), tr("建议启用审批；批准后设备才能收发组网流量"), func() {
+					softButton(c, tr("设备审批")).OnClick(func() { c.OpenURL(mesh.ApprovalURL) })
 				})
 				hairline(c)
-				settingsRow(c, "移除陌生或丢失的设备", "在官方控制台核对设备和账号，并撤销不再信任的设备", func() {
-					softButton(c, "管理设备").OnClick(func() { c.OpenURL(mesh.DevicesURL) })
+				settingsRow(c, tr("移除陌生或丢失的设备"), tr("在官方控制台核对设备和账号，并撤销不再信任的设备"), func() {
+					softButton(c, tr("管理设备")).OnClick(func() { c.OpenURL(mesh.DevicesURL) })
 				})
 			})
-			settingsGroup(c, "本机保护", func() {
-				settingsRow(c, "关闭所有组网入站访问", "立即停止本机服务转发，并终止已有访问连接", func() {
-					softButton(c, "关闭本机访问").Disabled(!snap.Status.Installed || (snap.Busy && snap.Action == "block")).OnClick(func() { a.meshClient.Do("block") })
+			settingsGroup(c, tr("本机保护"), func() {
+				settingsRow(c, tr("关闭所有组网入站访问"), tr("立即停止本机服务转发，并终止已有访问连接"), func() {
+					softButton(c, tr("关闭本机访问")).Disabled(!snap.Status.Installed || (snap.Busy && snap.Action == "block")).OnClick(func() { a.meshClient.Do("block") })
 				})
 				hairline(c)
-				settingsRow(c, "紧急断开", "停止这台电脑的全部 Tailscale 网络连接", func() {
-					softButton(c, "立即断开组网").Disabled(!snap.Status.Installed || (snap.Busy && snap.Action == "disconnect")).OnClick(func() { a.meshClient.Do("disconnect") })
+				settingsRow(c, tr("紧急断开"), tr("停止这台电脑的全部 Tailscale 网络连接"), func() {
+					softButton(c, tr("立即断开组网")).Disabled(!snap.Status.Installed || (snap.Busy && snap.Action == "disconnect")).OnClick(func() { a.meshClient.Do("disconnect") })
 				})
 			})
-			ui.Text(c, "内核随 Gopurr 运行，每次连接先关闭入站访问，不接管 DNS、不发布子网或出口路由。关闭窗口后继续运行；退出或进程终止后组网和服务转发随之停止。").FillWidth().FontSize(11).TextColor(pal.Muted)
-			ui.Text(c, "访问记录保存在本机，最多 100 条，不上传也不包含通信内容。局域网与公网的其他访问仍由系统防火墙和各服务管理。").FillWidth().FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, "通过规则模式与 Gopurr TUN 访问设备的虚拟 IP，支持 TCP / UDP。内嵌节点不向系统分配虚拟网卡 IP；不提供广播发现、子网路由或系统 ICMP 转发。授权的本机端口转发至 127.0.0.1 的同端口服务，服务仍需自己的登录验证。").FillWidth().FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("内核随 Gopurr 运行，每次连接先关闭入站访问，不接管 DNS、不发布子网或出口路由。关闭窗口后继续运行；退出或进程终止后组网和服务转发随之停止。")).FillWidth().FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, tr("访问记录保存在本机，最多 100 条，不上传也不包含通信内容。局域网与公网的其他访问仍由系统防火墙和各服务管理。")).FillWidth().FontSize(11).TextColor(pal.Faint)
+			ui.Text(c, tr("通过规则模式与 Gopurr TUN 访问设备的虚拟 IP，支持 TCP / UDP。内嵌节点不向系统分配虚拟网卡 IP；不提供广播发现、子网路由或系统 ICMP 转发。授权的本机端口转发至 127.0.0.1 的同端口服务，服务仍需自己的登录验证。")).FillWidth().FontSize(11).TextColor(pal.Faint)
 		})
 	})
 }
@@ -524,13 +524,13 @@ func (a *App) meshDialogs(c *ui.Context, snap mesh.Snapshot) {
 			a.meshShowDevice = false
 		}
 		back.Children(func() {
-			panel := ui.Column(c).Width(min(float32(560), width-64)).MaxHeight(height-72).Padding(24).Gap(16).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label("组网设备详情")
+			panel := ui.Column(c).Width(min(float32(560), width-64)).MaxHeight(height-72).Padding(24).Gap(16).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label(tr("组网设备详情"))
 			modalPanel(c, panel)
 			panel.Children(func() {
 				ui.Text(c, d.Name).FillWidth().MaxLines(2).Tooltip(d.Name).FontSize(18).FontWeight(600).TextColor(pal.Text)
 				ui.Scroll(c).FillWidth().Shrink(1).MinHeight(0).Children(func() {
 					ui.Column(c).FillWidth().Gap(12).Children(func() {
-						for _, field := range [][2]string{{"所属账号", meshOwner(d)}, {"系统", d.OS}, {"虚拟 IP", d.IP()}, {"设备域名", d.DNSName}, {"设备标识", d.ID}, {"当前链路", d.Path}, {"标签", strings.Join(d.Tags, ", ")}} {
+						for _, field := range [][2]string{{tr("所属账号"), meshOwner(d)}, {tr("系统"), d.OS}, {tr("虚拟 IP"), d.IP()}, {tr("设备域名"), d.DNSName}, {tr("设备标识"), d.ID}, {tr("当前链路"), d.Path}, {tr("标签"), strings.Join(d.Tags, ", ")}} {
 							if field[1] == "" {
 								continue
 							}
@@ -539,12 +539,12 @@ func (a *App) meshDialogs(c *ui.Context, snap mesh.Snapshot) {
 								ui.Text(c, field[1]).FillWidth().FontSize(12.5).TextColor(pal.Text).Selectable()
 							})
 						}
-						ui.Text(c, "设备身份用于识别账号，不能证明实际操作者。此处在线状态不代表对方正在访问本机。").FillWidth().FontSize(11).TextColor(pal.Muted)
+						ui.Text(c, tr("设备身份用于识别账号，不能证明实际操作者。此处在线状态不代表对方正在访问本机。")).FillWidth().FontSize(11).TextColor(pal.Muted)
 						if d.ID != snap.Status.Self.ID {
 							blocked := slices.Contains(snap.Status.Blocked, d.ID)
-							label, hint := "禁止此设备访问本机", "禁止后立即终止此设备的已有访问，只影响这台电脑的组网服务。"
+							label, hint := tr("禁止此设备访问本机"), tr("禁止后立即终止此设备的已有访问，只影响这台电脑的组网服务。")
 							if blocked {
-								label, hint = "解除本机封禁", "此设备已被本机封禁；官方网络权限与授权端口仍共同生效。"
+								label, hint = tr("解除本机封禁"), tr("此设备已被本机封禁；官方网络权限与授权端口仍共同生效。")
 							}
 							ui.Text(c, hint).FillWidth().FontSize(11).TextColor(pal.Muted)
 							softButton(c, label).Disabled(snap.Busy).OnClick(func() { a.meshClient.SetDeviceBlocked(d.ID, !blocked) })
@@ -553,11 +553,11 @@ func (a *App) meshDialogs(c *ui.Context, snap mesh.Snapshot) {
 				})
 				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 					if d.ID != snap.Status.Self.ID {
-						softButton(c, "连接设置").OnClick(func() { a.meshShowDevice = false; a.openMeshQuick(d) })
+						softButton(c, tr("连接设置")).OnClick(func() { a.meshShowDevice = false; a.openMeshQuick(d) })
 					}
-					softButton(c, "复制虚拟 IP").Disabled(d.IP() == "").OnClick(func() { c.WriteClipboard(d.IP()) })
-					softButton(c, "在控制台管理").OnClick(func() { c.OpenURL(mesh.DevicesURL) })
-					softPrimaryButton(c, "完成").OnClick(func() { a.meshShowDevice = false })
+					softButton(c, tr("复制虚拟 IP")).Disabled(d.IP() == "").OnClick(func() { c.WriteClipboard(d.IP()) })
+					softButton(c, tr("在控制台管理")).OnClick(func() { c.OpenURL(mesh.DevicesURL) })
+					softPrimaryButton(c, tr("完成")).OnClick(func() { a.meshShowDevice = false })
 				})
 			})
 		})
@@ -584,29 +584,29 @@ func (a *App) meshServiceDialog(c *ui.Context, snap mesh.Snapshot) {
 			closeDialog()
 		}
 		back.Children(func() {
-			panel := ui.Column(c).Width(min(float32(540), width-64)).MaxHeight(height-72).Padding(24).Gap(16).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label("授权本机组网服务")
+			panel := ui.Column(c).Width(min(float32(540), width-64)).MaxHeight(height-72).Padding(24).Gap(16).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label(tr("授权本机组网服务"))
 			modalPanel(c, panel)
 			panel.Children(func() {
-				title := "允许组网设备访问这台电脑？"
+				title := tr("允许组网设备访问这台电脑？")
 				if a.meshEditServices {
-					title = "授权本机服务端口"
+					title = tr("授权本机服务端口")
 				}
 				ui.Text(c, title).FillWidth().FontSize(18).FontWeight(600).TextColor(pal.Text)
 				ui.Scroll(c).FillWidth().Shrink(1).MinHeight(0).Children(func() {
 					ui.Column(c).FillWidth().Gap(12).Children(func() {
-						ui.Text(c, "只开放下列端口，其他本机服务保持关闭。对方还需通过官方网络权限检查，且未被本机封禁。").FillWidth().FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, tr("只开放下列端口，其他本机服务保持关闭。对方还需通过官方网络权限检查，且未被本机封禁。")).FillWidth().FontSize(12).TextColor(pal.Muted)
 						a.meshServicePresets(c)
-						ui.Text(c, "请只开放你认识且有登录保护的服务。Gopurr 不会自动启动 SSH、远程桌面或共享服务；修改端口后需要重新开放访问。").FillWidth().FontSize(11).TextColor(pal.Muted)
+						ui.Text(c, tr("请只开放你认识且有登录保护的服务。Gopurr 不会自动启动 SSH、远程桌面或共享服务；修改端口后需要重新开放访问。")).FillWidth().FontSize(11).TextColor(pal.Muted)
 						if a.meshServicesError != "" {
 							ui.Text(c, a.meshServicesError).FillWidth().FontSize(11).TextColor(pal.Danger)
 						}
 					})
 				})
 				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
-					softButton(c, "取消").OnClick(closeDialog)
-					label := "允许访问本机"
+					softButton(c, tr("取消")).OnClick(closeDialog)
+					label := tr("允许访问本机")
 					if a.meshEditServices {
-						label = "保存并关闭访问"
+						label = tr("保存并关闭访问")
 					}
 					softPrimaryButton(c, label).Disabled(snap.Busy).OnClick(func() {
 						ports, err := mesh.ParseServices(a.meshServicesDraft)
@@ -615,7 +615,7 @@ func (a *App) meshServiceDialog(c *ui.Context, snap mesh.Snapshot) {
 							return
 						}
 						if a.meshConfirmAllow && len(ports) == 0 {
-							a.meshServicesError = "请明确填写要开放的服务端口"
+							a.meshServicesError = tr("请明确填写要开放的服务端口")
 							return
 						}
 						a.meshClient.SetServices(mesh.FormatServices(ports), a.meshConfirmAllow)

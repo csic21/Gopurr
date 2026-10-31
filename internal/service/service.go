@@ -15,6 +15,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"gopurr/internal/localize"
 )
 
 //go:embed install.sh
@@ -42,13 +44,13 @@ func Installed() bool {
 // user first: installing a persistent service needs administrator authorization.
 func Install(binary, dataDir string) error {
 	if !Available() {
-		return errors.New("当前平台不支持安装 macOS TUN 服务")
+		return errors.New(localize.Text("当前平台不支持安装 macOS TUN 服务"))
 	}
 	if !filepath.IsAbs(binary) || !filepath.IsAbs(dataDir) {
-		return errors.New("安装服务需要绝对路径")
+		return errors.New(localize.Text("安装服务需要绝对路径"))
 	}
 	if _, err := os.Stat(binary); err != nil {
-		return fmt.Errorf("可执行文件不可用: %w", err)
+		return fmt.Errorf(localize.Text("可执行文件不可用: %w"), err)
 	}
 	return runAsAdmin(shellCommand("install", binary, dataDir))
 }
@@ -56,10 +58,10 @@ func Install(binary, dataDir string) error {
 // Uninstall removes the daemon and its plist.
 func Uninstall(dataDir string) error {
 	if !Available() {
-		return errors.New("当前平台不支持卸载 macOS TUN 服务")
+		return errors.New(localize.Text("当前平台不支持卸载 macOS TUN 服务"))
 	}
 	if dataDir != "" && !filepath.IsAbs(dataDir) {
-		return errors.New("数据目录必须是绝对路径")
+		return errors.New(localize.Text("数据目录必须是绝对路径"))
 	}
 	return runAsAdmin(shellCommand("uninstall", "", dataDir))
 }
@@ -95,7 +97,7 @@ func appleScript(command string) string {
 
 func runAsAdmin(command string) error {
 	if strings.ContainsAny(command, "\x00") {
-		return errors.New("命令包含非法字符")
+		return errors.New(localize.Text("命令包含非法字符"))
 	}
 
 	cmd := exec.Command("osascript", "-e", appleScript(command))
@@ -107,9 +109,9 @@ func runAsAdmin(command string) error {
 	lower := strings.ToLower(text)
 	switch {
 	case strings.Contains(lower, "cancel"), strings.Contains(text, "-128"):
-		return errors.New("已取消授权")
+		return errors.New(localize.Text("已取消授权"))
 	case strings.Contains(lower, "not permitted"):
-		return fmt.Errorf("系统拒绝了该操作: %s", text)
+		return fmt.Errorf(localize.Text("系统拒绝了该操作: %s"), text)
 	}
 	return fmt.Errorf("%s: %w", text, err)
 }

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"gopurr/internal/localize"
 )
 
 var proxyProtocols = [...]string{"web", "secureweb", "socksfirewall"}
@@ -37,7 +39,7 @@ type proxyLeases struct {
 
 func validateProxy(server string, port int) error {
 	if strings.TrimSpace(server) == "" || strings.ContainsAny(server, "\x00\r\n") || port < 1 || port > 65535 {
-		return errors.New("系统代理地址或端口无效")
+		return errors.New(localize.Text("系统代理地址或端口无效"))
 	}
 	return nil
 }
@@ -55,7 +57,7 @@ func readProxy(command commandRunner, service, protocol string) (proxySetting, e
 		switch strings.TrimSpace(key) {
 		case "Enabled":
 			if value != "Yes" && value != "No" {
-				return setting, errors.New("系统代理状态无效")
+				return setting, errors.New(localize.Text("系统代理状态无效"))
 			}
 			found, setting.enabled = true, value == "Yes"
 		case "Server":
@@ -65,7 +67,7 @@ func readProxy(command commandRunner, service, protocol string) (proxySetting, e
 		}
 	}
 	if !found {
-		return setting, errors.New("无法读取系统代理状态")
+		return setting, errors.New(localize.Text("无法读取系统代理状态"))
 	}
 	return setting, nil
 }
@@ -126,7 +128,7 @@ func (l *proxyLeases) enable(port int, previous *State) error {
 	lease.dirty = [3]bool{true, true, true}
 	lease.bypassDirty = true
 	if err := l.persist(); err != nil {
-		return fmt.Errorf("保存系统代理恢复记录失败: %w", err)
+		return fmt.Errorf(localize.Text("保存系统代理恢复记录失败: %w"), err)
 	}
 	for i, protocol := range proxyProtocols {
 		lease.dirty[i] = true
@@ -146,7 +148,7 @@ func (l *proxyLeases) restore() error {
 	var failures []error
 	for service, lease := range l.services {
 		if err := l.restoreService(service, lease); err != nil {
-			failures = append(failures, fmt.Errorf("恢复 %s 系统代理失败: %w", service, err))
+			failures = append(failures, fmt.Errorf(localize.Text("恢复 %s 系统代理失败: %w"), service, err))
 		} else {
 			delete(l.services, service)
 		}
