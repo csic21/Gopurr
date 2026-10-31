@@ -20,7 +20,19 @@ var IconPNG []byte
 var SidebarPNG []byte
 
 // TrayPNG is the flat sleeping-cat silhouette with transparent cutouts.
-// The OS tints this template for a light or dark menu bar.
+// macOS (and Windows template mode) tints this black ink for the menu bar.
 //
 //go:embed tray.png
 var TrayPNG []byte
+
+// TrayWindowsLightPNG is the Windows notification-area icon for a light
+// taskbar: Graphite fill with a white edge. Not a template.
+//
+//go:embed tray-windows-light.png
+var TrayWindowsLightPNG []byte
+
+// TrayWindowsDarkPNG is the Windows notification-area icon for a dark
+// taskbar: ivory fill with a dark edge. Not a template.
+//
+//go:embed tray-windows-dark.png
+var TrayWindowsDarkPNG []byte

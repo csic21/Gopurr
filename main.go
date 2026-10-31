@@ -351,15 +351,37 @@ func installTray(a *app.App) bool {
 		toolTip = "Gopurr · 左键显示窗口，右键打开菜单"
 	}
 
+	icon := brand.TrayPNG
+	template := true
+	if runtime.GOOS == "windows" {
+		// Windows does not tint template ink the way macOS does on a light
+		// taskbar; a black silhouette becomes an opaque blob. Use explicit
+		// Graphite icons with an edge, and swap when the taskbar appearance changes.
+		icon = brand.TrayWindowsLightPNG
+		template = false
+	}
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		ID:             "main",
-		Icon:           brand.TrayPNG,
-		IconIsTemplate: true,
+		Icon:           icon,
+		IconIsTemplate: template,
 		ToolTip:        toolTip,
 	})
 	if err != nil {
 		log.Printf("tray unavailable: %v", err)
 		return false
+	}
+	if runtime.GOOS == "windows" {
+		syncWindowsTrayIcon := func() {
+			png := brand.TrayWindowsLightPNG
+			if tray.Dark() {
+				png = brand.TrayWindowsDarkPNG
+			}
+			if err := tray.SetIcon(png, false); err != nil {
+				log.Printf("tray icon: %v", err)
+			}
+		}
+		syncWindowsTrayIcon()
+		tray.OnAppearanceChange(syncWindowsTrayIcon)
 	}
 	openWindow := func() { showWindow(a) }
 

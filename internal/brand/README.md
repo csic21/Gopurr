@@ -6,7 +6,8 @@
 - `logo.svg`：同一设计的矢量版本，仅包含纯白 `#ffffff` 底板与纯黑 `#000000` 剪影，抗锯齿像素为中性灰。
 - `tray.svg`：相同剪影的菜单栏版本，只有黑色与透明像素，缩紧视口以适配 16/18 像素。
 - `logo.png`、`icon.png`、`sidebar.png`：从渲染源派生的 1024、512、128 像素版本。
-- `tray.png`：从菜单栏矢量派生的 32 像素模板，由操作系统适配明暗。
+- `tray.png`：从菜单栏矢量派生的 32 像素模板，由 macOS 适配明暗。
+- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图（Graphite + 白边 / 浅色填充 + 深边），非模板；`main` 在 Windows 上按任务栏明暗切换。
 
 编辑 `logo.svg` 与 `tray.svg` 时保持剪影路径一致，然后运行：
 
