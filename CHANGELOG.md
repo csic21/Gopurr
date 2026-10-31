@@ -1,5 +1,9 @@
 # 更新记录
 
+## 0.6.5
+
+- 修复 Windows 发布测试中内核就绪竞态：`TestDaemonLoadsSubscription` 预留混合端口时同时检查 TCP 与 UDP（与冒烟一致），避免仅 TCP 空闲时 mihomo UDP 绑定失败关闭监听、守护进程在写入 `core.json` 前超时；就绪等待放宽至 20s，并在有 `StatusPath` 时等到状态文件落盘。macOS 托盘与 Windows 圆形反色徽章（变体 C）不变。
+
 ## 0.6.4
 
 - Windows 托盘改为圆形反色徽章（变体 C）：浅色任务栏为 Graphite 圆底 + 象牙白猫，深色任务栏为象牙圆底 + Graphite 猫；猫在圆内等比放大（约 1–2px 边距），圆约占满 32×32，减轻留白。macOS `tray.png` 不变。

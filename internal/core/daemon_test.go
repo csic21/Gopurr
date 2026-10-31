@@ -3,6 +3,7 @@ package core_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -55,12 +57,13 @@ func testDaemonLoadsSubscription(t *testing.T, datMode bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	// Mixed inbound needs TCP+UDP on the same port; TCP-only reservation lets
+	// UDP bind fail inside mihomo, which closes the TCP listener — then the
+	// daemon's mixed-port readiness wait times out and never becomes ready.
+	port, err := freeMixedPort()
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
 	upstream, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +118,7 @@ rules:
 		Socket:     filepath.Join(dir, "core.sock"),
 		Secret:     "local-regression-secret",
 		Home:       filepath.Join(dir, "mihomo"),
+		StatusPath: filepath.Join(dir, "core.json"),
 	}
 	if err := os.WriteFile(opts.ConfigPath, cfg, 0o600); err != nil {
 		t.Fatal(err)
@@ -135,7 +139,12 @@ rules:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = cmd.Process.Signal(os.Interrupt)
+		// Windows cannot deliver os.Interrupt to another process; kill promptly.
+		if runtime.GOOS == "windows" {
+			_ = cmd.Process.Kill()
+		} else {
+			_ = cmd.Process.Signal(os.Interrupt)
+		}
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
 		select {
@@ -147,10 +156,18 @@ rules:
 	})
 
 	r := kernel.NewRemote(opts.Socket, opts.Secret)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Allow geodata Ensure + hub.Parse + mixed-port readiness (up to 10s) on
+	// cold Windows runners; 5s raced with Parse finishing just after Probe gave up.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	for r.Probe(ctx) != nil {
+	for {
+		if r.Probe(ctx) == nil {
+			if _, err := os.Stat(opts.StatusPath); err == nil {
+				break
+			}
+		}
 		if ctx.Err() != nil {
+			_ = logFile.Sync()
 			logs, _ := os.ReadFile(logFile.Name())
 			t.Fatalf("daemon did not become ready: %s", logs)
 		}
@@ -327,4 +344,26 @@ rules:
 			t.Fatalf("update stopped proxy: %v", err)
 		}
 	})
+}
+
+// freeMixedPort picks a port where both TCP and UDP are free. Mihomo's mixed
+// inbound binds both; a TCP-only check races with UDP occupancy and leaves the
+// daemon waiting forever on a closed TCP listener.
+func freeMixedPort() (int, error) {
+	for i := 0; i < 40; i++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return 0, err
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		udp, err := net.ListenPacket("udp", ln.Addr().String())
+		if err != nil {
+			ln.Close()
+			continue
+		}
+		udp.Close()
+		ln.Close()
+		return port, nil
+	}
+	return 0, errors.New("could not reserve a free TCP+UDP mixed port")
 }

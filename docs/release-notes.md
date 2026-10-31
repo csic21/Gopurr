@@ -1,9 +1,10 @@
-Gopurr 0.6.4 将 Windows 托盘更新为圆形反色徽章（变体 C），让蜷睡猫在通知区更清晰。
+Gopurr 0.6.5 修复 Windows 发布流水线中内核就绪判定的竞态，并保留 0.6.4 的圆形反色徽章托盘。
 
-- **Windows 托盘（变体 C）**：浅色任务栏为 Graphite 圆底 + 象牙白猫；深色任务栏为象牙圆底 + Graphite 猫。圆约占满 32×32，猫在圆内等比放大（约 1–2px 边距）。macOS 模板托盘图不变。
-- 本版基于已公开的 v0.6.3（混合端口就绪判定与发布冒烟加固）与 v0.6.2（异步内核启动／重载、更快的 TUN 服务失败反馈）。
+- **内核就绪**：守护进程仍在混合端口可连接后再写入 `core.json`；测试改为同时预留 TCP+UDP 端口并放宽就绪等待，避免 Windows 上 UDP 占用导致入站关闭、发布 Test 误失败。
+- **Windows 托盘（变体 C）**：沿用 Graphite／象牙圆形反色徽章；macOS `tray.png` 不变。
+- 本版基于已公开的 v0.6.4（圆形托盘）与 v0.6.3（混合端口就绪判定与发布冒烟加固）。
 
-macOS Apple Silicon（M1 及后续 M 系列）下载 `gopurr-0.6.4-arm64.dmg`，打开后将 Gopurr 拖入 Applications。Windows 10/11 x64 下载 `gopurr-setup-0.6.4-amd64.exe`，按向导安装。
+macOS Apple Silicon（M1 及后续 M 系列）下载 `gopurr-0.6.5-arm64.dmg`，打开后将 Gopurr 拖入 Applications。Windows 10/11 x64 下载 `gopurr-setup-0.6.5-amd64.exe`，按向导安装。
 
 在「设置 → 维护 → 软件更新」检查新版本。更新包通过 Ed25519 签名校验。若提示 TUN 服务需要更新，在概览页点击「重新安装…」并完成管理员授权。
 

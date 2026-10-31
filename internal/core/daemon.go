@@ -149,9 +149,11 @@ func RunDaemon(opts DaemonOptions) error {
 	// Probe only hits the controller. Mixed-port (TCP+UDP) can still be absent
 	// when UDP bind fails and mihomo closes the TCP listener — wait for the
 	// traffic path before advertising ready via core.json / IsRoot.
+	// mixed-port disabled or 0 skips this wait (no hang).
 	if port := mixedPortFromDoc(doc); port > 0 {
-		if err := waitLocalTCP(net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), 5*time.Second); err != nil {
-			return fmt.Errorf("混合端口未就绪: %w", err)
+		addr := net.JoinHostPort("127.0.0.1", fmt.Sprint(port))
+		if err := waitLocalTCP(addr, 10*time.Second); err != nil {
+			return fmt.Errorf("混合端口未就绪 (%s): %w", addr, err)
 		}
 	}
 
@@ -226,13 +228,23 @@ func mixedPortFromDoc(doc map[string]any) int {
 		return int(v)
 	case float64:
 		return int(v)
+	case string:
+		var n int
+		if _, err := fmt.Sscanf(strings.TrimSpace(v), "%d", &n); err == nil {
+			return n
+		}
+		return 0
 	default:
 		return 0
 	}
 }
 
 // waitLocalTCP polls until addr accepts TCP connections or timeout.
+// timeout <= 0 returns immediately with a clear error (callers pass a positive budget).
 func waitLocalTCP(addr string, timeout time.Duration) error {
+	if timeout <= 0 {
+		return fmt.Errorf("wait for %s: non-positive timeout", addr)
+	}
 	deadline := time.Now().Add(timeout)
 	var last error
 	for {
@@ -244,9 +256,9 @@ func waitLocalTCP(addr string, timeout time.Duration) error {
 		last = err
 		if time.Now().After(deadline) {
 			if last != nil {
-				return last
+				return fmt.Errorf("timeout after %s waiting for %s: %w", timeout, addr, last)
 			}
-			return errors.New("timeout")
+			return fmt.Errorf("timeout after %s waiting for %s", timeout, addr)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

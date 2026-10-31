@@ -22,6 +22,18 @@ func TestMixedPortFromDoc(t *testing.T) {
 	if got := mixedPortFromDoc(map[string]any{"mode": "rule"}); got != 0 {
 		t.Fatalf("missing = %d", got)
 	}
+	if got := mixedPortFromDoc(map[string]any{"mixed-port": 0}); got != 0 {
+		t.Fatalf("zero = %d", got)
+	}
+	if got := mixedPortFromDoc(map[string]any{"mixed-port": "9050"}); got != 9050 {
+		t.Fatalf("string = %d", got)
+	}
+}
+
+func TestWaitLocalTCPNonPositive(t *testing.T) {
+	if err := waitLocalTCP("127.0.0.1:1", 0); err == nil {
+		t.Fatal("non-positive timeout should error immediately")
+	}
 }
 
 func TestWaitLocalTCP(t *testing.T) {
