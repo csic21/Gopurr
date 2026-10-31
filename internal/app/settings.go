@@ -134,6 +134,14 @@ func (a *App) settingsPage(c *ui.Context) {
 						softSwitch(c, &a.restoreProxyOn).Label(tr("启动时系统代理开关"))
 					})
 				})
+				settingsGroup(c, tr("快捷操作"), func() {
+					settingsRow(c, tr("全局快捷键"), tr("在其他应用中显示窗口、切换代理与路由模式"), func() {
+						softButton(c, tr("配置快捷键…")).OnClick(a.openShortcutSettings)
+					})
+					if a.shortcutError != "" {
+						ui.Text(c, a.shortcutError).FillWidth().Padding(0, 16, 12).FontSize(11).TextColor(pal.Danger)
+					}
+				})
 				ui.Text(c, tr("内核自动运行，关窗后仍可继续代理。")).Label(tr("内核自动运行")).FontSize(11).TextColor(pal.Faint).PaddingX(4)
 				settingsGroup(c, tr("运行与更新"), func() {
 					settingsRow(c, tr("轻量模式"), tr("关窗后释放界面资源，代理继续运行"), func() {

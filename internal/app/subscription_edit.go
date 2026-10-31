@@ -20,6 +20,10 @@ type subscriptionEditState struct {
 }
 
 func (a *App) openSubscriptionEditor(p profile.Profile) {
+	if p.IsAggregate() {
+		a.openAggregationEditor(p.ID)
+		return
+	}
 	a.editSub = p
 	a.showEditSub = true
 	a.editSubError = ""
@@ -105,6 +109,9 @@ func (a *App) subscriptionEditor(c *ui.Context) {
 	})
 }
 func subscriptionUpdateLabel(p profile.Profile) string {
+	if p.IsAggregate() {
+		return tr("来源更新后自动重新聚合")
+	}
 	if p.IsFile() {
 		return tr("手动读取")
 	}
@@ -120,6 +127,23 @@ func subscriptionUpdateLabel(p profile.Profile) string {
 // refreshManagedProfile keeps both the cache and running config intact when
 // a changed source downloads valid YAML that the kernel cannot accept.
 func (a *App) refreshManagedProfile(id string) error {
+	if err := a.refreshManagedProfileOnly(id); err != nil {
+		return err
+	}
+	return a.refreshDependentAggregates(id)
+}
+
+func (a *App) refreshDependentAggregates(id string) error {
+	var failures []error
+	for _, dependent := range a.store.DependentAggregates(id) {
+		if err := a.refreshManagedProfileOnly(dependent.ID); err != nil {
+			failures = append(failures, fmt.Errorf(tr("来源已更新；聚合配置 %s 保留原版本：%w"), dependent.Name, err))
+		}
+	}
+	return errors.Join(failures...)
+}
+
+func (a *App) refreshManagedProfileOnly(id string) error {
 	active := a.store.ActiveID() == id
 	running := active && a.k != nil && a.k.Running()
 	var previous []byte
@@ -127,14 +151,14 @@ func (a *App) refreshManagedProfile(id string) error {
 	if running {
 		previous, err = a.configBytes()
 		if err != nil {
+			previous, err = a.lastAcceptedConfig()
+		}
+		if err != nil {
 			return err
 		}
 	}
 	attemptedReload := false
 	err = a.store.RefreshChecked(id, func(body []byte) error {
-		if !active {
-			return nil
-		}
 		p, err := a.store.Get(id)
 		if err != nil {
 			return err
@@ -143,7 +167,11 @@ func (a *App) refreshManagedProfile(id string) error {
 		if p.Overrides != nil {
 			local = *p.Overrides
 		}
-		candidate, err := patch.ApplyLayers(body, a.ov, local)
+		global := a.runtimeOverrides()
+		if !active {
+			global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
+		}
+		candidate, err := patch.ApplyLayers(body, global, local)
 		if err != nil {
 			return err
 		}

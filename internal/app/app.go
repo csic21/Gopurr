@@ -75,6 +75,10 @@ type App struct {
 	backupState
 	meshState
 	diagnosticState
+	shortcutState
+	aggregationState
+	proxyEditorState
+	overrideLibraryState
 
 	mu   sync.Mutex
 	hist []sample
@@ -391,6 +395,10 @@ func (a *App) View(c *ui.Context) {
 	} else {
 		a.softwareUpdateModal(c)
 		a.restoreDialog(c)
+		a.shortcutDialog(c)
+		a.aggregationDialog(c)
+		a.proxyEditorDialog(c)
+		a.overrideLibraryDialog(c)
 	}
 }
 
@@ -461,7 +469,7 @@ func (a *App) StartBackground() {
 }
 
 func (a *App) StartupNeedsAttention() bool {
-	return a.initErr != "" || a.k == nil || !a.k.Running() || a.tunErrText() != "" || a.sysErrText() != ""
+	return a.initErr != "" || a.k == nil || !a.k.Running() || a.tunErrText() != "" || a.sysErrText() != "" || a.shortcutError != ""
 }
 
 func (a *App) sampleLoop() {
@@ -1273,14 +1281,9 @@ func (a *App) addSubscription() {
 
 	name := strings.TrimSpace(a.subName)
 	go func() {
-		previous := a.store.ActiveID()
-		item, err := a.store.Add(url, name)
-		if err == nil && a.store.ActiveID() == item.ID {
-			if !a.startKernel() {
-				err = errors.New(a.notice)
-				_ = a.store.SetActive(previous)
-			}
-		}
+		_, err := a.importManagedProfile(func(accept func(profile.Profile, []byte) error) (profile.Profile, error) {
+			return a.store.AddChecked(url, name, accept)
+		})
 		a.bmu.Lock()
 		a.subBusy = false
 		if err != nil {
@@ -1539,7 +1542,7 @@ func (a *App) maybeAutoUpdate() {
 	p := a.Prefs()
 	updated, inheritedAttempt := 0, false
 	for _, item := range a.store.List() {
-		if item.IsFile() {
+		if item.IsFile() || item.IsAggregate() {
 			continue
 		}
 		hours := p.AutoUpdateHours
@@ -1608,15 +1611,12 @@ func (a *App) importLocalFile() {
 		}
 		defer func() { a.endProfileWork(); a.invalidate() }()
 		var lastErr string
-		previous := a.store.ActiveID()
 		for _, path := range paths {
-			if _, err := a.store.AddFile(path, ""); err != nil {
+			if _, err := a.importManagedProfile(func(accept func(profile.Profile, []byte) error) (profile.Profile, error) {
+				return a.store.AddFileChecked(path, "", accept)
+			}); err != nil {
 				lastErr = err.Error()
 			}
-		}
-		if a.store.ActiveID() != previous && !a.startKernel() {
-			lastErr = a.notice
-			_ = a.store.SetActive(previous)
 		}
 		a.setSubErr(lastErr)
 		a.invalidate()

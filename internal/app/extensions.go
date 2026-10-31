@@ -283,6 +283,7 @@ func (a *App) mergeYAMLEditor(c *ui.Context) {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 					sectionLabel(c, tr("YAML 草稿"))
 					ui.Spacer(c)
+					softButton(c, tr("覆写库…")).OnClick(a.openOverrideLibrary)
 					label := tr("查看模板")
 					if a.showYAMLTemplate {
 						label = tr("收起模板")

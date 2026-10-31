@@ -91,6 +91,7 @@ func main() {
 	}
 	a := app.New()
 	app.ConfigureLanguages(a.Prefs())
+	installImportLifecycle(a)
 	mygo.App.OnLocaleChanged(func(string) {
 		if runtime.GOOS == "darwin" {
 			mygo.App.SetMenu(a.ApplicationMenu(func() { showWindow(a) }))
@@ -121,6 +122,8 @@ func main() {
 		}
 
 		installWindowLifecycle(a)
+		a.ConfigureShortcuts(mygo.GlobalShortcut, func() { showWindow(a) })
+		mygo.App.OnQuit(a.CloseShortcuts)
 		// Windows keeps its initial tray snapshot, so populate it only after
 		// the background kernel and routing groups are ready.
 		a.StartBackground()
@@ -132,6 +135,15 @@ func main() {
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func installImportLifecycle(a *app.App) {
+	mygo.App.OnOpenURL(func(raw string) {
+		mygo.App.WhenReady(func() {
+			a.OpenSubscriptionURL(raw)
+			showWindow(a)
+		})
+	})
 }
 
 func installQuitLifecycle(a *app.App) {

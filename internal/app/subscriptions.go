@@ -32,6 +32,7 @@ func (a *App) subsPage(c *ui.Context) {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			if len(items) > 0 {
 				softButton(c, tr("从文件导入…")).Disabled(busy).OnClick(a.importLocalFile)
+				softButton(c, tr("新建聚合…")).Disabled(busy).OnClick(func() { a.openAggregationEditor("") })
 				add := ui.Button
 				if running {
 					add = ui.PrimaryButton
@@ -154,6 +155,9 @@ func (a *App) subRow(c *ui.Context, item profile.Profile, active, busy bool) {
 						source, full = tr("备份中的本地配置"), tr("备份中的本地配置")
 					}
 				}
+				if item.IsAggregate() {
+					source, full = tr("聚合配置 · 来自已导入的订阅"), tr("聚合配置 · 来自已导入的订阅")
+				}
 				ui.Text(c, source).FillWidth().SingleLine().Ellipsis("…").Tooltip(full).FontSize(11).TextColor(pal.Muted)
 			})
 			if active {
@@ -186,11 +190,20 @@ func (a *App) subRow(c *ui.Context, item profile.Profile, active, busy bool) {
 			if item.IsFile() {
 				label = tr("重新读取")
 			}
+			if item.IsAggregate() {
+				label = tr("重新聚合")
+			}
 			if busy {
 				label = tr("更新中…")
 			}
 			softButton(c, label).Disabled(busy).OnClick(func() { a.refreshSubscription(item.ID) })
-			softButton(c, tr("编辑…")).Disabled(busy).Label(tr("编辑订阅 ") + item.Name).OnClick(func() { a.openSubscriptionEditor(item) })
+			softButton(c, tr("编辑…")).Disabled(busy).Label(tr("编辑订阅 ") + item.Name).OnClick(func() {
+				if item.IsAggregate() {
+					a.openAggregationEditor(item.ID)
+				} else {
+					a.openSubscriptionEditor(item)
+				}
+			})
 			softButton(c, tr("覆写…")).Disabled(busy).Label(tr("覆写订阅 ") + item.Name).OnClick(func() { a.openProfileOverrides(item) })
 			deleteHint := tr("删除此配置")
 			if active {

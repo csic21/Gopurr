@@ -11,16 +11,18 @@ import (
 	"time"
 
 	"gopurr/internal/autostart"
+	"gopurr/internal/shortcuts"
 )
 
 // Prefs are the settings that belong to the window, not to the kernel. They
 // live beside the profiles, but in their own file: a kernel config and a UI
 // preference are different things and should not share a schema.
 type Prefs struct {
-	AutoLaunch      bool `json:"autoLaunch"`
-	SilentStart     bool `json:"silentStart"`
-	CloseOnSwitch   bool `json:"closeOnSwitch"`
-	CheckAppUpdates bool `json:"checkAppUpdates"`
+	Shortcuts       shortcuts.Config `json:"shortcuts"`
+	AutoLaunch      bool             `json:"autoLaunch"`
+	SilentStart     bool             `json:"silentStart"`
+	CloseOnSwitch   bool             `json:"closeOnSwitch"`
+	CheckAppUpdates bool             `json:"checkAppUpdates"`
 	// Appearance controls both the native window and its content.
 	Appearance string `json:"appearance"`
 	// SidebarCollapsed moves the same destinations into the window toolbar.
@@ -101,6 +103,11 @@ func (a *App) loadPrefs() {
 	if p.TestConcurrency < 1 || p.TestConcurrency > 32 {
 		p.TestConcurrency = defaultPrefs().TestConcurrency
 	}
+	// Invalid bindings from an edited or older preference file must not stop
+	// the application from opening its settings.
+	if _, err := p.Shortcuts.Normalized(); err != nil {
+		p.Shortcuts = shortcuts.Config{}
+	}
 	a.prefs = p
 }
 
@@ -129,6 +136,16 @@ func (a *App) changePrefs(edit func(*Prefs)) error {
 		a.pmu.Unlock()
 		return err
 	}
+	var keys *shortcuts.Change
+	if a.shortcutManager != nil && p.Shortcuts != a.prefs.Shortcuts {
+		var err error
+		keys, err = a.shortcutManager.Prepare(p.Shortcuts)
+		if err != nil {
+			a.pmu.Unlock()
+			return fmt.Errorf(tr("快捷键无法启用，请检查组合是否被占用：%w"), err)
+		}
+		defer keys.Rollback()
+	}
 	startupChanged := p.AutoLaunch != a.prefs.AutoLaunch
 	applyStartup := a.applyAutoLaunch
 	if applyStartup == nil {
@@ -148,6 +165,7 @@ func (a *App) changePrefs(edit func(*Prefs)) error {
 		return fmt.Errorf(tr("无法保存偏好: %w"), err)
 	}
 	a.prefs = p
+	keys.Commit()
 	hook := a.prefsHook
 	a.pmu.Unlock()
 
@@ -187,6 +205,9 @@ func normalizePrefs(p Prefs) Prefs {
 }
 
 func validatePrefs(p Prefs) error {
+	if _, err := p.Shortcuts.Normalized(); err != nil {
+		return fmt.Errorf(tr("快捷键格式无效或重复：%w"), err)
+	}
 	if !validLanguage(p.Language) {
 		return fmt.Errorf("%s", tr("请选择跟随系统、简体中文或英文"))
 	}

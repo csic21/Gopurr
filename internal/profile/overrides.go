@@ -11,6 +11,11 @@ import (
 // Profiles returned to editors must not share their mutable settings with the
 // store. Only a successful atomic save publishes an update.
 func cloneProfile(p Profile) Profile {
+	if p.Aggregate != nil {
+		spec := *p.Aggregate
+		spec.Sources = slices.Clone(spec.Sources)
+		p.Aggregate = &spec
+	}
 	if p.UpdateHours != nil {
 		hours := *p.UpdateHours
 		p.UpdateHours = &hours
@@ -18,6 +23,8 @@ func cloneProfile(p Profile) Profile {
 	if p.Overrides != nil {
 		local := *p.Overrides
 		local.ExtraRules = slices.Clone(local.ExtraRules)
+		local.TemplateIDs = slices.Clone(local.TemplateIDs)
+		local.ProxyEdits = patch.CloneProxyEdits(local.ProxyEdits)
 		if local.DNS != nil {
 			dns := *local.DNS
 			dns.Nameserver = slices.Clone(dns.Nameserver)

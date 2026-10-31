@@ -40,8 +40,9 @@ func (i Info) Used() int64 { return i.Upload + i.Download }
 
 // Kinds of profile source.
 const (
-	KindURL  = "url"
-	KindFile = "file"
+	KindURL       = "url"
+	KindFile      = "file"
+	KindAggregate = "aggregate"
 )
 
 // Profile is one saved configuration: a subscription link or a local file.
@@ -58,10 +59,13 @@ type Profile struct {
 	UpdateHours *int                    `json:"updateHours,omitempty"`
 	UseProxy    bool                    `json:"useProxy,omitempty"`
 	Overrides   *patch.ProfileOverrides `json:"overrides,omitempty"`
+	Aggregate   *AggregateSpec          `json:"aggregate,omitempty"`
 }
 
 // IsFile reports a local file rather than a subscription.
 func (p Profile) IsFile() bool { return p.Kind == KindFile }
+
+func (p Profile) IsAggregate() bool { return p.Kind == KindAggregate }
 
 // Store is the profiles directory plus its index.
 type Store struct {
@@ -140,14 +144,21 @@ func (s *Store) ActiveID() string {
 func (s *Store) SetActive(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := s.Active
+	commit := func() error {
+		s.Active = id
+		if err := s.save(); err != nil {
+			s.Active = previous
+			return err
+		}
+		return nil
+	}
 	if id == "" {
-		s.Active = ""
-		return s.save()
+		return commit()
 	}
 	for _, p := range s.Items {
 		if p.ID == id {
-			s.Active = id
-			return s.save()
+			return commit()
 		}
 	}
 	return errors.New(localize.Text("没有这个订阅"))
@@ -157,6 +168,16 @@ func (s *Store) SetActive(id string) error {
 func (s *Store) Remove(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, p := range s.Items {
+		if p.Aggregate == nil {
+			continue
+		}
+		for _, source := range p.Aggregate.Sources {
+			if source.ID == id {
+				return fmt.Errorf(localize.Text("配置仍被聚合订阅 %q 使用，请先修改或删除该聚合"), p.Name)
+			}
+		}
+	}
 	for i, p := range s.Items {
 		if p.ID != id {
 			continue
@@ -185,105 +206,13 @@ func (s *Store) Content(id string) ([]byte, error) {
 
 // Add fetches a subscription URL and stores it. name may be empty when the
 // provider sends a profile-title header.
-func (s *Store) Add(url, name string) (Profile, error) {
-	body, info, title, err := fetch(url)
-	if err != nil {
-		return Profile{}, err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if name == "" {
-		name = title
-	}
-	if name == "" {
-		name = hostOf(url)
-	}
-
-	if err := validate(body); err != nil {
-		return Profile{}, err
-	}
-
-	p := Profile{
-		ID:      idOf(url),
-		Name:    name,
-		Kind:    KindURL,
-		URL:     url,
-		File:    idOf(url) + ".yaml",
-		Updated: time.Now(),
-		Info:    info,
-	}
-	if err := securefs.WriteFile(filepath.Join(s.dir, "profiles", p.File), body, 0o600); err != nil {
-		return Profile{}, err
-	}
-
-	replaced := false
-	for i, old := range s.Items {
-		if old.ID == p.ID {
-			p.Name = firstNonEmpty(name, old.Name)
-			p.UserAgent, p.UpdateHours, p.UseProxy = old.UserAgent, old.UpdateHours, old.UseProxy
-			p.Overrides = old.Overrides
-			s.Items[i] = p
-			replaced = true
-		}
-	}
-	if !replaced {
-		s.Items = append(s.Items, p)
-	}
-	if s.Active == "" {
-		s.Active = p.ID
-	}
-	return p, s.save()
+func (s *Store) Add(address, name string) (Profile, error) {
+	return s.AddChecked(address, name, nil)
 }
 
 // AddFile imports a local configuration file.
 func (s *Store) AddFile(path, name string) (Profile, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return Profile{}, err
-	}
-	body, err := os.ReadFile(abs)
-	if err != nil {
-		return Profile{}, fmt.Errorf(localize.Text("读取失败: %w"), err)
-	}
-	if err := validate(body); err != nil {
-		return Profile{}, err
-	}
-	if name == "" {
-		name = strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	p := Profile{
-		ID:      idOf("file:" + abs),
-		Name:    name,
-		Kind:    KindFile,
-		Path:    abs,
-		File:    idOf("file:"+abs) + ".yaml",
-		Updated: time.Now(),
-	}
-	if err := securefs.WriteFile(filepath.Join(s.dir, "profiles", p.File), body, 0o600); err != nil {
-		return Profile{}, err
-	}
-
-	replaced := false
-	for i, old := range s.Items {
-		if old.ID == p.ID {
-			p.Overrides = old.Overrides
-			s.Items[i] = p
-			replaced = true
-		}
-	}
-	if !replaced {
-		s.Items = append(s.Items, p)
-	}
-	if s.Active == "" {
-		s.Active = p.ID
-	}
-	return p, s.save()
+	return s.AddFileChecked(path, name, nil)
 }
 
 // validate rejects anything that is not a usable mihomo config.
@@ -321,7 +250,15 @@ func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 	var title string
 	var err error
 
-	if target.IsFile() {
+	if target.IsAggregate() {
+		if target.Aggregate == nil {
+			return errors.New(localize.Text("聚合配置缺少来源设置"))
+		}
+		body, _, err = s.BuildAggregate(*target.Aggregate)
+		if err != nil {
+			return err
+		}
+	} else if target.IsFile() {
 		path := target.Path
 		if path == "" {
 			path = filepath.Join(s.dir, "profiles", target.File)

@@ -39,14 +39,18 @@ func (a *App) commitProfileOverrides(id string, next patch.ProfileOverrides) (bo
 	if err != nil {
 		return false, err
 	}
-	candidate, err := patch.ApplyLayers(raw, a.runtimeOverrides(), next)
+	global := a.runtimeOverrides()
+	if a.store.ActiveID() != id {
+		global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
+	}
+	candidate, err := patch.ApplyLayers(raw, global, next)
 	if err != nil {
 		return false, fmt.Errorf(tr("订阅配置验证失败：%w"), err)
 	}
 	running := a.store.ActiveID() == id && a.k != nil && a.k.Running()
 	var previous []byte
 	if running {
-		previous, err = a.configBytes()
+		previous, err = a.lastAcceptedConfig()
 		if err != nil {
 			return false, err
 		}
@@ -115,7 +119,12 @@ func (a *App) extensionScopeControls(c *ui.Context) {
 		}
 		softButton(c, tr("预览配置…")).OnClick(a.previewExtensionConfig)
 	})
-	ui.Text(c, tr("合并顺序：原配置 → 全局覆写 → 订阅覆写 → 应用网络设置")).FillWidth().FontSize(11).TextColor(paletteFor(c).Faint)
+	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, tr("合并顺序：原配置 → 全局覆写 → 订阅覆写 → 应用网络设置")).Grow(1).MinWidth(0).FontSize(11).TextColor(paletteFor(c).Faint)
+		if a.extensionScope == 1 {
+			softButton(c, tr("编辑节点与策略组…")).OnClick(func() { a.openProfileProxyEditor(a.extensionProfileID) })
+		}
+	})
 }
 
 func (a *App) previewExtensionConfig() {

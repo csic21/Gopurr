@@ -79,6 +79,8 @@ func (a *App) prepareRestore(s *backup.Snapshot) (Prefs, patch.Overrides, int, e
 	if err := json.Unmarshal(s.Files["prefs.json"], &prefs); err != nil {
 		return fail(fmt.Errorf(tr("偏好文件无效: %w"), err))
 	}
+	// System key bindings belong to this machine, just like login registration.
+	prefs.Shortcuts = a.Prefs().Shortcuts
 	if err := validatePrefs(prefs); err != nil {
 		return fail(err)
 	}
@@ -111,7 +113,7 @@ func (a *App) prepareRestore(s *backup.Snapshot) (Prefs, patch.Overrides, int, e
 		if p.Kind == "" {
 			p.Kind = profile.KindURL
 		}
-		if p.Kind != profile.KindFile && p.Kind != profile.KindURL {
+		if p.Kind != profile.KindFile && p.Kind != profile.KindURL && p.Kind != profile.KindAggregate {
 			return fail(fmt.Errorf("%s", tr("未知配置类型")))
 		}
 		if err := profile.ValidateSettings(p); err != nil {
@@ -128,7 +130,7 @@ func (a *App) prepareRestore(s *backup.Snapshot) (Prefs, patch.Overrides, int, e
 			local = *p.Overrides
 		}
 		check := ov
-		check.ExtraRules, check.TunEnable = nil, false
+		check.ExtraRules, check.AppRules, check.TunEnable = nil, nil, false
 		if _, err := patch.ApplyLayers(body, check, local); err != nil {
 			return fail(fmt.Errorf(tr("订阅 %s 无效: %w"), p.Name, err))
 		}
@@ -140,8 +142,34 @@ func (a *App) prepareRestore(s *backup.Snapshot) (Prefs, patch.Overrides, int, e
 		}
 		if p.IsFile() {
 			p.Path = ""
-			index.Profiles[i] = p
 		} // Restored local profiles are self-contained.
+		index.Profiles[i] = p
+	}
+	byID := make(map[string]profile.Profile, len(index.Profiles))
+	for _, p := range index.Profiles {
+		byID[p.ID] = p
+	}
+	for _, p := range index.Profiles {
+		if !p.IsAggregate() {
+			continue
+		}
+		if p.Aggregate == nil {
+			return fail(errors.New(tr("聚合配置缺少来源设置")))
+		}
+		if err := profile.ValidateAggregateSpec(*p.Aggregate); err != nil {
+			return fail(err)
+		}
+		for _, source := range p.Aggregate.Sources {
+			entry, exists := byID[source.ID]
+			if !exists || entry.IsAggregate() {
+				return fail(errors.New(tr("聚合配置的来源不存在或引用了另一个聚合")))
+			}
+		}
+	}
+	if index.Active == "" {
+		if _, err := patch.Apply(s.Files["local.yaml"], ov); err != nil {
+			return fail(err)
+		}
 	}
 	if !activeFound {
 		return fail(fmt.Errorf("%s", tr("备份中的当前订阅不存在")))
@@ -162,7 +190,7 @@ func (a *App) restoreBackup(s *backup.Snapshot) error {
 		return err
 	}
 	oldStore, oldConfig, oldOverrides := a.store, a.cfgText, a.ov
-	previous, err := a.configBytes()
+	previous, err := a.lastAcceptedConfig()
 	if err != nil {
 		return fmt.Errorf(tr("无法保存恢复前的配置: %w"), err)
 	}
@@ -203,6 +231,7 @@ func (a *App) restoreBackup(s *backup.Snapshot) error {
 	a.appRulesError, a.appRulesStatus = "", ""
 	a.extensionDrafts = nil
 	a.showEditSub, a.showRaw, a.showDeleteSub = false, false, false
+	a.aggregationState, a.proxyEditorState, a.overrideLibraryState = aggregationState{}, proxyEditorState{}, overrideLibraryState{}
 	a.subAttempts = map[string]time.Time{}
 	a.proxyGroup = ""
 	a.connFetched = time.Time{}

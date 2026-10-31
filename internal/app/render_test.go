@@ -22,6 +22,7 @@ import (
 	"gopurr/internal/core"
 	"gopurr/internal/diagnostic"
 	"gopurr/internal/mesh"
+	"gopurr/internal/patch"
 	"gopurr/internal/profile"
 	"gopurr/internal/update"
 )
@@ -90,6 +91,46 @@ func TestRenderPages(t *testing.T) {
 		setup func()
 	}
 	shots := []shot{
+		{"aggregation-sources", func() { fixtureAggregation(t, a, 0) }},
+		{"aggregation-filters", func() { fixtureAggregation(t, a, 1) }},
+		{"aggregation-preview", func() { fixtureAggregation(t, a, 2); a.previewAggregation() }},
+		{"aggregation-error", func() {
+			fixtureAggregation(t, a, 1)
+			a.aggregationError = text("筛选后没有节点，请调整聚合来源或筛选条件")
+		}},
+		{"proxy-editor-nodes", func() { fixtureProxyEditor(t, a); a.proxyEditorNodes["香港 01"].Name = "香港 01 · 工作线路" }},
+		{"proxy-editor-groups", func() { fixtureProxyEditor(t, a); a.proxyEditorTab = 1 }},
+		{"proxy-editor-new-group", func() {
+			fixtureProxyEditor(t, a)
+			a.addProxyEditorGroup()
+			a.proxyEditorGroups[a.proxyEditorGroup].Name = "工作出口"
+		}},
+		{"proxy-editor-error", func() {
+			fixtureProxyEditor(t, a)
+			a.proxyEditorNodes["香港 01"].Port = "70000"
+			a.proxyEditorError = text("节点端口须为 1–65535")
+		}},
+		{"override-library", func() { fixtureOverrideLibrary(t, a, 0) }},
+		{"override-library-order", func() { fixtureOverrideLibrary(t, a, 1) }},
+		{"override-library-error", func() {
+			fixtureOverrideLibrary(t, a, 0)
+			a.libraryError = text("所选覆写模板已不存在，请重新选择")
+		}},
+		{"settings-shortcuts", func() { a.page, a.settingsTab = "settings", 0; a.openShortcutSettings() }},
+		{"settings-shortcuts-configured", func() {
+			a.page, a.settingsTab = "settings", 0
+			a.openShortcutSettings()
+			a.shortcutDraft = [6]string{"Ctrl+Alt+Space", "Ctrl+Alt+P", "Ctrl+Alt+T", "Ctrl+Alt+1", "Ctrl+Alt+2", "Ctrl+Alt+3"}
+		}},
+		{"settings-shortcuts-error", func() {
+			a.page, a.settingsTab = "settings", 0
+			a.openShortcutSettings()
+			a.shortcutDraft[0] = "Ctrl+Alt+P"
+			a.shortcutError = text("快捷键无法启用，请检查组合是否被占用：Ctrl+Alt+P")
+		}},
+		{"subs-import-link", func() {
+			a.OpenSubscriptionURL("gopurr://install-config?url=https%3A%2F%2Fsubscription.example.com%2Fsubscribe&name=Imported%20profile")
+		}},
 		{"profile-rules", func() { fixtureProfileEditor(a, 1) }},
 		{"profile-rules-error", func() {
 			fixtureProfileEditor(a, 1)
@@ -574,6 +615,9 @@ func TestRenderPages(t *testing.T) {
 					for _, size := range [][2]int{{1060, 720}, {840, 560}} {
 						page := shot.name
 						a.shutdown = shutdownState{}
+						a.shortcutState = shortcutState{}
+						a.aggregationState, a.proxyEditorState, a.overrideLibraryState = aggregationState{}, proxyEditorState{}, overrideLibraryState{}
+						a.ov.Library, a.ov.TemplateIDs = nil, nil
 						a.shutdownPending.Store(false)
 						a.bmu.Lock()
 						a.testing = ""
@@ -838,6 +882,53 @@ func TestRenderPages(t *testing.T) {
 		}
 	}
 
+}
+
+func fixtureManagedProfile(t *testing.T, a *App, id, name, server string) profile.Profile {
+	t.Helper()
+	raw := "proxies:\n  - {name: 香港 01, type: ss, server: " + server + ", port: 443, cipher: aes-128-gcm, password: fixture}\n  - {name: 日本 02, type: trojan, server: japan.example.com, port: 443, password: fixture}\nproxy-groups:\n  - {name: 节点选择, type: select, proxies: [香港 01, 日本 02, DIRECT]}\n  - {name: 自动选择, type: url-test, proxies: [香港 01, 日本 02], url: 'https://www.gstatic.com/generate_204', interval: 300}\nrules:\n  - MATCH,节点选择\n"
+	p := profile.Profile{ID: id, Name: name, Kind: profile.KindFile, File: id + ".yaml", Updated: time.Date(2026, 10, 31, 12, 0, 0, 0, time.Local)}
+	p.Path = filepath.Join(a.dir, "profiles", p.File)
+	if err := os.WriteFile(filepath.Join(a.dir, "profiles", p.File), []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a.store.Items = append(a.store.Items, p)
+	return p
+}
+
+func fixtureAggregation(t *testing.T, a *App, tab int) {
+	a.page = "subs"
+	first := fixtureManagedProfile(t, a, "fixture-work", "工作与家庭共用的长期订阅来源 · 多地区备用线路", "work.example.com")
+	second := fixtureManagedProfile(t, a, "fixture-home", "家庭备用订阅", "home.example.com")
+	a.openAggregationEditor("")
+	a.aggregationName, a.aggregationTab = "工作与家庭", tab
+	for i := range a.aggregationSources {
+		switch a.aggregationSources[i].ID {
+		case first.ID:
+			a.aggregationSources[i].Selected = true
+			a.aggregationSources[i].Prefix = "工作 | "
+		case second.ID:
+			a.aggregationSources[i].Selected = true
+			a.aggregationSources[i].Prefix = "家庭 | "
+		}
+	}
+}
+
+func fixtureProxyEditor(t *testing.T, a *App) {
+	p := fixtureManagedProfile(t, a, "fixture-proxy-editor", "工作与家庭共用的代理配置 · 本地修改保留最新订阅参数", "hongkong.example.com")
+	a.store.Active, a.page = p.ID, "proxies"
+	a.openProfileProxyEditor(p.ID)
+}
+
+func fixtureOverrideLibrary(t *testing.T, a *App, tab int) {
+	a.page, a.extensionTab, a.extensionScope = "rules", 3, 0
+	a.ov.Library = []patch.OverrideTemplate{
+		{ID: "work-dns", Name: "工作网络 DNS", YAML: "dns:\n  enable: true\n  nameserver:\n    - https://doh.pub/dns-query\n"},
+		{ID: "common", Name: "工作与家庭共用的连接设置 · 保留节点选择", YAML: "tcp-concurrent: true\nprofile:\n  store-selected: true\n"},
+	}
+	a.ov.TemplateIDs = []string{"common", "work-dns"}
+	a.openOverrideLibrary()
+	a.libraryTab = tab
 }
 
 func fixtureOverviewTraffic(a *App) {

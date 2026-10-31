@@ -129,6 +129,7 @@ func (a *App) proxiesPage(c *ui.Context) {
 	a.pageHeader(c, tr("代理"), fmt.Sprintf(tr("%d 个策略组 · %d 个节点"), len(visibleGroups(all, "rule")), len(nodes)), func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Row(c).Children(func() { a.modeControl(c) }).Tooltip(hint)
+			softButton(c, tr("编辑配置…")).Disabled(a.store == nil || a.store.ActiveID() == "").OnClick(a.openProxyEditor)
 			if !running {
 				a.kernelButton(c, false)
 				return

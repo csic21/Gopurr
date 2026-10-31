@@ -2,10 +2,14 @@
   "name": "Gopurr",
   "slug": "gopurr",
   "identifier": "io.github.gopurr.app",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "icon": "internal/brand/logo.png",
   "out": "bin",
   "publisher": "Gopurr",
+  "urlSchemes": [
+    "gopurr",
+    "clash"
+  ],
   "updates": {
     "publicKey": "ToB+ygOcp9k9Cftxlj/Vkj2iMNyy5hm3n2yNZLYvmdU=",
     "github": "csic21/Gopurr",

@@ -30,7 +30,7 @@ func ValidateSettings(p Profile) error {
 	if strings.TrimSpace(p.Name) == "" {
 		return fmt.Errorf("%s", localize.Text("请填写配置名称"))
 	}
-	if !p.IsFile() {
+	if !p.IsFile() && !p.IsAggregate() {
 		u, err := url.Parse(p.URL)
 		if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || strings.ContainsAny(p.URL, " \t\r\n") {
 			return fmt.Errorf("%s", localize.Text("请输入完整的 HTTP 或 HTTPS 订阅链接"))
@@ -59,7 +59,9 @@ func (s *Store) Edit(p Profile) error {
 		}
 		next := old
 		next.Name = strings.TrimSpace(p.Name)
-		next.URL, next.UserAgent, next.UpdateHours, next.UseProxy = p.URL, p.UserAgent, p.UpdateHours, p.UseProxy
+		if !old.IsAggregate() {
+			next.URL, next.UserAgent, next.UpdateHours, next.UseProxy = p.URL, p.UserAgent, p.UpdateHours, p.UseProxy
+		}
 		s.Items[i] = next
 		if err := s.save(); err != nil {
 			s.Items[i] = old

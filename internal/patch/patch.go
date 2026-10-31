@@ -33,9 +33,11 @@ type Overrides struct {
 	MeshProxyAddress  string   `json:"-"`
 	MeshProxyPassword string   `json:"-"`
 
-	ExtraRules []string  `json:"extraRules,omitempty"`
-	MergeYAML  string    `json:"mergeYaml,omitempty"`
-	AppRules   []AppRule `json:"appRules,omitempty"`
+	ExtraRules  []string           `json:"extraRules,omitempty"`
+	MergeYAML   string             `json:"mergeYaml,omitempty"`
+	AppRules    []AppRule          `json:"appRules,omitempty"`
+	Library     []OverrideTemplate `json:"library,omitempty"`
+	TemplateIDs []string           `json:"templateIds,omitempty"`
 
 	// nil follows the subscription and YAML overrides; a non-nil value owns
 	// only the fields exposed by the corresponding settings page.
@@ -46,9 +48,11 @@ type Overrides struct {
 // ProfileOverrides belongs to one subscription. Listener settings stay owned
 // by the application even when a subscription has its own YAML additions.
 type ProfileOverrides struct {
-	ExtraRules []string     `json:"extraRules,omitempty"`
-	MergeYAML  string       `json:"mergeYaml,omitempty"`
-	DNS        *DNSSettings `json:"dns,omitempty"`
+	ExtraRules  []string     `json:"extraRules,omitempty"`
+	MergeYAML   string       `json:"mergeYaml,omitempty"`
+	DNS         *DNSSettings `json:"dns,omitempty"`
+	TemplateIDs []string     `json:"templateIds,omitempty"`
+	ProxyEdits  *ProxyEdits  `json:"proxyEdits,omitempty"`
 }
 
 // Default is what a fresh install runs with: mixed port 7890, rule mode, TUN
@@ -81,20 +85,35 @@ func ApplyLayers(raw []byte, ov Overrides, local ProfileOverrides) ([]byte, erro
 		return nil, err
 	}
 	controllerconfig.Strip(doc)
-	rulesReplaced, err := mergeUserYAML(doc, ov.MergeYAML)
+	if err := ValidateTemplateLibrary(ov.Library); err != nil {
+		return nil, err
+	}
+	rulesReplaced, err := applyTemplateYAML(doc, ov.Library, ov.TemplateIDs)
 	if err != nil {
 		return nil, err
 	}
+	inlineRules, err := mergeUserYAML(doc, ov.MergeYAML)
+	if err != nil {
+		return nil, err
+	}
+	rulesReplaced = rulesReplaced || inlineRules
 	if err := applyNetworkFeatures(doc, Overrides{DNS: ov.DNS, Sniffer: ov.Sniffer}); err != nil {
 		return nil, err
+	}
+	localTemplateRules, err := applyTemplateYAML(doc, ov.Library, local.TemplateIDs)
+	if err != nil {
+		return nil, fmt.Errorf(localize.Text("订阅覆写：%w"), err)
 	}
 	localRules, err := mergeUserYAML(doc, local.MergeYAML)
 	if err != nil {
 		return nil, fmt.Errorf(localize.Text("订阅覆写：%w"), err)
 	}
-	rulesReplaced = rulesReplaced || localRules
+	rulesReplaced = rulesReplaced || localRules || localTemplateRules
 	if err := applyNetworkFeatures(doc, Overrides{DNS: local.DNS}); err != nil {
 		return nil, fmt.Errorf(localize.Text("订阅 DNS：%w"), err)
+	}
+	if err := applyProxyEdits(doc, local.ProxyEdits); err != nil {
+		return nil, err
 	}
 	if err := validateConfigStructure(doc); err != nil {
 		return nil, err
@@ -107,10 +126,16 @@ func ApplyLayers(raw []byte, ov Overrides, local ProfileOverrides) ([]byte, erro
 			}
 		}
 	}
-	if err := prependExtraRules(doc, append(append([]string{}, local.ExtraRules...), ov.ExtraRules...)); err != nil {
+	extraRules := append(append([]string{}, local.ExtraRules...), ov.ExtraRules...)
+	extraRules = RewriteProxyRuleTargets(extraRules, local.ProxyEdits)
+	if err := prependExtraRules(doc, extraRules); err != nil {
 		return nil, err
 	}
-	if err := prependAppRules(doc, ov.AppRules); err != nil {
+	appRules := append([]AppRule(nil), ov.AppRules...)
+	for i := range appRules {
+		appRules[i].Target = local.ProxyEdits.Target(appRules[i].Target)
+	}
+	if err := prependAppRules(doc, appRules); err != nil {
 		return nil, err
 	}
 
