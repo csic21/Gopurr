@@ -66,9 +66,9 @@ func (a *App) connsPage(c *ui.Context) {
 	}
 	if len(rows) == 0 {
 		if a.connQuery != "" {
-			emptyState(c, tr("没有匹配的连接"), tr("尝试主机名、进程名或 IP 地址。"))
+			emptyListState(c, iconSearch, tr("没有匹配的连接"), tr("尝试主机名、进程名或 IP 地址。"), func() { a.connQuery = "" })
 		} else {
-			emptyState(c, tr("暂无连接"), tr("打开系统代理或 TUN 后，这里会实时出现会话。"))
+			emptyListState(c, iconConns, tr("暂无连接"), tr("打开系统代理或 TUN 后，这里会实时出现会话。"), nil)
 		}
 	} else {
 		width, _ := c.Size()

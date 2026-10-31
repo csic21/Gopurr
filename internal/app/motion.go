@@ -29,6 +29,11 @@ func contentMotion() ui.ContentTransition {
 	return ui.ContentTransition{Animation: &gentleText}
 }
 
+func routeMotion() ui.ElementTransition {
+	return ui.ElementTransition{Animation: &gentlePanel,
+		Enter: &ui.Motion{Y: 4, Opacity: 0}, Exit: &ui.Motion{Y: -4, Opacity: 0}}
+}
+
 func softButton(c *ui.Context, label string) ui.Element {
 	return actionButton(ui.Button(c, label))
 }

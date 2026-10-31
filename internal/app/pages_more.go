@@ -101,7 +101,7 @@ func (a *App) effectiveRules(c *ui.Context, rules []core.Rule) {
 	})
 
 	if len(rules) == 0 {
-		emptyState(c, tr("暂无生效规则"), tr("内核运行后会显示实际规则；额外规则和 YAML 覆写可先编辑并保存。"))
+		emptyListState(c, iconRules, tr("暂无生效规则"), tr("内核运行后会显示实际规则；额外规则和 YAML 覆写可先编辑并保存。"), nil)
 		return
 	}
 
@@ -109,7 +109,9 @@ func (a *App) effectiveRules(c *ui.Context, rules []core.Rule) {
 	ui.Text(c, fmt.Sprintf(tr("显示 %d / %d 条 · 出口是规则命中后交给的策略"), len(shown), len(rules))).
 		FontSize(11).TextColor(pal.Muted)
 	if len(shown) == 0 {
-		emptyState(c, tr("没有匹配的规则"), tr("换个关键词，或把出口切回“全部出口”。"))
+		emptyListState(c, iconSearch, tr("没有匹配的规则"), tr("换个关键词，或把出口切回“全部出口”。"), func() {
+			a.ruleQuery, a.ruleAdapter = "", allAdapters
+		})
 		return
 	}
 
@@ -261,9 +263,11 @@ func (a *App) logsPage(c *ui.Context) {
 	})
 	if len(shown) == 0 {
 		if a.logQuery != "" || a.logLevelIdx != 0 {
-			emptyState(c, tr("没有匹配的日志"), tr("调整关键词或日志级别后重试。"))
+			emptyListState(c, iconSearch, tr("没有匹配的日志"), tr("调整关键词或日志级别后重试。"), func() {
+				a.logQuery, a.logLevelIdx = "", 0
+			})
 		} else {
-			emptyState(c, tr("没有日志"), tr("启动内核并访问网络后，这里会实时刷新。"))
+			emptyListState(c, iconLogs, tr("没有日志"), tr("启动内核并访问网络后，这里会实时刷新。"), nil)
 		}
 		return
 	}

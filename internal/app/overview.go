@@ -95,7 +95,13 @@ func (a *App) overviewPage(c *ui.Context) {
 					BorderWidth(0, 1, 0, 0).BorderColor(pal.Grid).Children(func() {
 					a.overviewRoute(c, all, group, hasGroup, running)
 				})
-				ui.Column(c).Grow(1).MinWidth(0).Padding(16).Gap(8).Children(func() {
+				traffic := ui.Column(c).Grow(1).MinWidth(0).Padding(16).Gap(8)
+				if trafficPeak(hist) > 0 {
+					traffic.Draw(func(p *ui.Painter, r ui.Rect) {
+						p.FillGradient(r, ui.LinearGradient{From: pal.Up.Alpha(0.02), To: pal.Down.Alpha(0.06), Angle: 135}, 12)
+					})
+				}
+				traffic.Children(func() {
 					peak := tr("等待采样")
 					if len(hist) > 0 {
 						peak = tr("峰值 ") + fmtRate(trafficPeak(hist))
@@ -189,8 +195,14 @@ func (a *App) overviewRoute(c *ui.Context, groups []core.Group, group core.Group
 		name, caption, detail = tr("等待内核就绪"), tr("就绪后显示当前策略出口"), tr("节点状态暂不可用")
 	}
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
-		ui.Text(c, name).FillWidth().SingleLine().Ellipsis("…").Tooltip(name).
-			FontSize(27).FontWeight(600).TextColor(pal.Text).Label(tr("当前出口 ") + name).ContentTransition(contentMotion())
+		// A preference change discards outgoing visual copies as well as the
+		// current entrance, so reduced motion updates the exit immediately.
+		ui.Column(c).Key(c.Preferences().ReduceMotion).FillWidth().Height(34).Clip().Children(func() {
+			ui.Row(c).FillWidth().Height(34).Key(name).Transition(routeMotion()).Children(func() {
+				ui.Text(c, name).FillWidth().SingleLine().Ellipsis("…").Tooltip(name).
+					FontSize(27).FontWeight(600).TextColor(pal.Text).Label(tr("当前出口 ") + name)
+			})
+		})
 		ui.Text(c, caption).FillWidth().SingleLine().Ellipsis("…").Tooltip(caption).
 			FontSize(11).TextColor(pal.Muted).ContentTransition(contentMotion())
 	})
@@ -229,7 +241,7 @@ func overviewRate(c *ui.Context, icon *ui.SVG, label, value string, accent ui.Co
 		ui.Row(c).Key(value).AlignItems(ui.Baseline).Gap(4).Transition(ui.ElementTransition{
 			Animation: &gentleText, Colors: true, Enter: &ui.Motion{Opacity: 0}, Exit: &ui.Motion{Opacity: 0},
 		}).Children(func() {
-			ui.Text(c, number).FontSize(27).FontWeight(600).FontFeatures("tnum").TextColor(pal.Text)
+			ui.Text(c, number).FontSize(27).FontWeight(600).FontFeatures("tnum").TextColor(accent)
 			ui.Text(c, unit).FontSize(11).TextColor(pal.Muted)
 		})
 	})
@@ -317,7 +329,7 @@ func (a *App) overviewNodePicker(c *ui.Context, compact bool) {
 				a.overviewIdentity, a.overviewList = identity, ui.ListState{KeepOffset: true}
 			}
 			if len(members) == 0 {
-				emptyState(c, tr("没有匹配的节点"), tr("试试更短的名称或切换策略组。"))
+				emptyState(c, iconSearch, tr("没有匹配的节点"), tr("试试更短的名称或切换策略组。"))
 			} else {
 				ui.List(c, &a.overviewList, len(members)).FillWidth().Height(listHeight).Radius(10).Background(pal.Surface).
 					ItemKey(func(i int) any { return members[i] }).Rows(func(row ui.ListRow) {

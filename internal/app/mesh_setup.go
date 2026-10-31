@@ -125,17 +125,27 @@ func (a *App) applyMeshPreparation() bool {
 	return true
 }
 
+func (a *App) meshPreparationButton(c *ui.Context) {
+	_, busy, _ := a.svcState()
+	label := tr("准备访问")
+	if a.meshPreparePending || busy {
+		label = tr("正在准备…")
+	}
+	softButton(c, label).Tooltip(tr("准备本机网络后，即可用普通应用访问其他设备")).
+		Disabled(busy || a.meshPreparePending).OnClick(a.requestMeshPreparation)
+}
+
 func (a *App) meshAccessPreparation(c *ui.Context, detailed bool) {
 	pal := paletteFor(c)
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-			hint, label := tr("准备本机网络后，即可用普通应用访问其他设备"), tr("准备访问")
+			hint := tr("准备本机网络后，即可用普通应用访问其他设备")
 			_, busy, _ := a.svcState()
 			if a.meshPreparePending || busy {
-				hint, label = tr("等待系统授权与服务启动…"), tr("正在准备…")
+				hint = tr("等待系统授权与服务启动…")
 			}
 			ui.Text(c, hint).Grow(1).FontSize(11).TextColor(pal.Muted)
-			softButton(c, label).Disabled(busy || a.meshPreparePending).OnClick(a.requestMeshPreparation)
+			a.meshPreparationButton(c)
 		})
 		if a.meshPrepareError != "" {
 			ui.Text(c, a.meshPrepareError).FillWidth().MaxLines(3).Tooltip(a.meshPrepareError).FontSize(11.5).TextColor(pal.Danger)

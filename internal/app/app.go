@@ -682,9 +682,9 @@ func trafficPeak(hist []sample) int64 {
 func (a *App) chart(c *ui.Context, hist []sample) {
 	pal := paletteFor(c)
 	// All four network controls fit above the fold, including the minimum size.
-	height := float32(68)
+	height := float32(76)
 	if _, windowHeight := c.Size(); windowHeight < 660 {
-		height = 40
+		height = 48
 	}
 
 	if len(hist) < 2 {
@@ -702,7 +702,7 @@ func (a *App) chart(c *ui.Context, hist []sample) {
 	down := make([]float32, n)
 	up := make([]float32, n)
 	zero := make([]float32, n)
-	graph := ui.Column(c).FillWidth().Height(height).Key("traffic-history")
+	graph := ui.Column(c).FillWidth().Height(height).Key("traffic-history").Label(tr("上下行流量趋势"))
 	for i, s := range hist {
 		xs[i] = float32(i) / float32(n-1)
 		down[i] = graph.AnimateTo(2*i, float32(s.down)/float32(scale), gentleData)
@@ -710,19 +710,43 @@ func (a *App) chart(c *ui.Context, hist []sample) {
 	}
 
 	graph.Draw(func(p *ui.Painter, r ui.Rect) {
-		for i := 0; i <= 4; i++ {
-			y := r.Y + r.H*float32(i)/4
-			p.Line(r.X, y, r.X+r.W, y, 1, pal.Grid)
-		}
-
-		area := chart.Area(r, xs, zero, down, chart.CurveMonotone)
-		p.FillPathGradient(area, ui.LinearGradient{
-			From:  pal.Down.Alpha(0.18),
-			To:    pal.Down.Alpha(0.01),
-			Angle: 180,
+		// Leave room for the latest sample's halo at every edge. All effects
+		// stay inside the chart and use the same interpolated, real samples.
+		plot := ui.Rect{X: r.X + 10, Y: r.Y + 8, W: r.W - 20, H: r.H - 16}
+		p.Clip(r, 0, func() {
+			for i := 0; i <= 2; i++ {
+				y := plot.Y + plot.H*float32(i)/2
+				p.Line(plot.X, y, plot.X+plot.W, y, 1, pal.Grid.Alpha(0.6))
+			}
+			for _, series := range []struct {
+				values []float32
+				color  ui.Color
+			}{{down, pal.Down}, {up, pal.Up}} {
+				values, color := series.values, series.color
+				active := false
+				for _, value := range values {
+					if value > 0 {
+						active = true
+						break
+					}
+				}
+				if !active {
+					continue
+				}
+				area := chart.Area(plot, xs, zero, values, chart.CurveMonotone)
+				p.FillPathGradient(area, ui.LinearGradient{From: color.Alpha(0.24), To: color.Alpha(0.01), Angle: 180})
+				line := chart.Line(plot, xs, values, chart.CurveMonotone)
+				p.StrokePath(line, 8, color.Alpha(0.04))
+				p.StrokePath(line, 4, color.Alpha(0.10))
+				p.StrokePathGradient(line, 1.8, ui.LinearGradient{From: color.Alpha(0.45), To: color, Angle: 90})
+				if value := values[n-1]; value > 0 {
+					dot := ui.Rect{X: plot.X + plot.W - 2.5, Y: chart.Y(plot, value) - 2.5, W: 5, H: 5}
+					p.Shadow(dot, 2.5, 0, 0, 8, 2, color.Alpha(0.28))
+					p.Fill(dot, color, 2.5)
+					p.Fill(ui.Rect{X: dot.X + 1.5, Y: dot.Y + 1.5, W: 2, H: 2}, pal.Surface, 1)
+				}
+			}
 		})
-		p.StrokePath(chart.Line(r, xs, down, chart.CurveMonotone), 1.6, pal.Down)
-		p.StrokePath(chart.Line(r, xs, up, chart.CurveMonotone), 1.2, pal.Up)
 	})
 
 }

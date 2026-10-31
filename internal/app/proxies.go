@@ -140,15 +140,15 @@ func (a *App) proxiesPage(c *ui.Context) {
 
 	a.delayProgress(c)
 	if !running {
-		emptyState(c, tr("内核尚未就绪"), tr("应用会自动启动内核。检查上方错误提示后，可以重试启动。"))
+		emptyListState(c, iconProxies, tr("内核尚未就绪"), tr("应用会自动启动内核。检查上方错误提示后，可以重试启动。"), nil)
 		return
 	}
 	if a.modeToken == "direct" {
-		emptyState(c, tr("当前为直连模式"), tr("所有流量直接连接。切换到规则或全局模式后选择代理节点。"))
+		emptyListState(c, iconProxies, tr("当前为直连模式"), tr("所有流量直接连接。切换到规则或全局模式后选择代理节点。"), nil)
 		return
 	}
 	if len(groups) == 0 {
-		emptyState(c, tr("当前配置没有可用的策略组"), tr("前往订阅导入配置，或检查运行配置中的 proxy-groups。"))
+		emptyListState(c, iconProxies, tr("当前配置没有可用的策略组"), tr("前往订阅导入配置，或检查运行配置中的 proxy-groups。"), nil)
 		return
 	}
 
@@ -206,7 +206,9 @@ func (a *App) proxiesPage(c *ui.Context) {
 			}
 			members := a.sortedMembers(selected)
 			if len(members) == 0 {
-				emptyState(c, tr("没有匹配的节点"), tr("调整搜索或关闭“仅可用”；未测试的节点不算已确认可用。"))
+				emptyListState(c, iconSearch, tr("没有匹配的节点"), tr("调整搜索或关闭“仅可用”；未测试的节点不算已确认可用。"), func() {
+					a.proxyQuery, a.proxyOnlyLive = "", false
+				})
 				return
 			}
 			identity := selected.Name + "\x00" + a.proxyQuery + "\x00" + a.proxySort + fmt.Sprint(a.proxyOnlyLive)

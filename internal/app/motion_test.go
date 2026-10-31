@@ -173,6 +173,103 @@ func TestMotionChartSettlesBetweenSamples(t *testing.T) {
 	}
 }
 
+func TestMotionChartRespectsReducedMotionAndIdleTraffic(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		hist := []sample{{down: 12800}, {up: 6400}, {down: 19200}, {down: 25600}}
+		a := &App{}
+		tr := ui.NewTester(func(c *ui.Context) {
+			c.SetTheme(theme(dark))
+			ui.Column(c).Fill().Padding(24).Background(c.Theme().Background).Children(func() { a.chart(c, hist) })
+		}, 640, 200)
+		tr.Advance(time.Second)
+		hist = []sample{{down: 25600}, {up: 32000}, {down: 72000}, {up: 24000}}
+		tr.Frame()
+		tr.Advance(100 * time.Millisecond)
+		tr.SetPreferences(ui.Preferences{ReduceMotion: true})
+		settled := pixels(tr)
+		tr.Advance(time.Second)
+		if tr.FramePending() || !bytes.Equal(settled, pixels(tr)) {
+			t.Fatal("reduced motion left a traffic animation running")
+		}
+		hist = make([]sample, 4)
+		tr.Frame()
+		idle := pixels(tr)
+		tr.Advance(time.Second)
+		if tr.FramePending() || !bytes.Equal(idle, pixels(tr)) {
+			t.Fatal("zero traffic generated decorative movement")
+		}
+	}
+}
+
+func TestMotionOverviewTrafficFrames(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		for _, size := range [][2]int{{1060, 720}, {840, 560}} {
+			t.Run(fmt.Sprintf("%v-%dx%d", dark, size[0], size[1]), func(t *testing.T) {
+				a := subscriptionTestApp(t)
+				a.booted, a.ticking, a.page = true, true, "overview"
+				a.prefs.Appearance = AppearanceLight
+				if dark {
+					a.prefs.Appearance = AppearanceDark
+				}
+				fixtureOverviewTraffic(a)
+				a.prefs.CloseOnSwitch = false
+				tr := ui.NewTester(a.View, size[0], size[1])
+				tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
+				tr.Advance(time.Second)
+				capture := func(stage string) {
+					if dir := os.Getenv("GOPURR_MOTION_FRAMES"); dir != "" {
+						if err := os.MkdirAll(dir, 0o755); err != nil {
+							t.Fatal(err)
+						}
+						f, err := os.Create(filepath.Join(dir, fmt.Sprintf("traffic-%v-%dx%d-%s.png", dark, size[0], size[1], stage)))
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer f.Close()
+						if err := png.Encode(f, tr.Image()); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				capture("000")
+				a.mu.Lock()
+				a.hist = append(a.hist[1:], sample{down: 1400 * 1024, up: 360 * 1024})
+				a.last.DownNow, a.last.UpNow = 1400*1024, 360*1024
+				a.mu.Unlock()
+				tr.Frame()
+				for elapsed := 40; elapsed <= 400; elapsed += 40 {
+					tr.Advance(40 * time.Millisecond)
+					capture(fmt.Sprintf("%03d", elapsed))
+				}
+				tr.Advance(200 * time.Millisecond)
+				capture("600")
+				if tr.FramePending() {
+					t.Fatal("overview effects kept requesting frames after sampling settled")
+				}
+				if err := tr.Click("切换节点"); err != nil {
+					t.Fatal(err)
+				}
+				tr.Advance(300 * time.Millisecond)
+				if err := tr.Click("选择 日本 02"); err != nil {
+					t.Fatal(err)
+				}
+				tr.Frame()
+				capture("route-000")
+				// The picker's independent 160 ms exit has finished; the route's
+				// 280 ms handoff is still moving when Reduce Motion is enabled.
+				tr.Advance(180 * time.Millisecond)
+				capture("route-180")
+				tr.SetPreferences(ui.Preferences{ReduceMotion: true})
+				tr.Frame()
+				capture("route-end")
+				if tr.FramePending() || !tr.HasText("日本 02") || a.showOverviewNodes {
+					t.Fatalf("route handoff did not settle or respect reduced motion: pending=%v, newExit=%v, picker=%v", tr.FramePending(), tr.HasText("日本 02"), a.showOverviewNodes)
+				}
+			})
+		}
+	}
+}
+
 // Set GOPURR_MOTION_FRAMES to a directory to inspect actual native frames at
 // both supported window sizes and appearances, including interrupted exits.
 func TestMotionOverviewFrames(t *testing.T) {

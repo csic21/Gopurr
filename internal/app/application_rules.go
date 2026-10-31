@@ -290,13 +290,11 @@ func (a *App) applicationRulesPage(c *ui.Context) {
 		}
 	}
 	if len(shown) == 0 {
-		ui.Column(c).FillWidth().Grow(1).MinHeight(0).Justify(ui.Center).Children(func() {
-			if len(a.appRulesDraft) == 0 {
-				emptyState(c, tr("为应用选择专属出口"), tr("添加本机应用，选择直连、拦截或代理组。"))
-			} else {
-				emptyState(c, tr("没有匹配的应用"), tr("试试应用名称、路径或策略名称。"))
-			}
-		})
+		if len(a.appRulesDraft) == 0 {
+			emptyListState(c, iconRules, tr("为应用选择专属出口"), tr("添加本机应用，选择直连、拦截或代理组。"), nil)
+		} else {
+			emptyListState(c, iconSearch, tr("没有匹配的应用"), tr("试试应用名称、路径或策略名称。"), func() { a.appRulesQuery = "" })
+		}
 	} else {
 		ui.List(c, &a.appRulesList, len(shown)).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).
 			ItemKey(func(i int) any { return a.appRulesDraft[shown[i]].Application.Path }).Rows(func(row ui.ListRow) {
@@ -372,7 +370,7 @@ func (a *App) applicationPicker(c *ui.Context) {
 						if a.appCatalogBusy {
 							title, hint = tr("正在读取本机应用…"), tr("仅读取应用信息，不会启动应用。")
 						}
-						emptyState(c, title, hint)
+						emptyStateContent(c, iconSearch, title, hint, nil)
 					})
 					return
 				}

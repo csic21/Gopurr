@@ -145,22 +145,35 @@ func pill(c *ui.Context, text string, fg, bg ui.Color) ui.Element {
 		})
 }
 
-// emptyState is what a list shows before it has anything to show.
-func emptyState(c *ui.Context, title, hint string) {
+// Empty content has one surface, with a contextual icon and an optional recovery
+// action. Dialogs keep their bounded height; page lists fill the available area.
+func emptyState(c *ui.Context, icon *ui.SVG, title, hint string) {
 	pal := paletteFor(c)
-	ui.Column(c).
-		FillWidth().
-		Padding(28).
-		Radius(12).
-		Background(pal.Surface).
-		Border(1, pal.Border).
-		AlignItems(ui.Center).
-		Gap(6).
-		Children(func() {
-			ui.Icon(c, iconOverview).Size(28, 28).TextColor(pal.Faint).Margin(0, 0, 8, 0).Role(ui.RoleNone)
-			ui.Text(c, title).FontSize(14).FontWeight(600).TextColor(pal.Text)
-			ui.Text(c, hint).FontSize(12).TextColor(pal.Muted).TextAlign(ui.Center)
+	ui.Column(c).FillWidth().Radius(10).Background(pal.Surface).Border(1, pal.Border).Children(func() {
+		emptyStateContent(c, icon, title, hint, nil)
+	})
+}
+
+func emptyListState(c *ui.Context, icon *ui.SVG, title, hint string, action func()) {
+	pal := paletteFor(c)
+	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(10).Background(pal.Surface).Border(1, pal.Border).Children(func() {
+		emptyStateContent(c, icon, title, hint, action)
+	})
+}
+
+// Use this inside an existing list surface to avoid nested card borders.
+func emptyStateContent(c *ui.Context, icon *ui.SVG, title, hint string, action func()) {
+	pal := paletteFor(c)
+	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Padding(16).AlignItems(ui.Center).Justify(ui.Center).Gap(8).Children(func() {
+		ui.Row(c).Size(44, 44).Radius(12).Background(pal.Hover).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+			ui.Icon(c, icon).Size(24, 24).TextColor(pal.Muted).Role(ui.RoleNone)
 		})
+		ui.Text(c, title).FillWidth().FontSize(14).FontWeight(600).TextAlign(ui.Center).TextColor(pal.Text)
+		ui.Text(c, hint).FillWidth().MaxWidth(400).FontSize(12).TextAlign(ui.Center).TextColor(pal.Muted)
+		if action != nil {
+			softButton(c, tr("重置筛选")).OnClick(action)
+		}
+	})
 }
 
 // sectionLabel is the small caps-ish label above a block.
@@ -218,7 +231,7 @@ func settingsGroup(c *ui.Context, title string, rows func()) {
 	pal := paletteFor(c)
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		if title != "" {
-			ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(pal.Muted).Margin(6, 0, 0, 4)
+			ui.Text(c, title).FontSize(14).FontWeight(600).TextColor(pal.Text).Margin(0, 0, 0, 4)
 		}
 		ui.Column(c).FillWidth().Radius(12).Background(pal.Surface).Children(rows)
 	})
@@ -226,11 +239,11 @@ func settingsGroup(c *ui.Context, title string, rows func()) {
 
 func settingsRow(c *ui.Context, title, desc string, control func()) {
 	pal := paletteFor(c)
-	ui.Row(c).FillWidth().Padding(12, 16).AlignItems(ui.Center).Gap(16).Children(func() {
+	ui.Row(c).FillWidth().MinHeight(52).Padding(8, 16).AlignItems(ui.Center).Gap(16).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, title).FillWidth().FontSize(13).FontWeight(500).TextColor(pal.Text)
 			if desc != "" {
-				ui.Text(c, desc).FillWidth().FontSize(11).TextColor(pal.Faint)
+				ui.Text(c, desc).FillWidth().FontSize(11.5).TextColor(pal.Muted)
 			}
 		})
 		if control != nil {

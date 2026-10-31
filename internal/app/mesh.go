@@ -211,7 +211,7 @@ func (a *App) meshPage(c *ui.Context) {
 		return
 	}
 	ui.Column(c).FillWidth().Radius(12).Background(pal.Surface).Children(func() {
-		ui.Row(c).FillWidth().Padding(14, 16).Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).FillWidth().Padding(12, 16).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, iconNetwork).Size(24, 24).TextColor(pal.Accent).Role(ui.RoleNone)
 			ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
 				label := meshLabel(s)
@@ -231,6 +231,9 @@ func (a *App) meshPage(c *ui.Context) {
 				}
 				ui.Text(c, caption).FillWidth().SingleLine().Ellipsis("…").Tooltip(caption).FontSize(11.5).TextColor(pal.Muted)
 			})
+			if s.Running && !a.meshAccessReady() {
+				a.meshPreparationButton(c)
+			}
 			if s.Running || s.AuthURL != "" || s.State == "Starting" || s.State == "NeedsMachineAuth" || (snap.Busy && snap.Action == "connect") {
 				softButton(c, tr("断开组网")).Disabled(snap.Busy && snap.Action == "disconnect").OnClick(func() { a.meshClient.Do("disconnect") })
 			} else if s.AuthURL == "" {
@@ -238,7 +241,7 @@ func (a *App) meshPage(c *ui.Context) {
 			}
 		})
 		hairline(c)
-		ui.Row(c).FillWidth().Padding(12, 16).Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).FillWidth().Padding(8, 16).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
 				ui.Text(c, tr("允许组网设备访问本机")).FontSize(13).FontWeight(550).TextColor(pal.Text)
 				hint, color := tr("防护状态待确认，请刷新或断开组网"), pal.Warn
@@ -264,8 +267,8 @@ func (a *App) meshPage(c *ui.Context) {
 			}
 		})
 	})
-	if s.Running && !a.meshAccessReady() {
-		a.meshAccessPreparation(c, false)
+	if a.meshPrepareError != "" && s.Running && !a.meshAccessReady() {
+		ui.Text(c, a.meshPrepareError).FillWidth().MaxLines(3).Tooltip(a.meshPrepareError).FontSize(11.5).TextColor(pal.Danger)
 	}
 	if s.AuthURL != "" && mesh.ValidAuthURL(s.AuthURL) && !s.Running {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
@@ -312,7 +315,6 @@ func (a *App) meshSetup(c *ui.Context) {
 
 func (a *App) meshDevices(c *ui.Context, snap mesh.Snapshot) {
 	pal := paletteFor(c)
-	searchRow(c, &a.meshQuery, tr("搜索设备、账号或虚拟 IP")).Label(tr("搜索组网设备"))
 	var rows []mesh.Device
 	q := strings.ToLower(strings.TrimSpace(a.meshQuery))
 	if snap.Status.Self.ID != "" {
@@ -342,16 +344,38 @@ func (a *App) meshDevices(c *ui.Context, snap mesh.Snapshot) {
 		}
 		return rows[i].Name < rows[j].Name
 	})
-	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Children(func() {
-		ui.Row(c).FillWidth().Padding(12).Children(func() {
-			ui.Text(c, fmt.Sprintf(tr("%d 台设备 · 最近连接优先"), len(rows))).Grow(1).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, tr("状态")).Width(52).FontSize(11).TextColor(pal.Faint)
-			ui.Text(c, tr("快捷操作")).Width(222).FontSize(11).TextColor(pal.Faint)
+	ui.Column(c).FillWidth().Grow(1).MinHeight(0).Radius(12).Background(pal.Surface).Border(1, pal.Border).Children(func() {
+		ui.Row(c).FillWidth().Padding(12).Gap(12).AlignItems(ui.Center).Children(func() {
+			searchRow(c, &a.meshQuery, tr("搜索设备、账号或虚拟 IP")).Grow(1).MinWidth(0).Label(tr("搜索组网设备"))
+			ui.Text(c, fmt.Sprintf(tr("%d 台设备"), len(rows))).Shrink(0).SingleLine().FontSize(11.5).TextColor(pal.Muted).
+				Tooltip(fmt.Sprintf(tr("%d 台设备 · 最近连接优先"), len(rows)))
 		})
 		hairline(c)
 		if len(rows) == 0 {
-			emptyState(c, tr("没有可显示的设备"), tr("完成登录后，显示当前账号有权限看见的组网设备。"))
+			title, hint := tr("没有可显示的设备"), tr("同一网络中有权限查看的设备会显示在这里。")
+			icon := iconNetwork
+			var reset func()
+			if q != "" {
+				title, hint = tr("没有匹配的设备"), tr("尝试其他设备名称、账号或虚拟 IP，或清空搜索。")
+				icon = iconSearch
+				reset = func() { a.meshQuery = "" }
+			} else if !snap.Status.Running {
+				title, hint = tr("连接组网，查看你的设备"), tr("点击上方「连接组网」，登录后即可查看同一网络中的设备。")
+				if snap.Status.AuthURL != "" || snap.Status.State == "Starting" || snap.Status.State == "NeedsMachineAuth" || (snap.Busy && snap.Action == "connect") {
+					title, hint = meshLabel(snap.Status), tr("连接完成后，同一网络中有权限查看的设备会显示在这里。")
+					if snap.Busy && snap.Action == "connect" {
+						title = tr("正在安全连接…")
+					}
+				}
+			}
+			emptyStateContent(c, icon, title, hint, reset)
 		} else {
+			ui.Row(c).FillWidth().Padding(8, 12).Gap(12).Children(func() {
+				ui.Text(c, tr("设备与账号")).Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Faint)
+				ui.Text(c, tr("状态")).Width(52).FontSize(11).TextColor(pal.Faint)
+				ui.Text(c, tr("快捷操作")).Width(222).TextAlign(ui.End).FontSize(11).TextColor(pal.Faint)
+			})
+			hairline(c)
 			ui.List(c, &a.meshList, len(rows)).FillWidth().Grow(1).MinHeight(0).ItemKey(func(i int) any { return rows[i].ID }).Rows(func(row ui.ListRow) {
 				d, c := rows[row.Index], row.Context
 				ui.Row(c).FillWidth().Padding(12).Gap(12).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(pal.Grid).Children(func() {
@@ -396,7 +420,9 @@ func (a *App) meshDevices(c *ui.Context, snap mesh.Snapshot) {
 			})
 		}
 	})
-	ui.Text(c, tr("在线不等于服务可用，可在连接窗口检测；记住连接方式后可直接打开客户端，详情中可修改。")).FillWidth().FontSize(11).TextColor(pal.Faint)
+	if len(rows) > 0 {
+		ui.Text(c, tr("在线不等于服务可用，可在连接窗口检测；记住连接方式后可直接打开客户端，详情中可修改。")).FillWidth().FontSize(11).TextColor(pal.Faint)
+	}
 }
 
 func (a *App) meshVisits(c *ui.Context, snap mesh.Snapshot) {
@@ -417,7 +443,7 @@ func (a *App) meshVisits(c *ui.Context, snap mesh.Snapshot) {
 			if snap.MonitorError != "" {
 				title = tr("当前访问状态未知")
 			}
-			emptyState(c, title, tr("设备在线或有组网流量，并不表示它正在访问本机服务。"))
+			emptyStateContent(c, iconShield, title, tr("设备在线或有组网流量，并不表示它正在访问本机服务。"), nil)
 		} else {
 			ui.List(c, &a.meshList, len(snap.Visits)).FillWidth().Grow(1).MinHeight(0).ItemKey(func(i int) any { return snap.Visits[i].Key + snap.Visits[i].FirstSeen.String() }).Rows(func(row ui.ListRow) {
 				v, c := snap.Visits[row.Index], row.Context

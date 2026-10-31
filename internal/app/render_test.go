@@ -133,6 +133,13 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"software-update-error", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Failed) }},
 		{"overview", func() { a.page = "overview" }},
+		{"overview-live", func() { a.page = "overview"; fixtureOverviewTraffic(a) }},
+		{"overview-idle", func() {
+			a.page = "overview"
+			a.mu.Lock()
+			a.hist, a.last = make([]sample, bars), core.Sample{}
+			a.mu.Unlock()
+		}},
 		{"overview-service-update", func() { a.page, a.svcInstalled = "overview", true }},
 		{"overview-global", func() { a.page, a.modeToken, a.modeIdx = "overview", "global", 1; fixtureOverviewTraffic(a) }},
 		{"overview-direct", func() { a.page, a.modeToken, a.modeIdx = "overview", "direct", 2 }},
@@ -141,6 +148,7 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"overview-picker", func() { a.page, a.showOverviewNodes = "overview", true }},
 		{"overview-picker-auto", func() { a.page, a.proxyGroup, a.showOverviewNodes = "overview", "自动选择", true }},
+		{"overview-picker-empty", func() { a.page, a.showOverviewNodes, a.overviewQuery = "overview", true, "no-matching-node" }},
 		{"overview-picker-error", func() {
 			a.page, a.showOverviewNodes = "overview", true
 			a.notice = "切换节点失败：内核暂时无法响应，请稍后重试。"
@@ -165,6 +173,7 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"subs-compact", func() { a.page = "subs" }},
 		{"proxies", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
+		{"proxies-no-results", func() { a.page, a.proxyQuery, a.proxyOnlyLive = "proxies", "no-matching-node", true }},
 		{"proxies-hover", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
 		{"proxies-groups-scrolled", func() {
 			a.page, a.proxyGroup = "proxies", "漏网之鱼 · 工作与家庭共用的长名称策略组"
@@ -178,6 +187,22 @@ func TestRenderPages(t *testing.T) {
 		{"proxies-compact", func() { a.page = "proxies"; a.proxyGroup = "节点选择" }},
 		{"conns", func() { a.page = "conns" }},
 		{"mesh", func() { fixtureMesh(a) }},
+		{"mesh-offline-empty", func() {
+			f := fixtureMesh(a)
+			f.snap.Status = mesh.Status{Installed: true, Official: true, ShieldsKnown: true, ShieldsUp: true, State: "Stopped"}
+		}},
+		{"mesh-empty", func() {
+			f := fixtureMesh(a)
+			f.snap.Status.Self, f.snap.Status.Peers = mesh.Device{}, nil
+		}},
+		{"mesh-no-results", func() { fixtureMesh(a); a.meshQuery = "不存在的设备" }},
+		{"mesh-visits-empty", func() { f := fixtureMesh(a); a.meshTab = 1; f.snap.Visits = nil }},
+		{"mesh-login-empty", func() {
+			f := fixtureMesh(a)
+			f.snap.Status.Self, f.snap.Status.Peers = mesh.Device{}, nil
+			f.snap.Status.Running, f.snap.Status.State = false, "NeedsLogin"
+			f.snap.Status.AuthURL = "https://login.tailscale.com/a/render-fixture"
+		}},
 		{"mesh-invite", func() { fixtureMesh(a); a.meshInvite = true }},
 		{"mesh-invite-long-network", func() {
 			f := fixtureMesh(a)
@@ -208,6 +233,7 @@ func TestRenderPages(t *testing.T) {
 			f.snap.MonitorScope = "内置组网实际接收的 TCP / UDP 服务连接；账号来自加密网络的设备身份"
 		}},
 		{"mesh-security", func() { fixtureMesh(a); a.meshTab = 2 }},
+		{"mesh-security-bottom", func() { fixtureMesh(a); a.meshTab = 2 }},
 		{"mesh-setup", func() { f := fixtureMesh(a); f.snap.Status = mesh.Status{} }},
 		{"mesh-login", func() {
 			f := fixtureMesh(a)
@@ -355,6 +381,7 @@ func TestRenderPages(t *testing.T) {
 		{"settings-cleanup", func() { a.page = "settings"; a.settingsTab = 1 }},
 
 		{"rules", func() { a.page = "rules" }},
+		{"rules-no-results", func() { a.page, a.ruleQuery = "rules", "no-matching-rule" }},
 		{"rules-compact", func() { a.page = "rules" }},
 		{"rules-filtered", func() {
 			a.page = "rules"
@@ -373,6 +400,7 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"application-rules", func() { fixtureApplicationRules(a) }},
 		{"application-rules-empty", func() { fixtureApplicationRules(a); a.appRulesDraft = nil }},
+		{"application-rules-no-results", func() { fixtureApplicationRules(a); a.appRulesQuery = "no-matching-app" }},
 		{"application-rules-global", func() { fixtureApplicationRules(a); a.ov.Mode = "global" }},
 		{"application-rules-error", func() {
 			fixtureApplicationRules(a)
@@ -400,6 +428,8 @@ func TestRenderPages(t *testing.T) {
 			a.page = "logs"
 		}},
 		{"logs-search", func() { a.page, a.logQuery = "logs", "TLS" }},
+		{"logs-no-results", func() { a.page, a.logQuery, a.logLevelIdx = "logs", "no-matching-log", 2 }},
+		{"logs-empty", func() { a.page, a.logPaused, a.logFrozen = "logs", true, []core.LogLine{} }},
 		{"logs-compact", func() { a.page = "logs" }},
 		{"logs-paused", func() {
 			a.page = "logs"
@@ -408,6 +438,7 @@ func TestRenderPages(t *testing.T) {
 			a.logFrozen = a.k.Logs()
 		}},
 		{"settings", func() { a.page, a.settingsTab = "settings", 0 }},
+		{"settings-general-bottom", func() { a.page, a.settingsTab = "settings", 0 }},
 		{"settings-dock-hidden", func() {
 			a.page, a.settingsTab = "settings", 0
 			if err := a.changePrefs(func(p *Prefs) { p.DockVisibility = DockHidden }); err != nil {
@@ -568,6 +599,7 @@ func TestRenderPages(t *testing.T) {
 						a.logScroll = ui.ScrollState{}
 						a.store.Items, a.store.Active = append([]profile.Profile(nil), profiles...), activeProfile
 						a.modeToken, a.modeIdx, a.proxyGroup = "rule", 0, "节点选择"
+						a.proxyQuery, a.proxySort, a.proxyOnlyLive = "", "订阅顺序", false
 						a.setSubErr("")
 						a.mu.Lock()
 						a.hist, a.last = nil, core.Sample{}
@@ -615,6 +647,10 @@ func TestRenderPages(t *testing.T) {
 						if strings.HasPrefix(shot.name, "mesh") {
 							controls := []string{"邀请成员", "刷新组网", "允许组网访问本机", "断开组网"}
 							switch shot.name {
+							case "mesh-offline-empty":
+								controls = []string{"连接组网", "允许组网访问本机", "搜索组网设备", "连接组网，查看你的设备"}
+							case "mesh-no-results":
+								controls = append(controls, "没有匹配的设备", "清空搜索")
 							case "mesh-invite", "mesh-invite-long-network", "mesh-invite-offline", "mesh-invite-browser-error":
 								controls = []string{"复制控制台地址", "关闭", "打开邀请页面"}
 							case "mesh-setup":
@@ -641,7 +677,7 @@ func TestRenderPages(t *testing.T) {
 								controls = []string{"关闭", "取消检测", "打开客户端"}
 							case "mesh-prepare-dialog":
 								controls = []string{"取消", "安装并准备"}
-							case "mesh-login":
+							case "mesh-login", "mesh-login-empty":
 								controls = append(controls, "继续登录 Tailscale")
 							}
 							for _, label := range controls {
@@ -701,6 +737,12 @@ func TestRenderPages(t *testing.T) {
 							}
 						}
 						switch shot.name {
+						case "mesh-security-bottom":
+							if r, ok := tr.Find(text("立即断开组网")); ok {
+								tr.Scroll(float32(width-100), float32(height-100), 0, r.Y+r.H-float32(height-40))
+							}
+						case "settings-general-bottom":
+							tr.Scroll(float32(width-100), float32(height-100), 0, 3000)
 						case "profile-dns-servers":
 							tr.Scroll(700, 360, 0, 330)
 						case "connection-rule-preview":
@@ -752,6 +794,19 @@ func TestRenderPages(t *testing.T) {
 						// Stable fixtures show the settled hover/selection appearance;
 						// motion_test.go separately captures and checks transient frames.
 						tr.Advance(200 * time.Millisecond)
+						if strings.HasSuffix(shot.name, "-no-results") || shot.name == "conns-empty" || shot.name == "mesh-no-results" {
+							if r, ok := tr.Find(text("重置筛选")); !ok || r.Y < 38 || r.Y+r.H > float32(height-16) || r.X+r.W > float32(width-16) {
+								t.Fatalf("%s: filter recovery is missing or clipped: %+v", page, r)
+							}
+						}
+						if shot.name == "mesh-security-bottom" {
+							for _, label := range []string{"关闭本机访问", "立即断开组网"} {
+								r, ok := tr.Find(text(label))
+								if !ok || r.Y < 38 || r.Y+r.H > float32(height) {
+									t.Fatalf("%s: scrolled security control %q is clipped: %+v", page, label, r)
+								}
+							}
+						}
 						img := tr.Image()
 						if img == nil {
 							t.Fatalf("%s: nil image", page)
