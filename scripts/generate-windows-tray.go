@@ -33,12 +33,12 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-// Geometry tuned so the disc matches Steam's edge-to-edge tray footprint
-// and the cat sits larger inside while leaving a readable graphite/ivory ring
-// (full cover swallows the badge and reads as a white blob at 16px).
+// Geometry: disc fills the 32×32 canvas (r=16, 0 outer margin) to match
+// Steam's edge-to-edge tray footprint; cat stays bold inside with rimKeep
+// so the inverted badge still reads as a circle (full cover → white blob).
 const (
 	outSize      = 32
-	circleRadius = 15.75 // ~0–1px outer margin on 32×32 (was 15.0 → 1px each side)
+	circleRadius = 16.0  // fill 32×32 completely (0 outer margin; was 15.75)
 	catMargin    = 0.55  // fit padding used when sizing the silhouette (was 2.0)
 	boldBlend    = 0.35  // contain→cover lerp for -layout=bold (recommended)
 	rimKeep      = 1.35  // guaranteed disc ring (px) so cat never erases Steam footprint
@@ -200,11 +200,12 @@ func main() {
 
 	cands := []candidate{
 		{id: "v065", label: "v0.6.5 C (r=15.0 m=2.0 contain)", layout: layoutContain, r: 15.0, margin: 2.0},
-		{id: "contain-tight", label: "C contain r=15.75 m=0.55", layout: layoutContain, r: circleRadius, margin: catMargin},
-		{id: "bold", label: "C bold blend0.35 + rimKeep1.35 (recommended)", layout: layoutBold, r: circleRadius, margin: catMargin},
-		{id: "cover", label: "C cover r=15.75 m=0.55 (too filled)", layout: layoutCover, r: circleRadius, margin: catMargin},
-		{id: "head", label: "C head-crop + bold r=15.75 m=0.55", layout: layoutHead, r: circleRadius, margin: catMargin},
-		{id: "bold-stroke", label: "C bold + thin rim stroke", layout: layoutBold, r: circleRadius, margin: catMargin, stroke: true},
+		{id: "bold-1575", label: "prior bold r=15.75 m=0.55 rimKeep1.35", layout: layoutBold, r: 15.75, margin: catMargin},
+		{id: "contain-tight", label: "C contain r=16.0 m=0.55", layout: layoutContain, r: circleRadius, margin: catMargin},
+		{id: "bold", label: "C bold r=16.0 blend0.35 + rimKeep1.35 (recommended)", layout: layoutBold, r: circleRadius, margin: catMargin},
+		{id: "cover", label: "C cover r=16.0 m=0.55 (too filled)", layout: layoutCover, r: circleRadius, margin: catMargin},
+		{id: "head", label: "C head-crop + bold r=16.0 m=0.55", layout: layoutHead, r: circleRadius, margin: catMargin},
+		{id: "bold-stroke", label: "C bold + thin rim stroke r=16.0", layout: layoutBold, r: circleRadius, margin: catMargin, stroke: true},
 	}
 	cmp := buildCandidateCompare(src, fullBBox, *rec, cands, *mockups)
 	if err := writePNG("docs/tray-windows-size-compare.png", cmp); err != nil {
@@ -638,7 +639,7 @@ func buildSheet(all []sized) *image.NRGBA {
 	height := pad + 36 + rows*(cell+labelH+pad) + 40
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	fillRect(img, img.Bounds(), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
-	drawLabel(img, pad, pad+12, "Gopurr Windows tray — circle variants (edge-to-edge + larger cat) + 16/24/32", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
+	drawLabel(img, pad, pad+12, "Gopurr Windows tray — circle variants (r=16 fill + bold cat) + 16/24/32", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
 
 	y := pad + 36
 	for _, it := range all {
@@ -663,7 +664,7 @@ func buildSheet(all []sized) *image.NRGBA {
 		}
 		y += cell + labelH + pad
 	}
-	drawLabel(img, pad, height-20, "Recommended: C inverted badge + bold layout (disc edge-to-edge, larger cat, visible ring). Mac tray.png unchanged.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, height-20, "Recommended: C inverted badge + bold layout (disc r=16 fill, larger cat, rimKeep). Mac tray.png unchanged.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 	return img
 }
 
@@ -714,7 +715,7 @@ func buildCandidateCompare(src *image.NRGBA, bbox image.Rectangle, v pair, cands
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	fillRect(img, img.Bounds(), color.NRGBA{R: 24, G: 24, B: 27, A: 255})
 	drawLabel(img, pad, pad+12, "v0.6.5 C vs new candidates — light tray 16/24/32 + 3x zoom; Steam-size ref circle", color.NRGBA{R: 250, G: 250, B: 249, A: 255})
-	drawLabel(img, pad, pad+28, "Goal: disc edge-to-edge like Steam; cat much larger / more recognizable (no stretch)", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, pad+28, "Goal: disc fills 32px (r=16, 0 margin) like Steam; bold cat + rimKeep (no stretch)", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 
 	trayBG := color.NRGBA{R: 243, G: 244, B: 246, A: 255}
 	steamRef := color.NRGBA{R: 31, G: 41, B: 55, A: 255}
@@ -739,14 +740,14 @@ func buildCandidateCompare(src *image.NRGBA, bbox image.Rectangle, v pair, cands
 		placeZoom(img, lt, x, y, cell, trayBG)
 		x += cell + 16
 		ref := image.NewNRGBA(image.Rect(0, 0, 32, 32))
-		fillCircle(ref, 16, 16, 15.75, steamRef)
+		fillCircle(ref, 16, 16, 16.0, steamRef)
 		fillCircle(ref, 16, 16, 6.5, color.NRGBA{R: 245, G: 245, B: 244, A: 255})
 		placeSized(img, ref, x, y+cell-32-20, 32, trayBG, steamBox)
 		drawLabel(img, x-4, y+cell-2, "Steam~", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 
 		y += rowH
 	}
-	drawLabel(img, pad, height-18, "Recommended asset written to tray-windows-light/dark.png (C bold). No release tag.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
+	drawLabel(img, pad, height-18, "Recommended asset: tray-windows-light/dark.png (C bold r=16). No release tag.", color.NRGBA{R: 161, G: 161, B: 170, A: 255})
 	return img
 }
 
