@@ -146,6 +146,15 @@ func RunDaemon(opts DaemonOptions) error {
 	}
 	defer controller.Close()
 
+	// Probe only hits the controller. Mixed-port (TCP+UDP) can still be absent
+	// when UDP bind fails and mihomo closes the TCP listener — wait for the
+	// traffic path before advertising ready via core.json / IsRoot.
+	if port := mixedPortFromDoc(doc); port > 0 {
+		if err := waitLocalTCP(net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), 5*time.Second); err != nil {
+			return fmt.Errorf("混合端口未就绪: %w", err)
+		}
+	}
+
 	if opts.StatusPath != "" {
 		status := DaemonStatus{SecurityVersion: SecurityVersion, ControllerVersion: ControllerVersion, Version: buildinfo.Version, PID: os.Getpid(), UID: process.UID(), Socket: opts.Socket, Home: opts.Home}
 		if b, err := json.Marshal(status); err == nil {
@@ -202,4 +211,43 @@ func RunDaemon(opts DaemonOptions) error {
 		_ = os.Remove(opts.StatusPath)
 	}
 	return nil
+}
+
+func mixedPortFromDoc(doc map[string]any) int {
+	if doc == nil {
+		return 0
+	}
+	switch v := doc["mixed-port"].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case uint64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+// waitLocalTCP polls until addr accepts TCP connections or timeout.
+func waitLocalTCP(addr string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last error
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		last = err
+		if time.Now().After(deadline) {
+			if last != nil {
+				return last
+			}
+			return errors.New("timeout")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }

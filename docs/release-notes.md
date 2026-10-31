@@ -1,9 +1,10 @@
-Gopurr 0.6.2 让内核启动不再卡住界面，并更快提示不健康的 TUN 服务。
+Gopurr 0.6.3 修复 Windows TUN 服务「已就绪」与混合端口实际可连之间的竞态，并加固发布冒烟。
 
-- **异步启动**：启动与重载在后台执行，界面显示「正在启动…」并防止重复点击；端口占用等校验失败仍立即提示。
-- **TUN 服务**：已安装但无响应时约 2 秒内失败，并引导在概览页重新安装服务，避免长时间无反馈等待。
+- **服务就绪**：写入状态前确认混合端口已接受连接；控制器 Probe 成功不再单独代表流量路径可用。
+- **发布冒烟**：预留端口同时检查 TCP/UDP，HTTP 经混合端口探测带截止前重试，降低 Windows runner 偶发失败。
+- **Windows 托盘**：Graphite 明暗图标剪影更大、边距约 1 像素；macOS 模板托盘图不变。
 
-macOS Apple Silicon（M1 及后续 M 系列）下载 `gopurr-0.6.2-arm64.dmg`，打开后将 Gopurr 拖入 Applications。Windows 10/11 x64 下载 `gopurr-setup-0.6.2-amd64.exe`，按向导安装。
+macOS Apple Silicon（M1 及后续 M 系列）下载 `gopurr-0.6.3-arm64.dmg`，打开后将 Gopurr 拖入 Applications。Windows 10/11 x64 下载 `gopurr-setup-0.6.3-amd64.exe`，按向导安装。
 
 在「设置 → 维护 → 软件更新」检查新版本。更新包通过 Ed25519 签名校验。若提示 TUN 服务需要更新，在概览页点击「重新安装…」并完成管理员授权。
 

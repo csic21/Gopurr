@@ -7,7 +7,7 @@
 - `tray.svg`：相同剪影的菜单栏版本，只有黑色与透明像素，缩紧视口以适配 16/18 像素。
 - `logo.png`、`icon.png`、`sidebar.png`：从渲染源派生的 1024、512、128 像素版本。
 - `tray.png`：从菜单栏矢量派生的 32 像素模板，由 macOS 适配明暗。
-- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图（Graphite + 白边 / 浅色填充 + 深边），非模板；`main` 在 Windows 上按任务栏明暗切换。
+- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图（Graphite + 白边 / 浅色填充 + 深边），非模板；剪影尽量铺满画布（约 1 像素边距）以增加托盘可读性；`main` 在 Windows 上按任务栏明暗切换。用 `go run scripts/generate-windows-tray.go` 从 `tray.svg` 重生成，勿改 `tray.png`。
 
 编辑 `logo.svg` 与 `tray.svg` 时保持剪影路径一致，然后运行：
 

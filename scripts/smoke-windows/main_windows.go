@@ -53,12 +53,13 @@ func run() (err error) {
 	if err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	// Mixed inbound needs both TCP and UDP; a TCP-only free check lets UDP bind
+	// fail inside mihomo, which then closes the TCP listener (connection refused
+	// while Probe/TUN still look healthy).
+	port, err := freeMixedPort()
 	if err != nil {
 		return err
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
 	config := fmt.Sprintf(`mixed-port: %d
 allow-lan: false
 mode: rule
@@ -119,7 +120,13 @@ rules:
 		defer cancel()
 		for {
 			if manager.Remote().Probe(ctx) == nil && manager.IsRoot() {
-				return nil
+				// Status is written only after mixed-port accepts; still dial here so
+				// old builds and transient closes fail before the HTTP step.
+				conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 200*time.Millisecond)
+				if err == nil {
+					conn.Close()
+					return nil
+				}
 			}
 			select {
 			case <-ctx.Done():
@@ -162,14 +169,26 @@ throw 'Wintun adapter Gopurr-CI was not created'
 	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
-	resp, err := client.Get(origin.URL)
-	if err != nil {
-		return fmt.Errorf("HTTP proxy through service: %w", err)
-	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
+	httpDeadline := time.Now().Add(20 * time.Second)
+	var lastHTTP error
+	for {
+		resp, err := client.Get(origin.URL)
+		if err == nil {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusNoContent {
+				lastHTTP = fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
+			} else {
+				lastHTTP = nil
+				break
+			}
+		} else {
+			lastHTTP = err
+		}
+		if time.Now().After(httpDeadline) {
+			return fmt.Errorf("HTTP proxy through service: %w", lastHTTP)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	if err := manager.Remote().Reload(manager.ConfigPath()); err != nil {
 		return fmt.Errorf("reload: %w", err)
@@ -189,4 +208,23 @@ throw 'Wintun adapter Gopurr-CI was not created'
 	}
 	fmt.Printf("SCM install, Wintun creation, HTTP proxy, reload and service upgrade passed (PID %d -> %d).\n", before.PID, after.PID)
 	return nil
+}
+
+func freeMixedPort() (int, error) {
+	for i := 0; i < 40; i++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return 0, err
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		udp, err := net.ListenPacket("udp", ln.Addr().String())
+		if err != nil {
+			ln.Close()
+			continue
+		}
+		udp.Close()
+		ln.Close()
+		return port, nil
+	}
+	return 0, errors.New("could not reserve a free TCP+UDP mixed port")
 }
