@@ -384,21 +384,33 @@ func installTray(a *app.App) bool {
 		tray.OnAppearanceChange(syncWindowsTrayIcon)
 	}
 	openWindow := func() { showWindow(a) }
-
-	if runtime.GOOS != "darwin" {
-		// Windows pops this menu on a right click by itself; Linux panels
-		// open it on the click. Only Windows has a left click left to use.
-		tray.SetMenu(a.TrayMenu(openWindow))
-		if !menuOnClick {
-			tray.OnClick(openWindow)
-		}
-		mygo.App.OnLocaleChanged(func(string) { tray.SetMenu(a.TrayMenu(openWindow)) })
+	if menuOnClick {
+		installPanelTrayMenu(a, tray, openWindow)
 		return true
 	}
+	attachTrayMenu(tray, func() *mygo.Menu { return a.TrayMenu(openWindow) }, openWindow)
+	return true
+}
 
-	// A fixed NSStatusItem menu consumes clicks before OnClick runs. Attach
-	// a fresh menu only while tracking it, so every opening reads current
-	// state, even after light mode has destroyed the main window.
+// trayMenuHost is the part of *mygo.Tray the menu wiring uses.
+type trayMenuHost interface {
+	SetMenu(*mygo.Menu)
+	PopUpMenu()
+	OnClick(func()) func()
+	OnRightClick(func()) func()
+}
+
+var _ trayMenuHost = (*mygo.Tray)(nil)
+
+// attachTrayMenu shows the window on a left click and a freshly built
+// state menu on a right click (macOS and Windows). No menu stays attached:
+// a fixed NSStatusItem menu consumes clicks before OnClick runs, and the
+// Windows notification area would pop a stale snapshot by itself (unchecked
+// System Proxy, disabled TUN) while the window shows the live state. The
+// fresh menu exists only while it is tracked, so every opening reads
+// current state, even after light mode has destroyed the main window.
+// Both platforms run the click handlers before PopUpMenu returns.
+func attachTrayMenu(tray trayMenuHost, build func() *mygo.Menu, openWindow func()) {
 	tracking := false
 	openMenu := func() {
 		if tracking {
@@ -409,12 +421,42 @@ func installTray(a *app.App) bool {
 			tray.SetMenu(nil)
 			tracking = false
 		}()
-		tray.SetMenu(a.TrayMenu(openWindow))
+		tray.SetMenu(build())
 		tray.PopUpMenu()
 	}
 	tray.OnClick(openWindow)
 	tray.OnRightClick(openMenu)
-	return true
+}
+
+// installPanelTrayMenu keeps a menu attached for Linux panels, which open it
+// themselves without telling the app first. The core is probed off the UI
+// thread and the menu is replaced only when what it shows changed, so it
+// follows the window instead of keeping its startup snapshot.
+func installPanelTrayMenu(a *app.App, tray *mygo.Tray, openWindow func()) {
+	last := ""
+	apply := func(s app.TrayKernel, force bool) {
+		if quitting.Load() {
+			return
+		}
+		m, sig := a.TrayMenuFor(s, openWindow)
+		if force || sig != last {
+			last = sig
+			tray.SetMenu(m)
+		}
+	}
+	apply(a.ReadTrayKernel(), true)
+	mygo.App.OnLocaleChanged(func(string) { apply(a.ReadTrayKernel(), true) })
+	go func() {
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			if quitting.Load() {
+				return
+			}
+			s := a.ReadTrayKernel()
+			mygo.RunOnMain(func() { apply(s, false) })
+		}
+	}()
 }
 
 // installTestHooks lets the memory measurement drive the app from a script:

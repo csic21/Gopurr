@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -13,23 +14,74 @@ import (
 // TrayMenu takes a new snapshot when the menu opens. It does not depend on
 // window services, which may have been released by light mode.
 func (a *App) TrayMenu(openWindow func()) *mygo.Menu {
+	s := a.ReadTrayKernel()
+	if !a.ShuttingDown() {
+		// Opening the menu is a fresh look: adopt what the core and the OS
+		// report, as the window would.
+		if s.Running {
+			a.modeToken = s.Mode
+			a.modePick, a.modeIdx = labelFor(a.modeToken), modeIndex(a.modeToken)
+			a.ov.Mode = a.modeToken
+		}
+		if st, err := sysproxy.Current(); err == nil && st.Supported {
+			a.sysState = st
+			a.sysApplied = ownsProxy(st, a.mixedPort())
+			a.sysOn = a.sysApplied
+		}
+	}
+	m, _ := a.TrayMenuFor(s, openWindow)
+	return m
+}
+
+// TrayKernel is what the tray menu reads from the core. Reading it may wait
+// on the controller, so a poller fetches it off the UI thread.
+type TrayKernel struct {
+	Running bool
+	Mode    string
+	Groups  []core.Group
+}
+
+// ReadTrayKernel probes the core for the tray; safe off the UI thread.
+func (a *App) ReadTrayKernel() TrayKernel {
+	if a.k == nil || a.ShuttingDown() {
+		return TrayKernel{}
+	}
+	s := TrayKernel{Running: a.k.Running()}
+	if s.Running {
+		s.Mode, s.Groups = a.k.Mode(), a.k.Groups()
+	}
+	return s
+}
+
+// TrayMenuFor builds the tray menu on the UI thread from kernel state read
+// beforehand and the app's current state, without changing either: a
+// poller's reading may be a moment old. The signature describes everything
+// the menu shows, so a caller that must keep a menu attached (Linux panels
+// open it themselves) can replace it only when something visible changed.
+func (a *App) TrayMenuFor(s TrayKernel, openWindow func()) (*mygo.Menu, string) {
 	if a.ShuttingDown() {
-		return mygo.NewMenu([]*mygo.MenuItem{{Label: tr("正在结束当前会话…"), Disabled: true}})
+		items := []*mygo.MenuItem{{Label: tr("正在结束当前会话…"), Disabled: true}}
+		return mygo.NewMenu(items), trayMenuSignature(items)
 	}
-	running := a.k != nil && a.k.Running()
-	var groups []core.Group
-	if running {
-		a.modeToken = a.k.Mode()
-		a.modePick, a.modeIdx = labelFor(a.modeToken), modeIndex(a.modeToken)
-		a.ov.Mode = a.modeToken
-		groups = a.k.Groups()
+	items := a.trayItems(s.Running, s.Groups, openWindow)
+	return mygo.NewMenu(items), trayMenuSignature(items)
+}
+
+func trayMenuSignature(items []*mygo.MenuItem) string {
+	var b strings.Builder
+	var walk func([]*mygo.MenuItem)
+	walk = func(items []*mygo.MenuItem) {
+		for _, it := range items {
+			fmt.Fprintf(&b, "%s\x1f%s\x1f%s\x1f%t%t%t\x1f%s\x1e", it.ID, it.Label, fmt.Sprint(it.Type), it.Checked, it.Disabled, it.Hidden, it.ToolTip)
+			if len(it.Submenu) > 0 {
+				b.WriteString("[")
+				walk(it.Submenu)
+				b.WriteString("]")
+			}
+		}
 	}
-	if st, err := sysproxy.Current(); err == nil && st.Supported {
-		a.sysState = st
-		a.sysApplied = ownsProxy(st, a.mixedPort())
-		a.sysOn = a.sysApplied
-	}
-	return mygo.NewMenu(a.trayItems(running, groups, openWindow))
+	walk(items)
+	return b.String()
 }
 
 func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []*mygo.MenuItem {

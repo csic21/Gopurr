@@ -376,3 +376,23 @@ esac
 	t.Setenv("GOPURR_TEST_TRAY_PROXY_CANCEL", "0")
 	return logPath
 }
+
+func TestTrayMenuSignatureTracksVisibleState(t *testing.T) {
+	t.Setenv("GOPURR_HOME", t.TempDir())
+	a := New()
+	_, base := a.TrayMenuFor(TrayKernel{}, func() {})
+	if _, same := a.TrayMenuFor(TrayKernel{}, func() {}); same != base {
+		t.Fatal("identical state produced different signatures")
+	}
+	a.sysApplied = true
+	_, proxyOn := a.TrayMenuFor(TrayKernel{}, func() {})
+	if proxyOn == base {
+		t.Fatal("system proxy change not reflected in the tray signature")
+	}
+	a.bmu.Lock()
+	a.kernelBusy = true
+	a.bmu.Unlock()
+	if _, busy := a.TrayMenuFor(TrayKernel{}, func() {}); busy == proxyOn {
+		t.Fatal("kernel busy change not reflected in the tray signature")
+	}
+}
