@@ -160,6 +160,8 @@ func (a *App) overviewRoute(c *ui.Context, groups []core.Group, group core.Group
 		status, color = tr("内核尚未就绪"), pal.Warn
 	case a.sysErrText() != "":
 		status, color = tr("系统代理需要处理"), pal.Danger
+	case a.healthResumePending():
+		status, color = tr("系统代理等待内核恢复"), pal.Warn
 	case a.tunOn && a.sysApplied:
 		status, color = tr("系统代理与 TUN 已开启"), pal.Success
 	case a.tunOn:
@@ -249,12 +251,21 @@ func overviewRate(c *ui.Context, icon *ui.SVG, label, value string, accent ui.Co
 
 func (a *App) overviewNetworkControls(c *ui.Context) {
 	pal := paletteFor(c)
+	// While the watchdog holds a resume, the switch shows the user's intent
+	// (on) and flipping it off cancels the resume instead of starting a core.
+	if a.healthResumePending() && !a.sysResumeSwitch {
+		a.cancelHealthResume()
+	}
 	proxyColor := pal.Muted
 	if a.sysErrText() != "" {
 		proxyColor = pal.Danger
 	}
 	overviewControlRow(c, tr("系统代理"), a.sysProxyHint(), proxyColor, func() {
-		softSwitch(c, &a.sysOn).Label(tr("系统代理开关"))
+		if a.healthResumePending() {
+			softSwitch(c, &a.sysResumeSwitch).Label(tr("系统代理开关"))
+		} else {
+			softSwitch(c, &a.sysOn).Label(tr("系统代理开关"))
+		}
 	})
 	hairline(c)
 	installed, busy, svcErr := a.svcState()

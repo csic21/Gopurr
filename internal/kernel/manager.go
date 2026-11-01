@@ -99,8 +99,14 @@ func (m *Manager) ensureSecret() (string, error) {
 	return secret, nil
 }
 
-func (m *Manager) healthy() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+func (m *Manager) healthy() bool { return m.answersWithin(700 * time.Millisecond) }
+
+// slowProbeTimeout matches the app watchdog's probe: a controller that answers
+// within it is alive, just busy (large reload, GC pause, loaded service).
+const slowProbeTimeout = 2500 * time.Millisecond
+
+func (m *Manager) answersWithin(timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return m.remote.Probe(ctx) == nil
 }
@@ -262,7 +268,10 @@ func (m *Manager) Ensure() error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.healthy() {
+	// The quick probe is a UI hint. Before reaping, give the core the same
+	// patience as the watchdog: killing a slow-but-working core here and
+	// respawning it is exactly the "core keeps dying" the user sees.
+	if m.answersWithin(slowProbeTimeout) {
 		return nil
 	}
 
@@ -326,6 +335,10 @@ const serviceReadyWait = 2 * time.Second
 // spawn, waiting longer rarely helps: the service is either coming up quickly
 // or needs a reinstall.
 func (m *Manager) waitServiceReady(timeout time.Duration) error {
+	// A loaded service may simply answer slowly; that is not a failed start.
+	if m.answersWithin(slowProbeTimeout) {
+		return nil
+	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if m.healthy() {

@@ -3,8 +3,11 @@ package app
 import (
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 
 	"gopurr/internal/kernel"
 	"gopurr/internal/sysproxy"
@@ -112,14 +115,20 @@ func TestKernelSuspendKeepsRestorePreference(t *testing.T) {
 }
 
 func TestKernelSuspendSkippedWhileBusy(t *testing.T) {
-	for _, set := range []func(*App){
-		func(a *App) { a.kernelBusy = true },
-		func(a *App) { a.subBusy = true },
-		func(a *App) { a.svcBusy = true },
+	for _, tc := range []struct {
+		set    func(*App)
+		exited bool
+	}{
+		{func(a *App) { a.kernelBusy = true }, true},
+		{func(a *App) { a.svcBusy = true }, true},
+		{func(a *App) { a.sysBusy = true }, true},
+		// Profile work only ignores an unresponsive core; see
+		// TestProfileWorkStillHonoursRealExit.
+		{func(a *App) { a.subBusy = true }, false},
 	} {
 		a, calls := healthTestApp(t, nil)
-		set(a)
-		a.suspendProxyForKernelFailure(true)
+		tc.set(a)
+		a.suspendProxyForKernelFailure(tc.exited)
 		if calls.restore != 0 || !a.sysApplied || a.proxySuspendedByHealth.Load() {
 			t.Fatalf("suspended while busy: restore=%d applied=%v", calls.restore, a.sysApplied)
 		}
@@ -129,8 +138,8 @@ func TestKernelSuspendSkippedWhileBusy(t *testing.T) {
 func TestKernelRecoveryReenablesSuspendedProxy(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
 	a.suspendProxyForKernelFailure(true)
-	if !strings.Contains(a.notice, "内核已退出") {
-		t.Fatalf("exit notice = %q", a.notice)
+	if !strings.Contains(a.notice, "内核已退出") || !strings.Contains(a.notice, "重新启动内核") {
+		t.Fatalf("exit notice should ask for a manual start: %q", a.notice)
 	}
 	if !a.k.Running() {
 		t.Fatal("fixture kernel should answer")
@@ -171,5 +180,223 @@ func TestExplicitProxyToggleClearsHealthSuspension(t *testing.T) {
 	a.setSystemProxy(false) // user turns it off from the tray while suspended
 	if a.proxySuspendedByHealth.Load() || a.Prefs().RestoreSystemProxy {
 		t.Fatalf("explicit off: suspended=%v pref=%v", a.proxySuspendedByHealth.Load(), a.Prefs().RestoreSystemProxy)
+	}
+}
+
+// A core that answers in 0.7–2.5s is alive for the watchdog but "not
+// running" for the quick UI probe. Resuming must trust the watchdog: going
+// through setSystemProxy would call Start → Ensure, which reaps the live core.
+func TestKernelResumeNeverStartsSlowButAliveKernel(t *testing.T) {
+	a, reloads := newSettingsTestAppWithVersionDelay(t, nil, 1200*time.Millisecond)
+	calls := &proxyCalls{}
+	a.proxy = proxyControllerFixture{
+		enable:  func(int, *sysproxy.State) error { calls.enable++; return nil },
+		restore: func(int, *sysproxy.State) error { calls.restore++; return nil },
+	}
+	previous := systemProxyAvailable
+	systemProxyAvailable = func() bool { return true }
+	t.Cleanup(func() { systemProxyAvailable = previous })
+	a.persistRestoreSystemProxy(true)
+	a.sysApplied, a.sysOn = true, true
+
+	if h := a.k.Health(kernelProbeTimeout); h != kernel.HealthOK {
+		t.Fatalf("slow core health = %v, want ok", h)
+	}
+	if a.k.Running() {
+		t.Fatal("fixture should look not-running to the 700ms UI probe")
+	}
+	a.suspendProxyForKernelFailure(false)
+	before := len(reloads())
+	a.resumeProxyAfterKernelRecovery()
+	if calls.enable != 1 || !a.sysApplied || !a.sysOn || a.proxySuspendedByHealth.Load() {
+		t.Fatalf("resume: enable=%d applied=%v on=%v suspended=%v", calls.enable, a.sysApplied, a.sysOn, a.proxySuspendedByHealth.Load())
+	}
+	if len(reloads()) != before || a.kernelBusyState() || strings.Contains(a.notice, "正在启动") {
+		t.Fatalf("resume started the kernel: reloads %d→%d busy=%v notice=%q", before, len(reloads()), a.kernelBusyState(), a.notice)
+	}
+}
+
+func TestKernelResumeDoesNotPersistPreference(t *testing.T) {
+	a, calls := healthTestApp(t, nil)
+	a.suspendProxyForKernelFailure(false)
+	// The preference changed elsewhere (not through the settings page) while
+	// suspended; the resume must not write it back to true.
+	if err := a.changePrefs(func(p *Prefs) { p.RestoreSystemProxy = false }); err != nil {
+		t.Fatal(err)
+	}
+	a.resumeProxyAfterKernelRecovery()
+	if calls.enable != 1 || !a.sysApplied {
+		t.Fatalf("enable=%d applied=%v", calls.enable, a.sysApplied)
+	}
+	if a.Prefs().RestoreSystemProxy {
+		t.Fatal("watchdog resume persisted RestoreSystemProxy=true")
+	}
+}
+
+func TestSettingsRestoreOffCancelsPendingResume(t *testing.T) {
+	a, calls := healthTestApp(t, nil)
+	a.reconcileSettings() // the settings page has seen the current prefs
+	a.suspendProxyForKernelFailure(false)
+	a.restoreProxyOn = false
+	a.reconcileSettings()
+	if a.proxySuspendedByHealth.Load() || a.Prefs().RestoreSystemProxy {
+		t.Fatalf("settings off: suspended=%v pref=%v", a.proxySuspendedByHealth.Load(), a.Prefs().RestoreSystemProxy)
+	}
+	if a.isKernelSuspendNotice(a.notice) {
+		t.Fatalf("stale suspend banner %q", a.notice)
+	}
+	a.resumeProxyAfterKernelRecovery()
+	if calls.enable != 0 || a.sysApplied {
+		t.Fatal("canceled resume still re-enabled the proxy")
+	}
+}
+
+func TestTrayShowsAndCancelsPendingResume(t *testing.T) {
+	a, calls := healthTestApp(t, nil)
+	a.suspendProxyForKernelFailure(false)
+	item := findTrayItem(t, a.trayItems(true, nil, func() {}), "system-proxy")
+	if !item.Checked || !strings.Contains(item.Label, "等待内核恢复") {
+		t.Fatalf("pending resume item = label:%q checked:%v", item.Label, item.Checked)
+	}
+	item.SetChecked(false) // what the native menu does before Click
+	item.Click(item, nil)
+	if a.proxySuspendedByHealth.Load() || a.Prefs().RestoreSystemProxy || calls.enable != 0 {
+		t.Fatalf("tray cancel: suspended=%v pref=%v enable=%d", a.proxySuspendedByHealth.Load(), a.Prefs().RestoreSystemProxy, calls.enable)
+	}
+	if a.kernelBusyState() {
+		t.Fatal("tray cancel tried to start the kernel")
+	}
+	item = findTrayItem(t, a.trayItems(true, nil, func() {}), "system-proxy")
+	if item.Checked || item.Label != "系统代理" {
+		t.Fatalf("after cancel = label:%q checked:%v", item.Label, item.Checked)
+	}
+}
+
+func TestOverviewSwitchCancelsPendingResume(t *testing.T) {
+	a, calls := healthTestApp(t, nil)
+	a.suspendProxyForKernelFailure(false)
+	tr := ui.NewTester(func(c *ui.Context) {
+		c.SetTheme(theme(c.Theme().Dark))
+		a.overviewNetworkControls(c)
+	}, 720, 320)
+	tr.Frame()
+	if _, ok := tr.Find("内核恢复后自动重新开启 · 关闭开关可取消"); !ok {
+		t.Fatal("pending resume hint not shown")
+	}
+	if err := tr.Click("系统代理开关"); err != nil {
+		t.Fatal(err)
+	}
+	tr.Frame()
+	if a.proxySuspendedByHealth.Load() || a.Prefs().RestoreSystemProxy || calls.enable != 0 || a.kernelBusyState() {
+		t.Fatalf("overview cancel: suspended=%v pref=%v enable=%d busy=%v", a.proxySuspendedByHealth.Load(), a.Prefs().RestoreSystemProxy, calls.enable, a.kernelBusyState())
+	}
+	if a.sysOn || a.sysApplied {
+		t.Fatal("canceling turned the proxy on")
+	}
+}
+
+func TestStopKernelClearsSuspensionEvenWhenStopFails(t *testing.T) {
+	a, _ := healthTestApp(t, nil)
+	a.suspendProxyForKernelFailure(false)
+	// The fixture daemon is not owned by the app, so Stop fails; the user's
+	// intent to stop still cancels the pending resume.
+	a.toggle()
+	if a.proxySuspendedByHealth.Load() {
+		t.Fatal("stopping the kernel left a pending resume")
+	}
+}
+
+func TestSuspendKeepsSpecificStartFailureNotice(t *testing.T) {
+	a, _ := healthTestApp(t, nil)
+	a.notice = "启动失败: bad rule"
+	a.suspendProxyForKernelFailure(true)
+	if a.notice != "启动失败: bad rule" || !a.proxySuspendedByHealth.Load() {
+		t.Fatalf("notice=%q suspended=%v", a.notice, a.proxySuspendedByHealth.Load())
+	}
+	// Resuming does not clear a notice the watchdog did not set.
+	a.resumeProxyAfterKernelRecovery()
+	if a.notice != "启动失败: bad rule" {
+		t.Fatalf("resume cleared failure notice: %q", a.notice)
+	}
+}
+
+func TestProfileWorkStillHonoursRealExit(t *testing.T) {
+	if got := healthDuringWork(kernel.HealthUnresponsive, true); got != kernel.HealthBusy {
+		t.Fatalf("unresponsive during profile work = %v", got)
+	}
+	for _, h := range []kernel.Health{kernel.HealthExited, kernel.HealthOK} {
+		if got := healthDuringWork(h, true); got != h {
+			t.Fatalf("%v during profile work = %v", h, got)
+		}
+	}
+	if got := healthDuringWork(kernel.HealthUnresponsive, false); got != kernel.HealthUnresponsive {
+		t.Fatal(got)
+	}
+
+	a, calls := healthTestApp(t, nil)
+	a.subBusy = true
+	a.suspendProxyForKernelFailure(false)
+	if calls.restore != 0 || !a.sysApplied {
+		t.Fatal("slow probe during a download suspended the proxy")
+	}
+	a.suspendProxyForKernelFailure(true)
+	if calls.restore != 1 || a.sysApplied || !a.proxySuspendedByHealth.Load() {
+		t.Fatal("real exit during a download was ignored")
+	}
+	a.resumeProxyAfterKernelRecovery()
+	if calls.enable != 1 || !a.sysApplied {
+		t.Fatal("recovery during profile work did not resume")
+	}
+}
+
+func TestApplySystemProxyMarksSysBusy(t *testing.T) {
+	a, _ := healthTestApp(t, nil)
+	var during bool
+	a.proxy = proxyControllerFixture{
+		enable: func(int, *sysproxy.State) error {
+			hard, _ := a.kernelHealthBusyState()
+			during = hard
+			return nil
+		},
+		restore: func(int, *sysproxy.State) error { return nil },
+	}
+	if err := a.applySystemProxy(true); err != nil {
+		t.Fatal(err)
+	}
+	if !during {
+		t.Fatal("watchdog not held off while the OS proxy changes")
+	}
+	if hard, _ := a.kernelHealthBusyState(); hard {
+		t.Fatal("sysBusy left set")
+	}
+}
+
+func TestStartKernelAsyncCompletesOnMainThread(t *testing.T) {
+	a, _ := newSettingsTestApp(t, nil)
+	previous := runOnMain
+	t.Cleanup(func() { runOnMain = previous })
+	var onMain atomic.Bool
+	done := make(chan struct{})
+	runOnMain = func(fn func()) {
+		onMain.Store(true)
+		fn()
+		onMain.Store(false)
+	}
+	a.startKernelAsync(func(ok bool) {
+		if !ok {
+			t.Errorf("start failed: %q", a.notice)
+		}
+		if !onMain.Load() {
+			t.Error("after ran off the main thread")
+		}
+		if a.kernelBusyState() {
+			t.Error("kernelBusy still set when after ran")
+		}
+		close(done)
+	})
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("async start timed out")
 	}
 }

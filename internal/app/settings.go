@@ -332,6 +332,9 @@ func (a *App) reconcileSettings() {
 		if err != nil {
 			a.generalSettingsError = tr("设置保存失败：") + err.Error()
 			a.notice = a.generalSettingsError
+		} else if restoreChanged && !a.restoreProxyOn {
+			// Turning the preference off also drops a pending watchdog resume.
+			a.cancelHealthResume()
 		}
 	}
 	a.syncGeneralSettings(a.Prefs())

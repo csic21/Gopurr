@@ -78,7 +78,12 @@ func (a *App) RunShortcut(action shortcuts.Action, openWindow func()) {
 					a.notice = tr("无法读取系统代理：") + err.Error()
 				} else if st.Supported {
 					a.sysApplied = ownsProxy(st, a.mixedPort())
-					a.setSystemProxy(!a.sysApplied)
+					if a.healthResumePending() {
+						// Pending (shown on): the toggle cancels it.
+						a.cancelHealthResume()
+					} else {
+						a.setSystemProxy(!a.sysApplied)
+					}
 				}
 			} else {
 				a.notice = tr("此系统暂不支持系统代理")

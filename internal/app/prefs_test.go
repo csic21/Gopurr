@@ -569,6 +569,13 @@ func fakeSettingsSystemProxy(t *testing.T, a *App, port int, cancelFirst bool) s
 // refuses the candidate while retaining the previously running config.
 func newSettingsTestApp(t *testing.T, reject func(string) bool) (*App, func() []string) {
 	t.Helper()
+	return newSettingsTestAppWithVersionDelay(t, reject, 0)
+}
+
+// newSettingsTestAppWithVersionDelay answers GET /version only after delay,
+// to model a slow-but-alive controller.
+func newSettingsTestAppWithVersionDelay(t *testing.T, reject func(string) bool, delay time.Duration) (*App, func() []string) {
+	t.Helper()
 	dir, err := os.MkdirTemp("", "gopurr-settings-")
 	if err != nil {
 		t.Fatal(err)
@@ -594,6 +601,9 @@ func newSettingsTestApp(t *testing.T, reject func(string) bool) (*App, func() []
 	var payloads []string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
 		_, _ = fmt.Fprint(w, `{"version":"1.19.33"}`)
 	})
 	mux.HandleFunc("/configs", func(w http.ResponseWriter, r *http.Request) {

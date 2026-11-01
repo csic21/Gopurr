@@ -14,5 +14,7 @@ import (
 func TestMain(m *testing.M) {
 	localize.SetLanguageSource(i18n.Locale)
 	i18n.SetLocaleFunc(func() string { return LanguageChinese })
+	// No native event loop runs under go test; async completions run inline.
+	runOnMain = func(fn func()) { fn() }
 	os.Exit(m.Run())
 }

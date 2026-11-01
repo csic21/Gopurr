@@ -3,6 +3,8 @@ package kernel
 import (
 	"encoding/json"
 	"errors"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"gopurr/internal/core"
+	"gopurr/internal/service"
 )
 
 func TestStartupReportsExitImmediatelyWithCoreOutput(t *testing.T) {
@@ -148,5 +151,50 @@ func TestHealthDistinguishesExitUnresponsiveAndBusy(t *testing.T) {
 	m.mu.Unlock()
 	if got != HealthBusy {
 		t.Fatalf("locked manager = %v", got)
+	}
+}
+
+// A core whose controller answers in 0.7–2.5s is busy, not dead: Ensure must
+// keep it rather than reap it and spawn a replacement.
+func TestEnsureKeepsSlowButAliveCore(t *testing.T) {
+	if service.Installed() {
+		t.Skip("an installed system service owns the controller socket")
+	}
+	dir, err := os.MkdirTemp("", "gp-slow-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	m, err := NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", m.socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(1200 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"version":"test"}`))
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	if m.Running() {
+		t.Fatal("fixture should miss the quick 700ms probe")
+	}
+	if err := m.Ensure(); err != nil {
+		t.Fatalf("Ensure on a slow core: %v", err)
+	}
+	m.mu.Lock()
+	spawned := m.cmd != nil
+	m.mu.Unlock()
+	if spawned {
+		t.Fatal("Ensure reaped a slow-but-alive core and spawned another")
+	}
+	if got := m.Health(slowProbeTimeout); got != HealthOK {
+		t.Fatalf("slow core health after Ensure = %v", got)
 	}
 }

@@ -43,13 +43,24 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 	tunReady := a.k != nil && a.k.IsRoot()
 	tunEnabled := (tunReady || a.tunOn) && !svcBusy && !kernelBusy && a.k != nil
 
+	proxyLabel, resumePending := tr("系统代理"), a.healthResumePending()
+	if resumePending {
+		proxyLabel = tr("系统代理（等待内核恢复）")
+	}
 	items := []*mygo.MenuItem{
 		{ID: "show-window", Label: tr("显示窗口"), Click: func(*mygo.MenuItem, *mygo.Window) { openWindow() }},
 		mygo.Separator(),
 		{
-			ID: "system-proxy", Label: tr("系统代理"), Type: mygo.MenuItemCheckbox,
-			Checked: a.sysApplied, Disabled: !sysproxy.Available() || a.k == nil || svcBusy || kernelBusy,
+			ID: "system-proxy", Label: proxyLabel, Type: mygo.MenuItemCheckbox,
+			Checked: a.sysApplied || resumePending, Disabled: !sysproxy.Available() || a.k == nil || svcBusy || kernelBusy,
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
+				if a.healthResumePending() {
+					// Shown on while the watchdog waits: unchecking cancels.
+					a.cancelHealthResume()
+					item.SetChecked(false)
+					a.invalidate()
+					return
+				}
 				a.notice = ""
 				a.setSystemProxy(item.IsChecked())
 				item.SetChecked(a.sysApplied)

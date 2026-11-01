@@ -94,11 +94,14 @@ type App struct {
 	notice     string
 
 	// async-written state, guarded by bmu
-	bmu      sync.Mutex
-	delays   map[string]uint16
-	testing  string
-	subBusy  bool
-	subErr   string
+	bmu     sync.Mutex
+	delays  map[string]uint16
+	testing string
+	subBusy bool
+	subErr  string
+	// sysBusy is set while the OS proxy is being changed (which may sit on
+	// an authorization prompt), so the kernel watchdog does not act on a
+	// probe taken in the middle of it.
 	sysBusy  bool
 	sysErr   string
 	sysState sysproxy.State
@@ -157,7 +160,10 @@ type App struct {
 	// system proxy off (without touching prefs) and should turn it back on
 	// once the core answers again. Read by the watchdog goroutine.
 	proxySuspendedByHealth atomic.Bool
-	tunOn                  bool
+	// sysResumeSwitch backs the overview switch while a watchdog resume is
+	// pending: it shows on, and flipping it off cancels the resume.
+	sysResumeSwitch bool
+	tunOn           bool
 
 	deleteSubID   string
 	deleteSubName string
@@ -887,13 +893,14 @@ func (a *App) toggle() {
 				return
 			}
 		}
+		// An explicit stop is the user's decision; do not bring a
+		// watchdog-suspended proxy back if they start the core later, even
+		// when the stop itself fails (for example a system-owned daemon).
+		a.cancelHealthResume()
 		if err := a.k.Stop(); err != nil {
 			a.notice = tr("停止失败: ") + err.Error()
 			return
 		}
-		// An explicit stop is the user's decision; do not bring a
-		// watchdog-suspended proxy back if they start the core later.
-		a.proxySuspendedByHealth.Store(false)
 		a.notice = tr("内核已停止。")
 		return
 	}
@@ -902,7 +909,13 @@ func (a *App) toggle() {
 		return
 	}
 	a.startKernelAsync(func(ok bool) {
-		if ok && a.sysOn {
+		switch {
+		case !ok:
+		case a.proxySuspendedByHealth.Load():
+			// The user restarted a core that had exited: bring back the
+			// proxy the watchdog handed back, without waiting for a tick.
+			a.resumeProxyAfterKernelRecovery()
+		case a.sysOn:
 			a.setSystemProxy(true)
 		}
 	})
@@ -964,22 +977,32 @@ func (a *App) startKernelAsync(after func(ok bool)) {
 			return
 		}
 		if err != nil {
-			a.completeKernelStart(false, tr("启动失败: ")+err.Error(), after)
+			runOnMain(func() { a.completeKernelStart(false, tr("启动失败: ")+err.Error(), after) })
 			return
 		}
 		a.cancelDelayTest()
-		a.bmu.Lock()
-		a.delays = map[string]uint16{}
-		a.delayErrors = map[string]string{}
-		a.kernelBusy = false
-		a.bmu.Unlock()
-		a.notice = ""
-		if after != nil {
-			after(true)
-		}
-		a.invalidate()
+		// UI state (notice, sysOn, the proxy itself) belongs to the main
+		// thread, and the watchdog must not see the core as idle until the
+		// follow-up (such as re-enabling the system proxy) has run.
+		runOnMain(func() {
+			if a.shutdownPending.Load() {
+				// Quitting: leave the proxy and notices to the shutdown path.
+				a.bmu.Lock()
+				a.kernelBusy = false
+				a.bmu.Unlock()
+				return
+			}
+			a.bmu.Lock()
+			a.delays = map[string]uint16{}
+			a.delayErrors = map[string]string{}
+			a.bmu.Unlock()
+			a.completeKernelStart(true, "", after)
+		})
 	}()
 }
+
+// runOnMain is a seam so tests without an event loop can complete async work.
+var runOnMain = mygo.RunOnMain
 
 func (a *App) completeKernelStart(ok bool, notice string, after func(ok bool)) {
 	a.bmu.Lock()
@@ -1114,7 +1137,6 @@ func (a *App) setSystemProxy(on bool) {
 		a.setSysErr(tr("当前平台暂不支持自动设置系统代理"))
 		return
 	}
-	port := a.mixedPort()
 	if on && !a.k.Running() {
 		// Start off the UI thread; overview may call this every frame while the
 		// switch is ahead of sysApplied.
@@ -1127,7 +1149,32 @@ func (a *App) setSystemProxy(on bool) {
 		})
 		return
 	}
+	if a.applySystemProxy(on) != nil {
+		return
+	}
+	// Any explicit change supersedes a watchdog suspension.
+	a.proxySuspendedByHealth.Store(false)
+	// Overview / tray toggles are the user's session intent: remember them so
+	// the next launch matches (Clash-like). Exit still restores foreign OS
+	// proxy settings; finishKernelBoot re-applies when this pref is true.
+	a.persistRestoreSystemProxy(on)
+}
 
+// applySystemProxy points the OS proxy at the core (or hands it back) and
+// updates sysApplied/sysOn/sysState/sysErr and the saved previous owner. It
+// never starts the kernel and never persists RestoreSystemProxy: the
+// watchdog uses it to re-enable a proxy it suspended, after a probe that
+// already proved the core answers. Callers check systemProxyAvailable.
+func (a *App) applySystemProxy(on bool) error {
+	a.bmu.Lock()
+	a.sysBusy = true
+	a.bmu.Unlock()
+	defer func() {
+		a.bmu.Lock()
+		a.sysBusy = false
+		a.bmu.Unlock()
+	}()
+	port := a.mixedPort()
 	var err error
 	if on {
 		// Whoever owned the system proxy before us gets it back on stop.
@@ -1148,17 +1195,12 @@ func (a *App) setSystemProxy(on bool) {
 	if err != nil {
 		a.sysOn = a.sysApplied
 		a.setSysErr(err.Error())
-		return
+		return err
 	}
 	a.sysApplied = on
 	a.sysOn = on
 	a.setSysErr("")
-	// Any explicit change supersedes a watchdog suspension.
-	a.proxySuspendedByHealth.Store(false)
-	// Overview / tray toggles are the user's session intent: remember them so
-	// the next launch matches (Clash-like). Exit still restores foreign OS
-	// proxy settings; finishKernelBoot re-applies when this pref is true.
-	a.persistRestoreSystemProxy(on)
+	return nil
 }
 
 // systemProxyAvailable is a seam so App logic tests can run where the OS
@@ -1530,6 +1572,9 @@ func (a *App) removeSubscription(id string) {
 func (a *App) sysProxyHint() string {
 	if e := a.sysErrText(); e != "" {
 		return e
+	}
+	if a.healthResumePending() {
+		return tr("内核恢复后自动重新开启 · 关闭开关可取消")
 	}
 	if !sysproxy.Available() {
 		return tr("当前平台暂不支持")
