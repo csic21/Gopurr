@@ -105,6 +105,70 @@ func (m *Manager) healthy() bool {
 	return m.remote.Probe(ctx) == nil
 }
 
+// Health classifies the daemon for the app's crash-recovery watchdog. Unlike
+// Running, which is a quick UI liveness hint, Health distinguishes a process
+// that really exited from a controller that merely did not answer in time.
+type Health int
+
+const (
+	// HealthOK means the controller answered the probe.
+	HealthOK Health = iota
+	// HealthBusy means the manager is spawning, reaping or reloading the
+	// daemon, so a failed probe would say nothing about a crash.
+	HealthBusy
+	// HealthUnresponsive means the probe failed but no process exit was
+	// observed (service-managed daemon, or a wedged / slow child).
+	HealthUnresponsive
+	// HealthExited means the daemon this app spawned has exited.
+	HealthExited
+)
+
+func (h Health) String() string {
+	switch h {
+	case HealthOK:
+		return "ok"
+	case HealthBusy:
+		return "busy"
+	case HealthUnresponsive:
+		return "unresponsive"
+	case HealthExited:
+		return "exited"
+	}
+	return fmt.Sprintf("health(%d)", int(h))
+}
+
+// Health probes the controller with the given timeout. A self-spawned core's
+// real exit is reported without waiting for the probe. While Ensure holds the
+// manager lock (spawn / reap / startup wait) it reports HealthBusy instead of
+// blocking.
+func (m *Manager) Health(timeout time.Duration) Health {
+	if !m.mu.TryLock() {
+		return HealthBusy
+	}
+	exit := m.exit
+	m.mu.Unlock()
+	if exit != nil {
+		select {
+		case <-exit.done:
+			return HealthExited
+		default:
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if m.remote.Probe(ctx) == nil {
+		return HealthOK
+	}
+	if exit != nil {
+		select {
+		case <-exit.done:
+			return HealthExited
+		default:
+		}
+	}
+	return HealthUnresponsive
+}
+
 // Status reads what the daemon wrote about itself.
 func (m *Manager) Status() (core.DaemonStatus, error) {
 	var st core.DaemonStatus

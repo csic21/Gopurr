@@ -119,3 +119,34 @@ func TestReclaimStaleIsSafeWithoutStatus(t *testing.T) {
 	}
 	m.ReclaimStale() // must not panic when nothing is recorded
 }
+
+func TestHealthDistinguishesExitUnresponsiveAndBusy(t *testing.T) {
+	dir, err := os.MkdirTemp("", "gp-health-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	m, err := NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Health(200 * time.Millisecond); got != HealthUnresponsive {
+		t.Fatalf("no daemon = %v", got)
+	}
+	exit := &processExit{done: make(chan struct{})}
+	m.exit = exit
+	if got := m.Health(200 * time.Millisecond); got != HealthUnresponsive {
+		t.Fatalf("live unanswering child = %v", got)
+	}
+	close(exit.done)
+	start := time.Now()
+	if got := m.Health(5 * time.Second); got != HealthExited || time.Since(start) > time.Second {
+		t.Fatalf("exited child = %v after %v", got, time.Since(start))
+	}
+	m.mu.Lock()
+	got := m.Health(200 * time.Millisecond)
+	m.mu.Unlock()
+	if got != HealthBusy {
+		t.Fatalf("locked manager = %v", got)
+	}
+}

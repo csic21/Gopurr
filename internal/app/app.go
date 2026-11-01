@@ -153,7 +153,11 @@ type App struct {
 
 	sysOn      bool
 	sysApplied bool
-	tunOn      bool
+	// proxySuspendedByHealth is set when the kernel watchdog turned the
+	// system proxy off (without touching prefs) and should turn it back on
+	// once the core answers again. Read by the watchdog goroutine.
+	proxySuspendedByHealth atomic.Bool
+	tunOn                  bool
 
 	deleteSubID   string
 	deleteSubName string
@@ -411,6 +415,7 @@ func (a *App) StartBackground() {
 	if !a.ticking {
 		a.ticking = true
 		go a.sampleLoop()
+		go a.kernelHealthLoop()
 	}
 	if !a.booted {
 		a.booted = true
@@ -477,19 +482,10 @@ func (a *App) sampleLoop() {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	tick := 0
-	missed := 0
 	for range t.C {
 		tick++
 		if tick%3 == 0 {
 			mygo.RunOnMain(func() { a.reconcileMeshRoutes(); a.reconcileMeshPreparation() })
-			if a.k.Running() {
-				missed = 0
-			} else {
-				missed++
-				if missed%2 == 0 {
-					mygo.RunOnMain(a.recoverFailedKernel)
-				}
-			}
 		}
 		if a.windowHidden.Load() {
 			continue
@@ -524,19 +520,6 @@ func (a *App) SetWindowVisible(visible bool) {
 		a.mu.Unlock()
 		a.invalidate()
 	}
-}
-
-func (a *App) recoverFailedKernel() {
-	if a.shutdownPending.Load() || a.k == nil || a.k.Running() || !a.sysApplied {
-		return
-	}
-	a.setSystemProxy(false)
-	if !a.sysApplied {
-		a.notice = tr("内核已退出，已恢复系统代理")
-	} else {
-		a.notice = tr("内核已退出，系统代理恢复失败，请重试: ") + a.sysErrText()
-	}
-	a.invalidate()
 }
 
 func readHeap() uint64 {
@@ -908,6 +891,9 @@ func (a *App) toggle() {
 			a.notice = tr("停止失败: ") + err.Error()
 			return
 		}
+		// An explicit stop is the user's decision; do not bring a
+		// watchdog-suspended proxy back if they start the core later.
+		a.proxySuspendedByHealth.Store(false)
 		a.notice = tr("内核已停止。")
 		return
 	}
@@ -1124,7 +1110,7 @@ func (a *App) mixedPort() int {
 // setSystemProxy flips macOS's proxy settings. It runs on the UI thread
 // because the authorization prompt is modal anyway.
 func (a *App) setSystemProxy(on bool) {
-	if !sysproxy.Available() {
+	if !systemProxyAvailable() {
 		a.setSysErr(tr("当前平台暂不支持自动设置系统代理"))
 		return
 	}
@@ -1167,11 +1153,17 @@ func (a *App) setSystemProxy(on bool) {
 	a.sysApplied = on
 	a.sysOn = on
 	a.setSysErr("")
+	// Any explicit change supersedes a watchdog suspension.
+	a.proxySuspendedByHealth.Store(false)
 	// Overview / tray toggles are the user's session intent: remember them so
 	// the next launch matches (Clash-like). Exit still restores foreign OS
 	// proxy settings; finishKernelBoot re-applies when this pref is true.
 	a.persistRestoreSystemProxy(on)
 }
+
+// systemProxyAvailable is a seam so App logic tests can run where the OS
+// proxy is unsupported (Linux CI boxes).
+var systemProxyAvailable = sysproxy.Available
 
 // restoreProxy hands the system proxy back to its previous owner, or turns it
 // off when there was none.

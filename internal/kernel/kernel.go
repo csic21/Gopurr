@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopurr/internal/core"
@@ -20,6 +21,7 @@ type Kernel struct {
 	watchOnce  sync.Once
 	setupOnce  sync.Once
 	startMu    sync.Mutex
+	starting   atomic.Int32 // >0 while Start writes/ensures/reloads
 	mu         sync.Mutex
 	lastErr    string
 	groups     []core.Group
@@ -50,6 +52,20 @@ func (k *Kernel) Running() bool {
 	return k.mgr.Running()
 }
 
+// Health is the crash-recovery probe: it reports HealthBusy while a Start
+// (config write, Ensure, Reload) is in flight, because the controller may
+// legitimately stop answering during a large reload.
+func (k *Kernel) Health(timeout time.Duration) Health {
+	if k.starting.Load() > 0 {
+		return HealthBusy
+	}
+	h := k.mgr.Health(timeout)
+	if h != HealthOK && k.starting.Load() > 0 {
+		return HealthBusy
+	}
+	return h
+}
+
 // IsRoot reports whether the daemon can create a TUN device.
 func (k *Kernel) IsRoot() bool { return k.mgr.IsRoot() }
 
@@ -68,6 +84,8 @@ func (k *Kernel) setErr(err error) {
 // Start writes the config and asks the daemon to run it, spawning the daemon
 // when the app owns it.
 func (k *Kernel) Start(cfg []byte) error {
+	k.starting.Add(1)
+	defer k.starting.Add(-1)
 	k.startMu.Lock()
 	defer k.startMu.Unlock()
 	path := k.mgr.ConfigPath()
