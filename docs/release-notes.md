@@ -1,4 +1,4 @@
-Gopurr 0.6.13 改善内核检测、系统代理恢复和 Windows 服务更新的稳定性。
+Gopurr 0.6.14 改善内核检测、系统代理恢复和 Windows 服务更新的稳定性。
 
 **普通应用升级不需要重装兼容的系统服务。** 已安装服务使用独立内核副本：要使用本版 Windows 服务的日志和内核修复，请在「概览 → 网络详情」更新服务一次并完成管理员授权。订阅与设置保留；仅使用普通内核的用户无需安装 TUN 服务。
 
@@ -7,6 +7,6 @@ Gopurr 0.6.13 改善内核检测、系统代理恢复和 Windows 服务更新的
 - Windows 服务和普通内核日志按大小轮转，并合并连续重复的错误；Windows 服务升级先校验副本，失败时尝试恢复旧服务。
 - 新增使用临时配置和独立端口的真实内核冒烟测试，验证上传、下载和流量计数，不修改用户系统代理。
 
-macOS Apple Silicon 下载 gopurr-0.6.13-arm64.dmg；Windows 10/11 x64 下载 gopurr-setup-0.6.13-amd64.exe。也可在「设置 → 维护 → 软件更新」检查更新，更新包通过 Ed25519 签名校验。
+macOS Apple Silicon 下载 gopurr-0.6.14-arm64.dmg；Windows 10/11 x64 下载 gopurr-setup-0.6.14-amd64.exe。也可在「设置 → 维护 → 软件更新」检查更新，更新包通过 Ed25519 签名校验。
 
 本版本尚未配置 Apple Developer ID／公证及 Windows Authenticode 证书，系统可能提示无法验证开发者。请确认下载来自本仓库。SHA256SUMS 用于校验下载文件。

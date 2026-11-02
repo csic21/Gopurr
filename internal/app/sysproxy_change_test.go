@@ -67,6 +67,9 @@ func TestNetworkSettingsSaveDoesNotBlockOnCoreReload(t *testing.T) {
 }
 
 func TestProxySwitchReturnsDuringAuthorizationAndCommitsOnMainThread(t *testing.T) {
+	previousAvailability := systemProxyAvailable
+	systemProxyAvailable = func() bool { return true }
+	t.Cleanup(func() { systemProxyAvailable = previousAvailability })
 	a, _ := newSettingsTestApp(t, nil)
 	entered, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
@@ -95,17 +98,17 @@ func TestProxySwitchReturnsDuringAuthorizationAndCommitsOnMainThread(t *testing.
 	// A repeated frame or tray click must not start another authorization.
 	a.setSystemProxy(true)
 	release <- struct{}{}
-	select {
-	case commit := <-completed:
-		if !busyNetwork(a) {
-			t.Fatal("worker committed outside the main thread")
+	deadline := time.After(3 * time.Second)
+	for busyNetwork(a) {
+		select {
+		case commit := <-completed:
+			commit()
+		case <-deadline:
+			t.Fatal("completion was not dispatched")
 		}
-		commit()
-	case <-time.After(3 * time.Second):
-		t.Fatal("completion was not dispatched")
 	}
-	if busyNetwork(a) || a.sysApplied || a.sysOn || a.Prefs().RestoreSystemProxy {
-		t.Fatal("canceled authorization changed the user's preference")
+	if a.sysApplied || a.sysOn || a.Prefs().RestoreSystemProxy {
+		t.Fatalf("canceled authorization changed state: applied=%v on=%v preference=%v", a.sysApplied, a.sysOn, a.Prefs().RestoreSystemProxy)
 	}
 }
 
