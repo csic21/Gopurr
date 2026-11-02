@@ -26,6 +26,8 @@ import (
 	"gopurr/internal/sysproxy"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 )
 
 func main() {
@@ -474,8 +476,28 @@ func testServiceLifecycle(manager *kernel.Manager) error {
 	}
 	// A user stop must stay stopped; SCM failure recovery must not undo it.
 	time.Sleep(3 * time.Second)
-	if manager.Running() {
-		return errors.New("SCM restarted an intentionally stopped service")
+	// Running is a deliberately cached UI hint. Query SCM itself so cached
+	// controller evidence cannot be mistaken for an unexpected restart.
+	scm, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("query SCM after stop: %w", err)
+	}
+	svcHandle, err := scm.OpenService(service.Label)
+	if err != nil {
+		scm.Disconnect()
+		return fmt.Errorf("open service after stop: %w", err)
+	}
+	state, err := svcHandle.Query()
+	svcHandle.Close()
+	scm.Disconnect()
+	if err != nil {
+		return fmt.Errorf("query service after stop: %w", err)
+	}
+	if state.State != svc.Stopped {
+		return fmt.Errorf("SCM restarted an intentionally stopped service: state %v", state.State)
+	}
+	if manager.Health(time.Second) == kernel.HealthOK {
+		return errors.New("controller still responds after SCM stop")
 	}
 	if err := service.EnsureRunning(); err != nil {
 		return fmt.Errorf("SCM start: %w", err)
