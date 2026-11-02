@@ -2,5 +2,7 @@
 
 package core
 
+import "net/netip"
+
 // TUN services are not offered on these platforms.
-func checkTunRoutes(int) error { return nil }
+func checkTunRoutes(int, []netip.Prefix) error { return nil }

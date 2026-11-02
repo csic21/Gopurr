@@ -127,6 +127,7 @@ rules: ["MATCH,DIRECT"]
 				{"GET", "/version", ""}, {"GET", "/configs", ""}, {"GET", "/gopurr/runtime", ""}, {"GET", "/logs", ""}, {"GET", "/debug/pprof/", ""},
 				{"PATCH", "/configs", `{"mode":"direct"}`}, {"PUT", "/configs", `{"payload":"mode: direct"}`},
 				{"DELETE", "/connections", ""}, {"POST", "/upgrade", ""},
+				{"POST", "/gopurr/restart", ""}, {"CONNECT", "/gopurr/system-proxy", ""},
 			} {
 				if code, _ := request(operation.method, operation.path, secret, operation.body); code != 401 {
 					t.Errorf("%s %s secret %q: status %d", operation.method, operation.path, secret, code)

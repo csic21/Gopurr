@@ -42,10 +42,11 @@ type helperResponse struct {
 // peer's kernel credentials; it accepts only typed proxy operations, never
 // shell commands, paths to executables, or arbitrary network services.
 type helperController struct {
-	mu    sync.Mutex
-	conn  net.Conn
-	input *bufio.Scanner
-	open  func() (net.Conn, error)
+	mu          sync.Mutex
+	conn        net.Conn
+	input       *bufio.Scanner
+	open        func() (net.Conn, error)
+	serviceOpen func() (net.Conn, error)
 	// direct holds the changes when macOS lets the signed-in administrator
 	// write them without an authorization prompt.
 	direct         *proxyLeases
@@ -57,7 +58,12 @@ type helperController struct {
 func NewController() Controller { return &helperController{open: startProxyHelper} }
 
 func NewControllerAt(journal string) Controller {
-	return &helperController{open: startProxyHelper, journal: journal}
+	c := &helperController{open: startProxyHelper, journal: journal}
+	if journal != "" {
+		dir := filepath.Dir(journal)
+		c.serviceOpen = func() (net.Conn, error) { return connectProxyService(dir) }
+	}
+	return c
 }
 
 func (c *helperController) loadDirect() error {
@@ -80,6 +86,16 @@ func (c *helperController) Enable(port int, previous *State) error {
 		return lockErr
 	}
 	defer unlock()
+	// An installed service already holds the user's authorization. Reuse its
+	// narrowly scoped proxy broker across app launches instead of elevating a
+	// second helper. Ordinary proxy-only installs retain the direct path.
+	if c.conn == nil && c.direct == nil && c.serviceOpen != nil {
+		if conn, err := c.serviceOpen(); err == nil {
+			c.conn, c.input = conn, helperScanner(conn)
+		} else if !errors.Is(err, errServiceUnavailable) {
+			return err
+		}
+	}
 	if c.conn == nil {
 		// Most macOS versions allow an administrator to change these settings
 		// directly. Asking for the password only when that is refused keeps a
@@ -367,6 +383,10 @@ func privilegedCommand(name string, args ...string) (string, error) {
 
 func serveProxyHelper(conn net.Conn, command commandRunner) (result error) {
 	leases := proxyLeases{command: command, services: make(map[string]*proxyLease)}
+	return serveProxySession(conn, &leases)
+}
+
+func serveProxySession(conn net.Conn, leases *proxyLeases) (result error) {
 	// EOF also covers crashes and force-quit: restore without involving AppKit
 	// or asking a user who may no longer have an application window.
 	defer func() { result = errors.Join(result, leases.restore()) }()

@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"net"
-	"runtime"
 	"strconv"
 
 	"github.com/egoist/mygo/ui"
@@ -46,6 +45,15 @@ func (a *App) networkDetails(c *ui.Context) {
 						}
 					})
 					settingsGroup(c, tr("内核与 TUN"), func() {
+						if installed, _, _ := a.svcState(); installed {
+							networkDetail(c, tr("权限管理"), tr("系统代理与 TUN 共用已授权的系统服务"))
+							if st, err := a.mgr.Status(); err == nil && st.Version != "" {
+								networkDetail(c, tr("服务版本"), st.Version)
+							}
+							if a.mgr.ServiceVersionSkew() {
+								networkDetail(c, tr("服务更新"), tr("当前服务兼容，可继续使用；更新服务需要管理员授权"))
+							}
+						}
 						observed := tr("等待检查")
 						if a.networkFresh() {
 							observed = tr("本地代理握手未通过")
@@ -73,7 +81,10 @@ func (a *App) networkDetails(c *ui.Context) {
 				})
 			})
 			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
-				if installed, _, _ := a.svcState(); installed && runtime.GOOS == "windows" {
+				if installed, _, _ := a.svcState(); installed {
+					if a.mgr.ServiceNeedsUpdate() || a.mgr.ServiceVersionSkew() {
+						softButton(c, tr("更新服务…")).Disabled(busyNetwork(a)).OnClick(func() { a.showNetworkDetails = false; a.confirmInstall = true })
+					}
 					softButton(c, tr("卸载服务")).Disabled(busyNetwork(a)).OnClick(func() { a.showNetworkDetails = false; a.confirmUninstall = true })
 				}
 				softButton(c, tr("重新检测")).Disabled(busyNetwork(a)).OnClick(a.refreshNetworkState)

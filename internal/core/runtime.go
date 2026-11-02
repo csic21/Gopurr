@@ -57,7 +57,11 @@ func runtimeStatus(ctx context.Context) RuntimeStatus {
 		return s
 	}
 	if g.Tun.AutoRoute {
-		if err := checkTunRoutes(iface.Index); err != nil {
+		expected, err := expectedTunRoutes(g.Tun)
+		if err == nil {
+			err = checkTunRoutes(iface.Index, expected)
+		}
+		if err != nil {
 			s.TunError = err.Error()
 			return s
 		}

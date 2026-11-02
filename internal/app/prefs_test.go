@@ -543,7 +543,7 @@ func fakeSettingsSystemProxy(t *testing.T, a *App, port int, cancelFirst bool) s
 	logPath := filepath.Join(binDir, "proxy-call.txt")
 	scripts := map[string]string{
 		"route":        "#!/bin/sh\nprintf 'interface: en0\\n'\n",
-		"networksetup": "#!/bin/sh\ncase \"$1\" in\n-listnetworkserviceorder) printf '(1) Wi-Fi\\n(Hardware Port: Wi-Fi, Device: en0)\\n';;\n-getwebproxy) printf 'Enabled: Yes\\nServer: 127.0.0.1\\nPort: %s\\n' \"$GOPURR_TEST_PROXY_PORT\";;\nesac\n",
+		"networksetup": "#!/bin/sh\ncase \"$1\" in\n-listnetworkserviceorder) printf '(1) Wi-Fi\\n(Hardware Port: Wi-Fi, Device: en0)\\n';;\n-getwebproxy|-getsecurewebproxy|-getsocksfirewallproxy) printf 'Enabled: Yes\\nServer: 127.0.0.1\\nPort: %s\\n' \"$GOPURR_TEST_PROXY_PORT\";;\n-getautoproxyurl) printf 'URL: (null)\\nEnabled: No\\n';;\n-getproxyautodiscovery) printf 'Auto Proxy Discovery: Off\\n';;\n-getproxybypassdomains) printf \"There aren't any bypass domains\\n\";;\nesac\n",
 		"osascript":    "#!/bin/sh\nfirst=0\nif [ ! -e \"$GOPURR_TEST_PROXY_LOG\" ]; then first=1; fi\nprintf '%s\\n' \"$*\" >> \"$GOPURR_TEST_PROXY_LOG\"\nif [ \"$GOPURR_TEST_PROXY_CANCEL\" = 1 ] && [ \"$first\" = 1 ]; then printf 'User canceled.\\n'; exit 1; fi\n",
 	}
 	for name, body := range scripts {

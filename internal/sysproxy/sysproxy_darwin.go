@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -84,33 +83,36 @@ func serviceForDeviceUsing(command commandRunner, device string) (string, error)
 	return "", fmt.Errorf(localize.Text("网卡 %s 没有对应的网络服务"), device)
 }
 
-// Current reads the HTTP proxy state of the active service.
+// Current observes every proxy protocol and automatic proxy setting.
 func Current() (State, error) {
-	service, err := Service()
+	return currentUsing(run)
+}
+
+func currentUsing(command commandRunner) (State, error) {
+	service, err := serviceUsing(command)
 	if err != nil {
 		return State{Supported: true}, err
 	}
-	out, err := run("networksetup", "-getwebproxy", service)
+	st := State{Supported: true, Service: service, ProtocolsKnown: true}
+	for i, protocol := range proxyProtocols {
+		p, err := readProxy(command, service, protocol)
+		if err != nil {
+			return st, err
+		}
+		st.Protocols[i] = Endpoint{p.enabled, p.server, p.port}
+	}
+	http := st.Protocols[0]
+	st.Enabled, st.Server, st.Port = http.Enabled, http.Server, http.Port
+	auto, err := readAutomaticProxy(command, service)
 	if err != nil {
-		return State{Supported: true, Service: service}, err
+		return st, err
 	}
-
-	st := State{Supported: true, Service: service}
-	for _, line := range strings.Split(out, "\n") {
-		key, value, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
-		switch key {
-		case "Enabled":
-			st.Enabled = strings.EqualFold(value, "Yes")
-		case "Server":
-			st.Server = value
-		case "Port":
-			st.Port, _ = strconv.Atoi(value)
-		}
+	st.PAC, st.PACEnabled, st.AutoDiscovery = auto.url, auto.pac, auto.discovery
+	bypass, err := readBypass(command, service)
+	if err != nil {
+		return st, err
 	}
+	st.Bypass = strings.Join(bypass, "\n")
 	return st, nil
 }
 

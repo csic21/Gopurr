@@ -7,7 +7,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"gopurr/internal/shortcuts"
-	"gopurr/internal/sysproxy"
 )
 
 type shortcutState struct {
@@ -73,21 +72,13 @@ func (a *App) RunShortcut(action shortcuts.Action, openWindow func()) {
 	} else {
 		switch action {
 		case shortcuts.ToggleProxy:
-			if sysproxy.Available() {
-				if st, err := sysproxy.Current(); err != nil {
-					a.notice = tr("无法读取系统代理：") + err.Error()
-				} else if st.Supported {
-					a.sysApplied = ownsProxy(st, a.mixedPort())
-					if a.healthResumePending() {
-						// Pending (shown on): the toggle cancels it.
-						a.cancelHealthResume()
-					} else {
-						a.setSystemProxy(!a.sysApplied)
-					}
+			a.toggleSystemProxy(func(err error) {
+				if err != nil {
+					a.page = "overview"
+					openWindow()
 				}
-			} else {
-				a.notice = tr("此系统暂不支持系统代理")
-			}
+			})
+			return
 		case shortcuts.ToggleTUN:
 			if !a.tunOn && !a.k.IsRoot() {
 				a.notice = tr("请先在概览中安装或修复 TUN 服务")

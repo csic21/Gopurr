@@ -23,10 +23,12 @@ func (a *App) TrayMenu(openWindow func()) *mygo.Menu {
 			a.modePick, a.modeIdx = labelFor(a.modeToken), modeIndex(a.modeToken)
 			a.ov.Mode = a.modeToken
 		}
-		if st, err := sysproxy.Current(); err == nil && st.Supported {
-			a.sysState = st
-			a.sysApplied = ownsProxy(st, a.mixedPort())
-			a.sysOn = a.sysApplied
+		if !busyNetwork(a) {
+			if st, err := sysproxy.Current(); err == nil && st.Supported {
+				a.sysState = st
+				a.sysApplied = ownsProxy(st, a.mixedPort())
+				a.sysOn = a.sysApplied
+			}
 		}
 	}
 	m, _ := a.TrayMenuFor(s, openWindow)
@@ -114,12 +116,16 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 					return
 				}
 				a.notice = ""
-				a.setSystemProxy(item.IsChecked())
-				item.SetChecked(a.sysApplied)
-				a.invalidate()
-				if a.sysErrText() != "" || a.notice != "" {
-					openPage("overview")
+				if busyNetwork(a) {
+					item.SetChecked(a.sysApplied)
+					return
 				}
+				a.requestSystemProxy(item.IsChecked(), true, true, func(err error) {
+					item.SetChecked(a.sysApplied)
+					if err != nil || a.notice != "" {
+						openPage("overview")
+					}
+				})
 			},
 		},
 		{

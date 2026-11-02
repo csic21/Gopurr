@@ -57,7 +57,7 @@ const SecurityVersion = 1
 // ControllerVersion must bump when the UI needs controller endpoints absent
 // from an older installed service. Mismatch forces reinstall; marketing
 // Version skew alone does not (see kernel.ServiceVersionSkew).
-const ControllerVersion = 2
+const ControllerVersion = 3
 
 // RunDaemon is the privileged side of the app. It is the same kernel code as
 // before, just owned by a process that can legally create TUN devices.
@@ -142,7 +142,17 @@ func RunDaemon(opts DaemonOptions) error {
 		time.Sleep(10 * time.Millisecond)
 	}
 	geo := newGeoUpdater(C.Path.HomeDir())
-	controller, err := serveController(opts.Socket, backend, secret, geo)
+	restartRequested := make(chan struct{}, 1)
+	var restart []func()
+	if process.UID() == 0 && opts.ParentPID == 0 {
+		restart = append(restart, func() {
+			select {
+			case restartRequested <- struct{}{}:
+			default:
+			}
+		})
+	}
+	controller, err := serveController(opts.Socket, backend, secret, geo, restart...)
 	if err != nil {
 		return err
 	}
@@ -212,7 +222,10 @@ func RunDaemon(opts DaemonOptions) error {
 		}()
 	}
 
-	<-sig
+	select {
+	case <-sig:
+	case <-restartRequested:
+	}
 
 	if opts.StatusPath != "" {
 		_ = os.Remove(opts.StatusPath)

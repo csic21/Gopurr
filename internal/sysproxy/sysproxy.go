@@ -1,6 +1,14 @@
 // Package sysproxy reads and writes the operating system's HTTP proxy
-// settings, so the kernel can be used by apps that ignore proxies.
+// settings for applications that honor the operating system's proxy settings.
 package sysproxy
+
+import "strconv"
+
+type Endpoint struct {
+	Enabled bool
+	Server  string
+	Port    int
+}
 
 // State is what the OS currently has configured.
 type State struct {
@@ -17,6 +25,30 @@ type State struct {
 	Flags          uint32 `json:",omitempty"`
 	Bypass         string `json:",omitempty"`
 	PAC            string `json:",omitempty"`
+	// macOS has independent HTTP, HTTPS and SOCKS settings. Keep State
+	// comparable, including complete observations used by the watchdog.
+	ProtocolsKnown bool        `json:",omitempty"`
+	Protocols      [3]Endpoint `json:",omitempty"`
+	PACEnabled     bool        `json:",omitempty"`
+	AutoDiscovery  bool        `json:",omitempty"`
+}
+
+func (s State) OwnedBy(port int) bool {
+	if s.WindowsOptions && s.Flags != 3 {
+		return false
+	}
+	if s.ProtocolsKnown {
+		if s.PACEnabled || s.AutoDiscovery {
+			return false
+		}
+		for _, p := range s.Protocols {
+			if !p.Enabled || p.Server != "127.0.0.1" || p.Port != port {
+				return false
+			}
+		}
+	}
+	return s.Enabled && s.Server == "127.0.0.1" && s.Port == port &&
+		(s.RawServer == "" || s.RawServer == "127.0.0.1:"+strconv.Itoa(port))
 }
 
 func Recover(c Controller) error {

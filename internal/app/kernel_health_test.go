@@ -100,6 +100,7 @@ func healthTestApp(t *testing.T, enableErr error) (*App, *proxyCalls) {
 func TestKernelSuspendKeepsRestorePreference(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	if calls.restore != 1 || a.sysApplied || a.sysOn {
 		t.Fatalf("proxy not handed back: restore=%d applied=%v on=%v", calls.restore, a.sysApplied, a.sysOn)
 	}
@@ -138,6 +139,7 @@ func TestKernelSuspendSkippedWhileBusy(t *testing.T) {
 func TestKernelRecoveryReenablesSuspendedProxy(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
 	a.suspendProxyForKernelFailure(true)
+	waitProxyChange(t, a)
 	if !strings.Contains(a.notice, "内核已退出") || !strings.Contains(a.notice, "重新启动内核") {
 		t.Fatalf("exit notice should ask for a manual start: %q", a.notice)
 	}
@@ -145,6 +147,7 @@ func TestKernelRecoveryReenablesSuspendedProxy(t *testing.T) {
 		t.Fatal("fixture kernel should answer")
 	}
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	if calls.enable != 1 || !a.sysApplied || !a.sysOn {
 		t.Fatalf("proxy not re-enabled: enable=%d applied=%v", calls.enable, a.sysApplied)
 	}
@@ -153,6 +156,7 @@ func TestKernelRecoveryReenablesSuspendedProxy(t *testing.T) {
 	}
 	// Nothing left to resume.
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	if calls.enable != 1 {
 		t.Fatal("resumed twice")
 	}
@@ -161,8 +165,11 @@ func TestKernelRecoveryReenablesSuspendedProxy(t *testing.T) {
 func TestKernelRecoveryTriesOnceOnEnableFailure(t *testing.T) {
 	a, calls := healthTestApp(t, errors.New("authorization canceled"))
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	if calls.enable != 1 || a.sysApplied || a.proxySuspendedByHealth.Load() {
 		t.Fatalf("enable=%d applied=%v suspended=%v", calls.enable, a.sysApplied, a.proxySuspendedByHealth.Load())
 	}
@@ -177,7 +184,9 @@ func TestKernelRecoveryTriesOnceOnEnableFailure(t *testing.T) {
 func TestExplicitProxyToggleClearsHealthSuspension(t *testing.T) {
 	a, _ := healthTestApp(t, nil)
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	a.setSystemProxy(false) // user turns it off from the tray while suspended
+	waitProxyChange(t, a)
 	if a.proxySuspendedByHealth.Load() || a.Prefs().RestoreSystemProxy {
 		t.Fatalf("explicit off: suspended=%v pref=%v", a.proxySuspendedByHealth.Load(), a.Prefs().RestoreSystemProxy)
 	}
@@ -206,8 +215,10 @@ func TestKernelResumeNeverStartsSlowButAliveKernel(t *testing.T) {
 		t.Fatal("fixture should look not-running to the 700ms UI probe")
 	}
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	before := len(reloads())
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	if calls.enable != 1 || !a.sysApplied || !a.sysOn || a.proxySuspendedByHealth.Load() {
 		t.Fatalf("resume: enable=%d applied=%v on=%v suspended=%v", calls.enable, a.sysApplied, a.sysOn, a.proxySuspendedByHealth.Load())
 	}
@@ -219,12 +230,14 @@ func TestKernelResumeNeverStartsSlowButAliveKernel(t *testing.T) {
 func TestKernelResumeDoesNotPersistPreference(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	// The preference changed elsewhere (not through the settings page) while
 	// suspended; the resume must not write it back to true.
 	if err := a.changePrefs(func(p *Prefs) { p.RestoreSystemProxy = false }); err != nil {
 		t.Fatal(err)
 	}
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	if calls.enable != 1 || !a.sysApplied {
 		t.Fatalf("enable=%d applied=%v", calls.enable, a.sysApplied)
 	}
@@ -237,6 +250,7 @@ func TestSettingsRestoreOffCancelsPendingResume(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
 	a.reconcileSettings() // the settings page has seen the current prefs
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	a.restoreProxyOn = false
 	a.reconcileSettings()
 	if a.proxySuspendedByHealth.Load() || a.Prefs().RestoreSystemProxy {
@@ -246,6 +260,7 @@ func TestSettingsRestoreOffCancelsPendingResume(t *testing.T) {
 		t.Fatalf("stale suspend banner %q", a.notice)
 	}
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	if calls.enable != 0 || a.sysApplied {
 		t.Fatal("canceled resume still re-enabled the proxy")
 	}
@@ -254,6 +269,7 @@ func TestSettingsRestoreOffCancelsPendingResume(t *testing.T) {
 func TestTrayShowsAndCancelsPendingResume(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	item := findTrayItem(t, a.trayItems(true, nil, func() {}), "system-proxy")
 	if !item.Checked || !strings.Contains(item.Label, "等待内核恢复") {
 		t.Fatalf("pending resume item = label:%q checked:%v", item.Label, item.Checked)
@@ -275,6 +291,7 @@ func TestTrayShowsAndCancelsPendingResume(t *testing.T) {
 func TestOverviewSwitchCancelsPendingResume(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	tr := ui.NewTester(func(c *ui.Context) {
 		c.SetTheme(theme(c.Theme().Dark))
 		a.overviewNetworkControls(c)
@@ -298,6 +315,7 @@ func TestOverviewSwitchCancelsPendingResume(t *testing.T) {
 func TestStopKernelClearsSuspensionEvenWhenStopFails(t *testing.T) {
 	a, _ := healthTestApp(t, nil)
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	// The fixture daemon is not owned by the app, so Stop fails; the user's
 	// intent to stop still cancels the pending resume.
 	a.toggle()
@@ -310,11 +328,13 @@ func TestSuspendKeepsSpecificStartFailureNotice(t *testing.T) {
 	a, _ := healthTestApp(t, nil)
 	a.notice = "启动失败: bad rule"
 	a.suspendProxyForKernelFailure(true)
+	waitProxyChange(t, a)
 	if a.notice != "启动失败: bad rule" || !a.proxySuspendedByHealth.Load() {
 		t.Fatalf("notice=%q suspended=%v", a.notice, a.proxySuspendedByHealth.Load())
 	}
 	// Resuming does not clear a notice the watchdog did not set.
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	if a.notice != "启动失败: bad rule" {
 		t.Fatalf("resume cleared failure notice: %q", a.notice)
 	}
@@ -336,20 +356,23 @@ func TestProfileWorkStillHonoursRealExit(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
 	a.subBusy = true
 	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
 	if calls.restore != 0 || !a.sysApplied {
 		t.Fatal("slow probe during a download suspended the proxy")
 	}
 	a.suspendProxyForKernelFailure(true)
+	waitProxyChange(t, a)
 	if calls.restore != 1 || a.sysApplied || !a.proxySuspendedByHealth.Load() {
 		t.Fatal("real exit during a download was ignored")
 	}
 	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
 	if calls.enable != 1 || !a.sysApplied {
 		t.Fatal("recovery during profile work did not resume")
 	}
 }
 
-func TestApplySystemProxyMarksSysBusy(t *testing.T) {
+func TestProxyChangeMarksSysBusy(t *testing.T) {
 	a, _ := healthTestApp(t, nil)
 	var during bool
 	a.proxy = proxyControllerFixture{
@@ -360,7 +383,9 @@ func TestApplySystemProxyMarksSysBusy(t *testing.T) {
 		},
 		restore: func(int, *sysproxy.State) error { return nil },
 	}
-	if err := a.applySystemProxy(true); err != nil {
+	a.requestSystemProxy(true, false, false, nil)
+	waitProxyChange(t, a)
+	if err := a.sysErrText(); err != "" {
 		t.Fatal(err)
 	}
 	if !during {

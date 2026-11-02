@@ -27,10 +27,12 @@ func TestTraySwitchesWithoutWindow(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		proxy := findTrayItem(t, items, "system-proxy")
 		clickTrayItem(t, proxy)
+		waitProxyChange(t, a)
 		if !a.sysApplied || !a.sysOn || !proxy.IsChecked() {
 			t.Fatal("tray did not enable system proxy")
 		}
 		clickTrayItem(t, proxy)
+		waitProxyChange(t, a)
 		if a.sysApplied || a.sysOn || proxy.IsChecked() {
 			t.Fatal("tray did not disable system proxy")
 		}
@@ -83,6 +85,7 @@ func TestTrayFailuresRestoreChecksAndShowErrors(t *testing.T) {
 		t.Setenv("GOPURR_TEST_TRAY_PROXY_CANCEL", "1")
 		proxy := findTrayItem(t, a.trayItems(true, nil, openWindow), "system-proxy")
 		clickTrayItem(t, proxy)
+		waitProxyChange(t, a)
 		if proxy.IsChecked() || a.sysApplied || a.sysOn || !strings.Contains(a.sysErrText(), "已取消授权") || opened != 1 || a.page != "overview" {
 			t.Fatalf("canceled proxy authorization not reflected: checked=%v error=%q opened=%d", proxy.IsChecked(), a.sysErrText(), opened)
 		}
@@ -376,7 +379,10 @@ func fakeTraySystemProxy(t *testing.T, a *App, port int) string {
 		"networksetup": `#!/bin/sh
 case "$1" in
 -listnetworkserviceorder) printf '(1) Wi-Fi\n(Hardware Port: Wi-Fi, Device: en0)\n';;
--getwebproxy) /bin/cat "$GOPURR_TEST_TRAY_PROXY_STATE";;
+-getwebproxy|-getsecurewebproxy|-getsocksfirewallproxy) /bin/cat "$GOPURR_TEST_TRAY_PROXY_STATE";;
+-getautoproxyurl) printf 'URL: (null)\nEnabled: No\n';;
+-getproxyautodiscovery) printf 'Auto Proxy Discovery: Off\n';;
+-getproxybypassdomains) printf "There aren't any bypass domains\n";;
 esac
 `,
 		"osascript": `#!/bin/sh

@@ -19,6 +19,7 @@ import (
 
 	"gopurr/internal/applications"
 	"gopurr/internal/backup"
+	"gopurr/internal/buildinfo"
 	"gopurr/internal/core"
 	"gopurr/internal/diagnostic"
 	"gopurr/internal/mesh"
@@ -44,6 +45,9 @@ func TestRenderPages(t *testing.T) {
 	}
 	mygo.App.SetVersion(config.Version)
 	t.Cleanup(func() { mygo.App.SetVersion(previousVersion) })
+	previousBuildVersion := buildinfo.Version
+	buildinfo.Version = config.Version
+	t.Cleanup(func() { buildinfo.Version = previousBuildVersion })
 	dir := t.TempDir()
 	t.Setenv("GOPURR_HOME", dir)
 
@@ -182,7 +186,20 @@ func TestRenderPages(t *testing.T) {
 			a.hist, a.last = make([]sample, bars), core.Sample{}
 			a.mu.Unlock()
 		}},
-		{"overview-service-update", func() { a.page, a.svcInstalled = "overview", true }},
+		{"overview-service-update", func() {
+			a.page, a.svcInstalled = "overview", true
+			status, _ := json.Marshal(core.DaemonStatus{UID: 0, PID: os.Getpid(), ControllerVersion: core.ControllerVersion - 1, SecurityVersion: core.SecurityVersion})
+			if err := os.WriteFile(filepath.Join(a.dir, "core.json"), status, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"overview-service-details", func() {
+			a.page, a.svcInstalled, a.showNetworkDetails = "overview", true, true
+			status, _ := json.Marshal(core.DaemonStatus{UID: 0, PID: os.Getpid(), ControllerVersion: core.ControllerVersion, SecurityVersion: core.SecurityVersion, Version: "0.6.9"})
+			if err := os.WriteFile(filepath.Join(a.dir, "core.json"), status, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{"overview-global", func() { a.page, a.modeToken, a.modeIdx = "overview", "global", 1; fixtureOverviewTraffic(a) }},
 		{"overview-direct", func() { a.page, a.modeToken, a.modeIdx = "overview", "direct", 2 }},
 		{"overview-long-exit", func() {
@@ -849,7 +866,7 @@ func TestRenderPages(t *testing.T) {
 							}
 						}
 						if shot.name == "overview-service-update" {
-							if r, ok := tr.Find(text("重新安装…")); ok {
+							if r, ok := tr.Find(text("更新服务…")); ok {
 								tr.Move(r.X+r.W/2, r.Y+r.H/2)
 							}
 						}

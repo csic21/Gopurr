@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -183,34 +184,34 @@ func (a *App) suspendProxyForKernelFailure(exited bool) {
 	if a.shutdownPending.Load() || a.k == nil || !a.sysApplied || hard || (profile && !exited) {
 		return
 	}
-	err := a.restoreProxy()
-	if st, serr := sysproxy.Current(); serr == nil {
-		a.sysState = st
-		a.healthProxyBaseline, a.healthBaselineValid = st, true
-	}
-	if err != nil {
-		a.sysOn = a.sysApplied
-		a.setSysErr(err.Error())
-		a.notice = tr("内核无响应，系统代理恢复失败，请重试: ") + err.Error()
-		a.invalidate()
-		return
-	}
-	a.sysApplied, a.sysOn = false, false
-	a.setSysErr("")
-	a.proxySuspendedByHealth.Store(true)
-	a.sysResumeSwitch = true
-	// A start or config failure says more about what went wrong than the
-	// generic banner; the overview and tray still show the pending resume.
-	if !a.isKernelFailureNotice(a.notice) {
-		if exited {
-			// Recovery is bounded; a manual restart remains available.
-			a.notice = tr("内核已退出，已临时恢复系统代理；重新启动内核后将自动重新开启")
-		} else {
-			// A system service may still come back on its own.
-			a.notice = tr("内核暂时无响应，已临时恢复系统代理；内核恢复后将自动重新开启")
+	a.requestSystemProxy(false, false, false, func(err error) {
+		if a.proxyReadErr == "" {
+			a.healthProxyBaseline, a.healthBaselineValid = a.sysState, true
 		}
-	}
-	a.invalidate()
+		if err != nil {
+			a.sysOn = a.sysApplied
+			a.setSysErr(err.Error())
+			a.notice = tr("内核无响应，系统代理恢复失败，请重试: ") + err.Error()
+			a.invalidate()
+			return
+		}
+		a.sysApplied, a.sysOn = false, false
+		a.setSysErr("")
+		a.proxySuspendedByHealth.Store(true)
+		a.sysResumeSwitch = true
+		// A start or config failure says more about what went wrong than the
+		// generic banner; the overview and tray still show the pending resume.
+		if !a.isKernelFailureNotice(a.notice) {
+			if exited {
+				// Recovery is bounded; a manual restart remains available.
+				a.notice = tr("内核已退出，已临时恢复系统代理；重新启动内核后将自动重新开启")
+			} else {
+				// A system service may still come back on its own.
+				a.notice = tr("内核暂时无响应，已临时恢复系统代理；内核恢复后将自动重新开启")
+			}
+		}
+		a.invalidate()
+	})
 }
 
 // resumeProxyAfterKernelRecovery re-enables a proxy the watchdog suspended,
@@ -225,14 +226,6 @@ func (a *App) resumeProxyAfterKernelRecovery() {
 	if hard, _ := a.kernelHealthBusyState(); hard {
 		return
 	}
-	if current, err := sysproxy.Current(); err == nil && a.healthBaselineValid &&
-		!sameProxySettings(current, a.healthProxyBaseline) && !ownsProxy(current, a.mixedPort()) {
-		a.proxySuspendedByHealth.Store(false)
-		a.sysState, a.sysApplied, a.sysOn, a.proxyChanged = current, false, false, true
-		a.notice = tr("系统代理设置已变化，已取消自动恢复")
-		a.invalidate()
-		return
-	}
 	a.proxySuspendedByHealth.Store(false)
 	suspendedNotice := a.isKernelSuspendNotice(a.notice)
 	if a.sysApplied || !systemProxyAvailable() {
@@ -242,17 +235,22 @@ func (a *App) resumeProxyAfterKernelRecovery() {
 		a.invalidate()
 		return
 	}
-	if err := a.applySystemProxy(true); err != nil {
-		a.notice = tr("内核已恢复，但重新开启系统代理失败: ") + err.Error()
-	} else if suspendedNotice {
-		a.notice = ""
-	}
-	a.invalidate()
+	a.requestSystemProxy(true, false, false, func(err error) {
+		if errors.Is(err, errProxyOwnershipChanged) {
+			a.sysApplied, a.sysOn, a.proxyChanged = false, false, true
+			a.setSysErr("")
+			a.notice = tr("系统代理设置已变化，已取消自动恢复")
+		} else if err != nil {
+			a.notice = tr("内核已恢复，但重新开启系统代理失败: ") + err.Error()
+		} else if suspendedNotice {
+			a.notice = ""
+		}
+		a.invalidate()
+	})
 }
 
 func sameProxySettings(a, b sysproxy.State) bool {
-	return a.Enabled == b.Enabled && a.Server == b.Server && a.Port == b.Port && a.RawServer == b.RawServer &&
-		a.WindowsOptions == b.WindowsOptions && a.Flags == b.Flags && a.Bypass == b.Bypass && a.PAC == b.PAC
+	return a == b
 }
 
 // cancelHealthResume drops a pending watchdog resume because the user turned

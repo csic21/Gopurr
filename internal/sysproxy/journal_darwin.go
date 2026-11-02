@@ -23,12 +23,16 @@ type savedProxy struct {
 }
 
 type savedLease struct {
-	Original    [3]savedProxy
-	Bypass      []string
-	Ports       map[int]bool
-	Dirty       [3]bool
-	Restoring   [3]bool
-	BypassDirty bool
+	Original      [3]savedProxy
+	Bypass        []string
+	Ports         map[int]bool
+	Dirty         [3]bool
+	Restoring     [3]bool
+	BypassDirty   bool
+	AutomaticURL  string
+	PACEnabled    bool
+	AutoDiscovery bool
+	AutoDirty     bool
 }
 
 type leaseJournal struct {
@@ -87,7 +91,8 @@ func (l *proxyLeases) persist() error {
 	saved := make(map[string]savedLease)
 	for service, lease := range l.services {
 		entry := savedLease{Bypass: lease.bypass, Ports: lease.ports, Dirty: lease.dirty,
-			Restoring: lease.restoring, BypassDirty: lease.bypassDirty}
+			Restoring: lease.restoring, BypassDirty: lease.bypassDirty,
+			AutomaticURL: lease.automatic.url, PACEnabled: lease.automatic.pac, AutoDiscovery: lease.automatic.discovery, AutoDirty: lease.autoDirty}
 		for i, original := range lease.original {
 			entry.Original[i] = savedProxy{original.enabled, original.server, original.port}
 		}
@@ -125,7 +130,8 @@ func loadLeases(path string, command commandRunner) (*proxyLeases, error) {
 	l.owner = saved.OwnerPID
 	for service, entry := range saved.Services {
 		lease := &proxyLease{bypass: entry.Bypass, ports: entry.Ports, dirty: entry.Dirty,
-			restoring: entry.Restoring, bypassDirty: entry.BypassDirty}
+			restoring: entry.Restoring, bypassDirty: entry.BypassDirty,
+			automatic: automaticProxy{entry.AutomaticURL, entry.PACEnabled, entry.AutoDiscovery}, autoDirty: entry.AutoDirty}
 		if lease.ports == nil {
 			lease.ports = make(map[int]bool)
 		}

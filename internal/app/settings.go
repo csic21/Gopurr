@@ -163,25 +163,25 @@ func (a *App) settingsPage(c *ui.Context) {
 				settingsGroup(c, tr("网络接入"), func() {
 					settingsRow(c, tr("混合代理端口"), tr("HTTP 与 SOCKS 共用，范围 1–65535"), func() {
 						ui.TextInput(c, &a.mixedPortDraft).Width(112).Placeholder("7890").Label(tr("编辑混合代理端口")).
-							OnSubmit(func() { a.saveNetworkSettings() })
+							Disabled(busyNetwork(a)).OnSubmit(a.requestNetworkSettings)
 					})
 					hairline(c)
 					settingsRow(c, tr("允许局域网连接"), tr("允许同一网络中的设备使用本机代理"), func() {
-						softSwitch(c, &a.lanOn).Label(tr("局域网访问开关"))
+						softSwitch(c, &a.lanOn).Label(tr("局域网访问开关")).Disabled(busyNetwork(a))
 					})
 					hairline(c)
 					settingsRow(c, "IPv6", tr("允许 IPv6 解析与出站连接"), func() {
-						softSwitch(c, &a.ipv6On).Label(tr("IPv6 开关"))
+						softSwitch(c, &a.ipv6On).Label(tr("IPv6 开关")).Disabled(busyNetwork(a))
 					})
 				})
 				settingsGroup(c, tr("路由与测试"), func() {
 					settingsRow(c, tr("统一延迟 · Unified"), tr("排除握手开销，便于比较不同协议的节点"), func() {
-						softSwitch(c, &a.unifiedOn).Label(tr("统一延迟"))
+						softSwitch(c, &a.unifiedOn).Label(tr("统一延迟")).Disabled(busyNetwork(a))
 					})
 					hairline(c)
 					settingsRow(c, tr("TUN 协议栈"), tr("推荐 mixed；启用 TUN 时使用此设置"), func() {
 						ui.Select(c, &a.tunStackPick, settingsOptions(settingsTunStacks, a.tunStackPick)).
-							Width(140).Label(tr("TUN 协议栈"))
+							Width(140).Label(tr("TUN 协议栈")).Disabled(busyNetwork(a))
 					})
 				})
 				settingsGroup(c, tr("连接行为 · 即时保存"), func() {
@@ -248,7 +248,7 @@ func (a *App) settingsPage(c *ui.Context) {
 		} else if a.networkStatus != "" && !a.networkSettingsDirty() {
 			settingsFeedback(c, a.networkStatus, false)
 		}
-		settingsSaveBar(c, tr("网络设置"), tr("保存后应用到当前内核"), a.networkSettingsDirty(), tr("保存网络设置"), func() { a.saveNetworkSettings() })
+		settingsSaveBar(c, tr("网络设置"), tr("保存后应用到当前内核"), a.networkSettingsDirty(), tr("保存网络设置"), a.requestNetworkSettings, busyNetwork(a))
 	}
 	if a.settingsTab == 2 {
 		if a.testSettingsError != "" {
@@ -261,7 +261,7 @@ func (a *App) settingsPage(c *ui.Context) {
 	a.rawConfigModal(c)
 }
 
-func settingsSaveBar(c *ui.Context, title, hint string, dirty bool, label string, save func()) {
+func settingsSaveBar(c *ui.Context, title, hint string, dirty bool, label string, save func(), disabled ...bool) {
 	pal := paletteFor(c)
 	ui.Row(c).FillWidth().Padding(12, 16).Radius(10).Background(pal.Surface).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
@@ -271,7 +271,7 @@ func settingsSaveBar(c *ui.Context, title, hint string, dirty bool, label string
 			ui.Text(c, title).FontSize(12).FontWeight(500).TextColor(pal.Text)
 			ui.Text(c, hint).FontSize(11).TextColor(pal.Muted)
 		})
-		softPrimaryButton(c, label).Disabled(!dirty).OnClick(save)
+		softPrimaryButton(c, label).Disabled(!dirty || (len(disabled) != 0 && disabled[0])).OnClick(save)
 	})
 }
 
@@ -366,85 +366,6 @@ func parseSettingsPort(raw string) (int, error) {
 		return 0, fmt.Errorf("%s", tr("混合端口须为 1–65535 的整数"))
 	}
 	return port, nil
-}
-
-// saveNetworkSettings validates and hot-reloads before persisting a candidate.
-// A failed reload or write restores the previous overrides and runtime config;
-// the draft stays editable so the user can fix the error and retry.
-func (a *App) saveNetworkSettings() bool {
-	a.networkError, a.networkStatus = "", ""
-	port, err := parseSettingsPort(a.mixedPortDraft)
-	if err != nil {
-		a.networkError = err.Error()
-		return false
-	}
-	if !containsString(settingsTunStacks, a.tunStackPick) {
-		a.networkError = tr("TUN 协议栈须为 mixed、system 或 gvisor")
-		return false
-	}
-	if port != a.mixedPort() && !portFree(port) {
-		a.networkError = fmt.Sprintf(tr("端口 %d 已被占用，请更换端口"), port)
-		return false
-	}
-	previous, previousPort := a.ov, a.mixedPort()
-	running := a.k != nil && a.k.Running()
-	next := previous
-	next.MixedPort = port
-	next.AllowLAN, next.IPv6, next.Unified = a.lanOn, a.ipv6On, a.unifiedOn
-	next.TunStack = a.tunStackPick
-	a.ov = next
-	if _, err := a.configBytes(); err != nil {
-		a.ov = previous
-		a.networkError = tr("网络配置校验失败：") + err.Error()
-		a.notice = a.networkError
-		return false
-	}
-	if running && !a.startKernel() {
-		failure := tr("网络配置重载失败：") + a.notice
-		a.rollbackNetworkSettings(previous, running, failure)
-		return false
-	}
-	if err := writeSettingsFile(a.ovPath, next); err != nil {
-		a.rollbackNetworkSettings(previous, running, tr("网络设置保存失败：")+err.Error())
-		return false
-	}
-	if a.sysApplied && port != previousPort {
-		// setSystemProxy only captures the previous owner's proxy when
-		// !sysApplied, so this updates our port without overwriting a.prev.
-		a.setSystemProxy(true)
-		if errText := a.sysErrText(); errText != "" {
-			failure := tr("系统代理端口更新失败：") + errText
-			if err := writeSettingsFile(a.ovPath, previous); err != nil {
-				failure += tr("；恢复原网络设置文件失败：") + err.Error()
-			}
-			a.rollbackNetworkSettings(previous, running, failure)
-			failure = a.networkError
-			// The OS may have applied part of the privileged script before
-			// failing. Reapply our old port after restoring the old listener.
-			a.setSystemProxy(true)
-			if restoreErr := a.sysErrText(); restoreErr != "" {
-				failure += tr("；恢复原系统代理失败：") + restoreErr
-			}
-			a.networkError, a.notice = failure, failure
-			return false
-		}
-	}
-	a.resetNetworkDraft()
-	a.networkStatus = tr("网络设置已保存并应用")
-	if !running {
-		a.networkStatus = tr("网络设置已保存，内核就绪后生效")
-	}
-	a.notice = a.networkStatus
-	return true
-}
-
-func (a *App) rollbackNetworkSettings(previous patch.Overrides, running bool, failure string) {
-	a.ov = previous
-	if running && !a.startKernel() {
-		failure += tr("；恢复原内核配置失败：") + a.notice
-	}
-	a.networkError = failure
-	a.notice = failure
 }
 
 func (a *App) testSettingsDirty() bool {

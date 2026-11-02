@@ -190,10 +190,13 @@ func (m *Manager) Status() (core.DaemonStatus, error) {
 // Running reports a daemon that answers.
 func (m *Manager) Running() bool { return m.healthy() }
 
-// IsRoot reports whether the answering daemon has privileges (needed for TUN).
+// IsRoot reports the daemon's privilege capability, independently of readiness.
+// Health/runtime probes already run in the watchdog. A fresh 700ms network
+// probe on every render misclassified a busy privileged daemon as uninstalled.
 func (m *Manager) IsRoot() bool {
 	st, err := m.Status()
-	return err == nil && st.UID == 0 && (st.PID == 0 || process.Alive(st.PID)) && m.healthy()
+	return err == nil && st.UID == 0 && (st.Socket == "" || st.Socket == m.socket) &&
+		(st.PID == 0 || process.Alive(st.PID))
 }
 
 // ServiceNeedsUpdate reports that an installed privileged service must be
@@ -207,22 +210,16 @@ func (m *Manager) IsRoot() bool {
 // Never copy into Program Files / LaunchDaemons without an explicit UAC /
 // admin authorization path (Install/Reinstall).
 func (m *Manager) ServiceNeedsUpdate() bool {
-	if !service.ForDataDir(m.dir) {
-		return false
-	}
 	st, err := m.Status()
-	return err == nil && serviceUpdateRequired(st)
+	return err == nil && st.UID == 0 && serviceUpdateRequired(st)
 }
 
 // ServiceVersionSkew is true when the installed service answers with an older
 // (or different) marketing Version but remains API-compatible. The overview
 // may soft-suggest reinstall; it must not block TUN or force "重新安装".
 func (m *Manager) ServiceVersionSkew() bool {
-	if !service.ForDataDir(m.dir) {
-		return false
-	}
 	st, err := m.Status()
-	return err == nil && serviceVersionSkew(st, buildinfo.Version)
+	return err == nil && st.UID == 0 && serviceVersionSkew(st, buildinfo.Version)
 }
 
 // serviceUpdateRequired is the security/API gate shared by ServiceNeedsUpdate
@@ -362,7 +359,7 @@ func (m *Manager) waitServiceReady(timeout time.Duration) error {
 	if tail := service.LogTail(m.dir); tail != "" {
 		return fmt.Errorf(localize.Text("系统服务已安装，但内核没有启动：%s"), tail)
 	}
-	return errors.New(localize.Text("系统服务已安装但没有响应：请在概览页重新安装服务"))
+	return errors.New(localize.Text("系统服务已安装但暂未响应：请先重试或重启服务，仍失败时再修复服务"))
 }
 
 // reapStaleLocked stops an unowned daemon recorded in core.json and clears the

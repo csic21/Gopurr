@@ -17,11 +17,12 @@ import (
 )
 
 type networkFixture struct {
-	mu      sync.Mutex
-	service string
-	proxies [3]proxySetting
-	bypass  []string
-	fail    string
+	mu        sync.Mutex
+	service   string
+	proxies   [3]proxySetting
+	bypass    []string
+	fail      string
+	automatic automaticProxy
 }
 
 func newNetworkFixture() *networkFixture {
@@ -74,6 +75,24 @@ func (n *networkFixture) run(name string, args ...string) (string, error) {
 		}
 	}
 	switch args[0] {
+	case "-getautoproxyurl":
+		state := "No"
+		if n.automatic.pac {
+			state = "Yes"
+		}
+		return fmt.Sprintf("URL: %s\nEnabled: %s\n", n.automatic.url, state), nil
+	case "-getproxyautodiscovery":
+		state := "Off"
+		if n.automatic.discovery {
+			state = "On"
+		}
+		return "Auto Proxy Discovery: " + state + "\n", nil
+	case "-setautoproxystate":
+		n.automatic.pac = args[2] == "on"
+		return "", nil
+	case "-setproxyautodiscovery":
+		n.automatic.discovery = args[2] == "on"
+		return "", nil
 	case "-getproxybypassdomains":
 		if len(n.bypass) == 0 {
 			return "There aren't any bypass domains set on Wi-Fi.\n", nil
@@ -384,6 +403,8 @@ func proxyFixture(t *testing.T, body string) (dir, calls string) {
 		"-getwebproxy|-getsecurewebproxy|-getsocksfirewallproxy)\n" +
 		"  if [ -f \"$state\" ]; then while IFS= read -r line; do printf '%s\\n' \"$line\"; done < \"$state\"; else printf '" + body + "'; fi ;;\n" +
 		"-getproxybypassdomains) printf \"There aren't any bypass domains\\n\";;\n" +
+		"-getautoproxyurl) printf 'URL: (null)\\nEnabled: No\\n';;\n" +
+		"-getproxyautodiscovery) printf 'Auto Proxy Discovery: Off\\n';;\n" +
 		"esac\n"
 	files := map[string]string{
 		"route":        "#!/bin/sh\nprintf 'interface: en0\\n'\n",

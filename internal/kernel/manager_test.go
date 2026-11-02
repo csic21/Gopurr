@@ -66,7 +66,7 @@ func TestReapStaleClearsDeadStatusAndSocket(t *testing.T) {
 	}
 }
 
-func TestWaitServiceReadyFailsQuicklyWithReinstallGuidance(t *testing.T) {
+func TestWaitServiceReadySuggestsRecoveryBeforeReinstall(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewManager(dir)
 	if err != nil {
@@ -74,8 +74,8 @@ func TestWaitServiceReadyFailsQuicklyWithReinstallGuidance(t *testing.T) {
 	}
 	start := time.Now()
 	err = m.waitServiceReady(400 * time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), "重新安装") {
-		t.Fatalf("expected quick reinstall guidance, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "重启服务") {
+		t.Fatalf("expected service recovery guidance, got %v", err)
 	}
 	if took := time.Since(start); took > time.Second {
 		t.Fatalf("service wait took too long: %v", took)
@@ -121,6 +121,25 @@ func TestReclaimStaleIsSafeWithoutStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.ReclaimStale() // must not panic when nothing is recorded
+}
+
+func TestPrivilegeCapabilityDoesNotDependOnQuickControllerProbe(t *testing.T) {
+	m, err := NewManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No controller is listening. A temporarily busy/unreachable service must
+	// retain its privilege capability while health is reported independently.
+	raw, _ := json.Marshal(core.DaemonStatus{UID: 0, PID: os.Getpid(), Socket: m.socket})
+	if err := os.WriteFile(m.statusPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !m.IsRoot() {
+		t.Fatal("transient controller failure erased service privileges")
+	}
+	if m.Health(20*time.Millisecond) != HealthUnresponsive {
+		t.Fatal("readiness must still report the failed probe")
+	}
 }
 
 func TestHealthDistinguishesExitUnresponsiveAndBusy(t *testing.T) {

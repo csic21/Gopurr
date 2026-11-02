@@ -21,9 +21,50 @@ type proxySetting struct {
 	port    int
 }
 
+type automaticProxy struct {
+	url            string
+	pac, discovery bool
+}
+
+func readAutomaticProxy(command commandRunner, service string) (automaticProxy, error) {
+	var setting automaticProxy
+	for _, option := range []string{"autoproxyurl", "proxyautodiscovery"} {
+		output, err := command("networksetup", "-get"+option, service)
+		if err != nil {
+			return setting, err
+		}
+		found := false
+		for _, line := range strings.Split(output, "\n") {
+			key, value, _ := strings.Cut(line, ":")
+			value = strings.TrimSpace(value)
+			switch strings.TrimSpace(key) {
+			case "URL":
+				setting.url = value
+			case "Enabled", "Auto Proxy Discovery":
+				if value != "Yes" && value != "No" && value != "On" && value != "Off" {
+					continue
+				}
+				found = true
+				on := value == "Yes" || value == "On"
+				if option == "autoproxyurl" {
+					setting.pac = on
+				} else {
+					setting.discovery = on
+				}
+			}
+		}
+		if !found {
+			return setting, errors.New(localize.Text("无法读取自动代理状态"))
+		}
+	}
+	return setting, nil
+}
+
 type proxyLease struct {
 	original    [3]proxySetting
 	bypass      []string
+	automatic   automaticProxy
+	autoDirty   bool
 	ports       map[int]bool
 	dirty       [3]bool
 	restoring   [3]bool
@@ -119,6 +160,10 @@ func (l *proxyLeases) enable(port int, previous *State) error {
 		if err != nil {
 			return err
 		}
+		lease.automatic, err = readAutomaticProxy(l.command, service)
+		if err != nil {
+			return err
+		}
 		l.services[service] = lease
 	}
 	lease.ports[port] = true
@@ -127,6 +172,7 @@ func (l *proxyLeases) enable(port int, previous *State) error {
 	// must not lose protocol-specific settings or the previous bypass list.
 	lease.dirty = [3]bool{true, true, true}
 	lease.bypassDirty = true
+	lease.autoDirty = true
 	if err := l.persist(); err != nil {
 		return fmt.Errorf(localize.Text("保存系统代理恢复记录失败: %w"), err)
 	}
@@ -136,10 +182,19 @@ func (l *proxyLeases) enable(port int, previous *State) error {
 			return errors.Join(err, l.restore())
 		}
 	}
+	for _, option := range []string{"autoproxystate", "proxyautodiscovery"} {
+		if _, err := l.command("networksetup", "-set"+option, service, "off"); err != nil {
+			return errors.Join(err, l.restore())
+		}
+	}
 	lease.bypassDirty = true
 	args := append([]string{"-setproxybypassdomains", service}, bypassDomains...)
 	if _, err := l.command("networksetup", args...); err != nil {
 		return errors.Join(err, l.restore())
+	}
+	observed, err := currentUsing(l.command)
+	if err != nil || !observed.OwnedBy(port) {
+		return errors.Join(errors.New(localize.Text("系统代理设置未生效，请检查系统策略或其他代理软件")), err, l.restore())
 	}
 	return nil
 }
@@ -158,6 +213,50 @@ func (l *proxyLeases) restore() error {
 
 func (l *proxyLeases) restoreService(service string, lease *proxyLease) error {
 	var failures []error
+	// Decide ownership before restoring any protocol. Automatic settings must
+	// not overwrite a later takeover by the user or another proxy client.
+	ours := false
+	for _, protocol := range proxyProtocols {
+		if p, err := readProxy(l.command, service, protocol); err == nil && p.server == "127.0.0.1" && lease.ports[p.port] {
+			ours = true
+		}
+	}
+	if lease.autoDirty {
+		current, err := readAutomaticProxy(l.command, service)
+		pacWritten, discoveryWritten := false, false
+		if err == nil && ours {
+			if !current.pac && current.url == lease.automatic.url {
+				state := "off"
+				if lease.automatic.pac {
+					state = "on"
+				}
+				_, err = l.command("networksetup", "-setautoproxystate", service, state)
+				pacWritten = err == nil
+			}
+			if err == nil && !current.discovery {
+				state := "off"
+				if lease.automatic.discovery {
+					state = "on"
+				}
+				_, err = l.command("networksetup", "-setproxyautodiscovery", service, state)
+				discoveryWritten = err == nil
+			}
+		}
+		if err == nil && (pacWritten || discoveryWritten) {
+			var observed automaticProxy
+			observed, err = readAutomaticProxy(l.command, service)
+			if err == nil && ((pacWritten && observed.pac != lease.automatic.pac) || (discoveryWritten && observed.discovery != lease.automatic.discovery)) {
+				err = errors.New(localize.Text("系统代理恢复未生效，请检查系统策略"))
+			}
+		}
+		if err != nil {
+			// Keep our manual endpoints intact so a retry can still establish
+			// ownership after a failed automatic-proxy restore.
+			return err
+		} else {
+			lease.autoDirty = false
+		}
+	}
 	for i, protocol := range proxyProtocols {
 		if !lease.dirty[i] {
 			continue
@@ -189,6 +288,13 @@ func (l *proxyLeases) restoreService(service string, lease *proxyLease) error {
 		if err == nil && !old.enabled {
 			_, err = l.command("networksetup", "-set"+protocol+"proxystate", service, "off")
 		}
+		if err == nil {
+			var observed proxySetting
+			observed, err = readProxy(l.command, service, protocol)
+			if err == nil && (observed.enabled != old.enabled || (old.server != "" && old.port > 0 && (observed.server != old.server || observed.port != old.port))) {
+				err = errors.New(localize.Text("系统代理恢复未生效，请检查系统策略"))
+			}
+		}
 		if err != nil {
 			failures = append(failures, err)
 		} else {
@@ -203,6 +309,13 @@ func (l *proxyLeases) restoreService(service string, lease *proxyLease) error {
 				values = []string{"Empty"}
 			}
 			_, err = l.command("networksetup", append([]string{"-setproxybypassdomains", service}, values...)...)
+			if err == nil {
+				var observed []string
+				observed, err = readBypass(l.command, service)
+				if err == nil && !slices.Equal(observed, lease.bypass) {
+					err = errors.New(localize.Text("系统代理恢复未生效，请检查系统策略"))
+				}
+			}
 		}
 		if err != nil {
 			failures = append(failures, err)

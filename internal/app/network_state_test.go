@@ -1,6 +1,9 @@
 package app
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +12,20 @@ import (
 	"gopurr/internal/core"
 	"gopurr/internal/sysproxy"
 )
+
+func TestTunReadinessSurvivesPrivilegedProcessProbeDenial(t *testing.T) {
+	a := subscriptionTestApp(t)
+	a.svcInstalled, a.tunOn, a.ov.TunEnable = true, true, true
+	a.networkRuntime = core.RuntimeStatus{TunEnabled: true, TunReady: true, AutoRoute: true, DNSReady: true}
+	a.networkChecked = time.Now()
+	status, _ := json.Marshal(core.DaemonStatus{UID: 0, PID: 1, ControllerVersion: core.ControllerVersion, SecurityVersion: core.SecurityVersion})
+	if err := os.WriteFile(filepath.Join(a.dir, "core.json"), status, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if hint := a.tunHint(); hint != tr("已接管 · 网卡与路由就绪") {
+		t.Fatalf("working TUN misreported: %s", hint)
+	}
+}
 
 func TestNetworkOverviewHidesEndpointUntilDetails(t *testing.T) {
 	a := subscriptionTestApp(t)

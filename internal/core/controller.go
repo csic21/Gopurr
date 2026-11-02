@@ -17,6 +17,7 @@ import (
 	"gopurr/internal/configyaml"
 	"gopurr/internal/controllerconfig"
 	"gopurr/internal/geodata"
+	"gopurr/internal/sysproxy"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -24,7 +25,17 @@ import (
 // Mihomo intentionally omits authentication on Unix sockets. Its socket stays
 // in a private daemon-owned directory; only this authenticated gateway is
 // exposed to the UI. Debug, UI and executable upgrade routes are not exposed.
-func serveController(socket, backend, secret string, geo *geoUpdater) (*http.Server, error) {
+type controllerServer struct {
+	*http.Server
+	broker *sysproxy.ServiceBroker
+}
+
+func (s *controllerServer) Close() error {
+	s.broker.Close()
+	return s.Server.Close()
+}
+
+func serveController(socket, backend, secret string, geo *geoUpdater, restart ...func()) (*controllerServer, error) {
 	listener, err := listenController(socket, filepath.Dir(backend))
 	if err != nil {
 		return nil, err
@@ -45,6 +56,12 @@ func serveController(socket, backend, secret string, geo *geoUpdater) (*http.Ser
 		return nil
 	}
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	broker := sysproxy.NewServiceBroker(filepath.Join(geo.home, ".system-proxy.json"))
+	if err := broker.Recover(); err != nil {
+		listener.Close()
+		return nil, fmt.Errorf("恢复系统代理: %w", err)
+	}
+	server.RegisterOnShutdown(broker.Close)
 	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+secret)) != 1 {
 			w.Header().Set("WWW-Authenticate", "Bearer")
@@ -52,6 +69,15 @@ func serveController(socket, backend, secret string, geo *geoUpdater) (*http.Ser
 			return
 		}
 		path := strings.TrimSuffix(r.URL.Path, "/")
+		if r.Method == http.MethodConnect && path == "/gopurr/system-proxy" {
+			broker.ServeHTTP(w, r)
+			return
+		}
+		if r.Method == http.MethodPost && path == "/gopurr/restart" && len(restart) != 0 {
+			w.WriteHeader(http.StatusNoContent)
+			go func() { time.Sleep(100 * time.Millisecond); restart[0]() }()
+			return
+		}
 		if r.Method == http.MethodGet && path == "/gopurr/runtime" {
 			geo.mu.Lock()
 			defer geo.mu.Unlock()
@@ -86,7 +112,7 @@ func serveController(socket, backend, secret string, geo *geoUpdater) (*http.Ser
 	})
 	server.RegisterOnShutdown(transport.CloseIdleConnections)
 	go func() { _ = server.Serve(listener) }()
-	return server, nil
+	return &controllerServer{server, broker}, nil
 }
 
 func sanitizeReload(r *http.Request) error {

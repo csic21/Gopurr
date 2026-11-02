@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -141,12 +140,19 @@ func (a *App) overviewPage(c *ui.Context) {
 		})
 	})
 	if a.confirmInstall {
-		if softAlertDialog(c, &a.confirmInstall, tr("安装 TUN 服务"), service.InstallDescription(), tr("取消"), tr("安装")) == 1 {
+		title, action := tr("安装系统服务"), tr("安装")
+		if installed, _, _ := a.svcState(); installed {
+			title, action = tr("修复系统服务"), tr("修复")
+			if a.mgr.ServiceNeedsUpdate() || a.mgr.ServiceVersionSkew() {
+				title, action = tr("更新系统服务"), tr("更新")
+			}
+		}
+		if softAlertDialog(c, &a.confirmInstall, title, service.InstallDescription(), tr("取消"), action) == 1 {
 			a.installService()
 		}
 	}
 	if a.confirmUninstall {
-		if softAlertDialog(c, &a.confirmUninstall, tr("卸载 TUN 服务"), service.UninstallDescription(), tr("取消"), tr("卸载")) == 1 {
+		if softAlertDialog(c, &a.confirmUninstall, tr("卸载系统服务"), service.UninstallDescription(), tr("取消"), tr("卸载")) == 1 {
 			a.uninstallService()
 		}
 	}
@@ -295,24 +301,18 @@ func (a *App) overviewNetworkControls(c *ui.Context) {
 	overviewControlRow(c, tr("TUN 模式"), a.tunHint(), tunColor, func() {
 		switch {
 		case busy:
-			ui.Text(c, tr("等待授权…")).FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, tr("正在处理…")).FontSize(11).TextColor(pal.Muted)
 		case !service.Available():
 		case !installed:
 			softButton(c, tr("安装服务…")).OnClick(func() { a.confirmInstall = true })
-		case !root || a.mgr.ServiceNeedsUpdate():
-			if runtime.GOOS == "windows" && !a.mgr.ServiceNeedsUpdate() {
-				softButton(c, tr("重启服务")).OnClick(a.restartService)
-			} else {
-				softButton(c, tr("重新安装…")).OnClick(func() { a.confirmInstall = true })
-			}
+		case a.mgr.ServiceNeedsUpdate():
+			softButton(c, tr("更新服务…")).Disabled(busyNetwork(a)).OnClick(func() { a.confirmInstall = true })
+		case !root || svcErr != "":
+			softButton(c, tr("修复服务…")).Disabled(busyNetwork(a)).OnClick(func() { a.confirmInstall = true })
 		default:
-			if runtime.GOOS == "windows" {
-				softButton(c, tr("重启服务")).OnClick(a.restartService)
-			} else {
-				softButton(c, tr("卸载服务")).OnClick(func() { a.confirmUninstall = true })
-			}
+			softButton(c, tr("重启服务")).Disabled(busyNetwork(a)).OnClick(a.restartService)
 		}
-		softSwitch(c, &a.tunOn).Disabled((!root && !a.tunOn) || busy || a.kernelBusyState()).Label(tr("TUN 模式"))
+		softSwitch(c, &a.tunOn).Disabled((!root && !a.tunOn) || busyNetwork(a)).Label(tr("TUN 模式"))
 		if a.tunOn != a.ov.TunEnable {
 			a.requestTun(a.tunOn)
 		}

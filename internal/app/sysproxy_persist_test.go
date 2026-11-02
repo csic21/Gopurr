@@ -45,10 +45,12 @@ func TestSetSystemProxyPersistsRestorePreference(t *testing.T) {
 		restore: func(int, *sysproxy.State) error { return nil },
 	}
 	a.setSystemProxy(true)
+	waitProxyChange(t, a)
 	if !a.sysApplied || !a.Prefs().RestoreSystemProxy || !a.restoreProxyOn {
 		t.Fatalf("enable did not persist restore pref: applied=%v prefs=%v ui=%v", a.sysApplied, a.Prefs().RestoreSystemProxy, a.restoreProxyOn)
 	}
 	a.setSystemProxy(false)
+	waitProxyChange(t, a)
 	if a.sysApplied || a.Prefs().RestoreSystemProxy || a.restoreProxyOn {
 		t.Fatalf("disable did not clear restore pref: applied=%v prefs=%v ui=%v", a.sysApplied, a.Prefs().RestoreSystemProxy, a.restoreProxyOn)
 	}

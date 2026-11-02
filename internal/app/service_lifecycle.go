@@ -81,14 +81,12 @@ func (a *App) changeService(action string) {
 		return
 	}
 	wantedProxy := a.sysApplied || a.healthResumePending()
-	// Suspend before stopping any listener; this never changes the user's
-	// restore preference and is also undone after cancellation/failure.
-	if a.sysApplied {
-		if err := a.applySystemProxy(false); err != nil {
-			finishError(err)
-			return
-		}
-	}
+	// Proxy release, service handover and resume share one worker. In
+	// particular, release the privileged proxy session before its daemon exits.
+	suspend := a.proxyChangeWork(false)
+	wasApplied := a.sysApplied
+	resume := a.proxyChangeWork(true)
+	proxy := a.proxyController()
 	change := func() error {
 		switch action {
 		case "uninstall":
@@ -106,8 +104,39 @@ func (a *App) changeService(action string) {
 	work := serviceTransition{stop: a.k.Shutdown, change: change, installed: func() bool { return service.ForDataDir(a.dir) }, start: a.k.Start,
 		previous: previous, withoutTUN: withoutTUN, wantedTUN: wantedTUN, removing: action == "uninstall"}
 	go func() {
+		var released *proxyChangeResult
+		if wasApplied {
+			r := suspend.run()
+			released = &r
+			if r.err != nil {
+				runOnMain(func() { a.commitProxyChange(false, r); finishError(r.err) })
+				return
+			}
+		}
+		if err := proxy.Close(); err != nil {
+			runOnMain(func() {
+				if released != nil {
+					a.commitProxyChange(false, *released)
+				}
+				finishError(err)
+			})
+			return
+		}
 		result := work.run()
+		var resumed *proxyChangeResult
+		if wantedProxy && !a.shutdownPending.Load() {
+			resume.applied, resume.previous = false, nil
+			r := resume.run()
+			resumed = &r
+			result.err = errors.Join(result.err, r.err)
+		}
 		runOnMain(func() {
+			if released != nil {
+				a.commitProxyChange(false, *released)
+			}
+			if resumed != nil {
+				a.commitProxyChange(true, *resumed)
+			}
 			a.bmu.Lock()
 			a.svcInstalled = result.installed
 			a.bmu.Unlock()
@@ -115,11 +144,6 @@ func (a *App) changeService(action string) {
 			a.tunWanted = wantedTUN && !result.tun && action != "uninstall"
 			if err := a.saveOverridesAtomic(); err != nil {
 				result.err = errors.Join(result.err, err)
-			}
-			if wantedProxy && !a.shutdownPending.Load() {
-				if err := a.applySystemProxy(true); err != nil {
-					result.err = errors.Join(result.err, err)
-				}
 			}
 			a.bmu.Lock()
 			a.svcBusy = false

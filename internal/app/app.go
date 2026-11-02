@@ -26,6 +26,7 @@ import (
 	"gopurr/internal/mesh"
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
+	"gopurr/internal/securefs"
 	"gopurr/internal/service"
 	"gopurr/internal/sysproxy"
 	"gopurr/internal/update"
@@ -898,22 +899,37 @@ func (a *App) toggle() {
 	}
 	if a.k.Running() {
 		a.kernelStopped = true
-		if a.sysApplied {
-			a.setSystemProxy(false)
-			if a.sysApplied {
-				a.notice = tr("系统代理恢复失败，内核保持运行: ") + a.sysErrText()
-				return
-			}
-		}
 		// An explicit stop is the user's decision; do not bring a
 		// watchdog-suspended proxy back if they start the core later, even
 		// when the stop itself fails (for example a system-owned daemon).
-		a.cancelHealthResume()
-		if err := a.k.Stop(); err != nil {
-			a.notice = tr("停止失败: ") + err.Error()
-			return
+		stop := func(err error) {
+			if err != nil {
+				a.notice = tr("系统代理恢复失败，内核保持运行: ") + err.Error()
+				return
+			}
+			a.cancelHealthResume()
+			a.bmu.Lock()
+			a.kernelBusy = true
+			a.bmu.Unlock()
+			go func() {
+				err := a.k.Stop()
+				runOnMain(func() {
+					a.notice = tr("内核已停止。")
+					if err != nil {
+						a.notice = tr("停止失败: ") + err.Error()
+					}
+					a.bmu.Lock()
+					a.kernelBusy = false
+					a.bmu.Unlock()
+					a.invalidate()
+				})
+			}()
 		}
-		a.notice = tr("内核已停止。")
+		if a.sysApplied {
+			a.requestSystemProxy(false, true, false, stop)
+		} else {
+			stop(nil)
+		}
 		return
 	}
 	if a.ov.TunEnable {
@@ -1141,94 +1157,6 @@ func (a *App) mixedPort() int {
 	return 7890
 }
 
-// setSystemProxy flips macOS's proxy settings. It runs on the UI thread
-// because the authorization prompt is modal anyway.
-func (a *App) setSystemProxy(on bool) {
-	if on && a.shutdownPending.Load() {
-		return
-	}
-	if !systemProxyAvailable() {
-		a.setSysErr(tr("当前平台暂不支持自动设置系统代理"))
-		return
-	}
-	if on && !a.k.Running() {
-		// Start off the UI thread; overview may call this every frame while the
-		// switch is ahead of sysApplied.
-		a.startKernelAsync(func(ok bool) {
-			if !ok {
-				a.sysOn = false
-				return
-			}
-			a.setSystemProxy(true)
-		})
-		return
-	}
-	if a.applySystemProxy(on) != nil {
-		return
-	}
-	// Any explicit change supersedes a watchdog suspension.
-	a.proxySuspendedByHealth.Store(false)
-	// Overview / tray toggles are the user's session intent: remember them so
-	// the next launch matches (Clash-like). Exit still restores foreign OS
-	// proxy settings; finishKernelBoot re-applies when this pref is true.
-	a.persistRestoreSystemProxy(on)
-}
-
-// applySystemProxy points the OS proxy at the core (or hands it back) and
-// updates sysApplied/sysOn/sysState/sysErr and the saved previous owner. It
-// never starts the kernel and never persists RestoreSystemProxy: the
-// watchdog uses it to re-enable a proxy it suspended, after a probe that
-// already proved the core answers. Callers check systemProxyAvailable.
-func (a *App) applySystemProxy(on bool) error {
-	a.networkGeneration.Add(1)
-	a.bmu.Lock()
-	a.sysBusy = true
-	a.bmu.Unlock()
-	defer func() {
-		a.bmu.Lock()
-		a.sysBusy = false
-		a.bmu.Unlock()
-	}()
-	port := a.mixedPort()
-	var err error
-	if on {
-		ctx, cancel := context.WithTimeout(context.Background(), kernelProbeTimeout)
-		status, checkErr := a.k.Runtime(ctx)
-		cancel()
-		if checkErr != nil || !status.ProxyReady || status.MixedPort != port {
-			err := errors.New(tr("本地代理未就绪，请检查内核状态与端口设置"))
-			a.sysOn = a.sysApplied
-			a.setSysErr(err.Error())
-			return err
-		}
-		a.networkRuntime, a.networkChecked, a.networkErr = status, time.Now(), ""
-		// Whoever owned the system proxy before us gets it back on stop.
-		if !a.sysApplied {
-			if cur, cerr := sysproxy.Current(); cerr == nil && (cur.Enabled || cur.WindowsOptions) && !ownsProxy(cur, port) {
-				prev := cur
-				a.prev = &prev
-				a.savePrevProxy()
-			}
-		}
-		err = a.proxyController().Enable(port, a.prev)
-	} else {
-		err = a.restoreProxy()
-	}
-	if st, serr := sysproxy.Current(); serr == nil {
-		a.sysState = st
-	}
-	if err != nil {
-		a.sysOn = a.sysApplied
-		a.setSysErr(err.Error())
-		return err
-	}
-	a.sysApplied = on
-	a.sysOn = on
-	a.proxyChanged = false
-	a.setSysErr("")
-	return nil
-}
-
 // systemProxyAvailable is a seam so App logic tests can run where the OS
 // proxy is unsupported (Linux CI boxes).
 var systemProxyAvailable = sysproxy.Available
@@ -1252,13 +1180,7 @@ func (a *App) proxyController() sysproxy.Controller {
 }
 
 func ownsProxy(st sysproxy.State, port int) bool {
-	if st.WindowsOptions && st.Flags != 3 {
-		return false
-	}
-	if st.RawServer != "" && st.RawServer != fmt.Sprintf("127.0.0.1:%d", port) {
-		return false
-	}
-	return st.Enabled && st.Server == "127.0.0.1" && st.Port == port
+	return st.OwnedBy(port)
 }
 
 // persistRestoreSystemProxy keeps the settings toggle and prefs.json in sync
@@ -1296,7 +1218,7 @@ func (a *App) savePrevProxy() {
 		return
 	}
 	if b, err := json.MarshalIndent(a.prev, "", "  "); err == nil {
-		_ = os.WriteFile(a.prevPath, b, 0o644)
+		_ = securefs.WriteFile(a.prevPath, b, 0o600)
 	}
 }
 
@@ -1320,7 +1242,7 @@ func (a *App) sysErrText() string {
 	return a.sysErr
 }
 
-// ---------- 系统服务（可选，仅 TUN 需要） ----------
+// ---------- 系统服务（TUN 与可选的代理授权复用） ----------
 
 func (a *App) svcState() (installed, busy bool, errText string) {
 	a.bmu.Lock()
@@ -1391,19 +1313,13 @@ func (a *App) tunHint() string {
 		return tr("服务需要处理 · 查看详情")
 	}
 	if busy {
-		return service.AuthorizationHint()
+		return tr("正在处理系统服务…")
 	}
 	if !installed {
 		return tr("未安装服务 · 系统代理可独立使用")
 	}
-	if !a.k.IsRoot() {
-		return tr("服务未就绪 · 请启动或修复服务")
-	}
 	if a.mgr.ServiceNeedsUpdate() {
-		return tr("服务需要更新 · 重新安装以使用新版本内核")
-	}
-	if a.mgr.ServiceVersionSkew() {
-		return tr("应用已更新 · 服务仍兼容，可选择重新安装")
+		return tr("服务接口需要更新 · 确认后授权一次")
 	}
 	if a.ov.TunEnable {
 		if a.kernelBusyState() {
@@ -1422,6 +1338,9 @@ func (a *App) tunHint() string {
 			return tr("网卡已就绪 · 自动路由未开启")
 		}
 		return tr("已接管 · 网卡与路由就绪")
+	}
+	if !a.k.IsRoot() {
+		return tr("服务状态待确认 · 请重新检测")
 	}
 	return tr("未开启 · 可接管不遵循系统代理的应用")
 }
@@ -1534,6 +1453,12 @@ func (a *App) removeSubscription(id string) {
 // ---------- helpers ----------
 
 func (a *App) sysProxyHint() string {
+	a.bmu.Lock()
+	busy := a.sysBusy
+	a.bmu.Unlock()
+	if busy {
+		return tr("正在更新系统代理…")
+	}
 	if e := a.sysErrText(); e != "" {
 		return tr("系统代理需要处理 · 查看详情")
 	}
