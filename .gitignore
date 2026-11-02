@@ -11,6 +11,9 @@ dist/
 # Legacy desktop captures contain unrelated personal workspace content.
 /docs/shot-*.png
 /docs/screenshot.png
+# English frames are checked by TestRenderPages but not stored. Ignore them
+# if an older run or a local script still writes the full matrix.
+/docs/render-en-*.png
 # Runtime data if GOPURR_HOME points at the checkout root.
 /prefs.json
 /profiles.json

@@ -867,6 +867,11 @@ func TestRenderPages(t *testing.T) {
 						if len(colors) < 5 {
 							t.Fatalf("%s: looks blank (%d colours)", page, len(colors))
 						}
+						// English frames are clipped and colour-checked above, but not
+						// stored. The committed review set is the Chinese matrix.
+						if strings.HasPrefix(page, "en-") {
+							continue
+						}
 
 						f, err := os.Create(filepath.Join(outDir, "render-"+page+".png"))
 						if err != nil {
