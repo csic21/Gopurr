@@ -64,7 +64,10 @@ func lockWindowsJournal(path string) (func(), error) {
 	runtime.LockOSThread()
 	name, _ := windows.UTF16PtrFromString(fmt.Sprintf(`Local\Gopurr-Proxy-%x`, sha256.Sum256([]byte(strings.ToLower(filepath.Clean(path))))))
 	h, err := windows.CreateMutex(nil, false, name)
-	if err != nil {
+	if err != nil && !(h != 0 && errors.Is(err, windows.ERROR_ALREADY_EXISTS)) {
+		if h != 0 {
+			_ = windows.CloseHandle(h)
+		}
 		runtime.UnlockOSThread()
 		return nil, err
 	}
