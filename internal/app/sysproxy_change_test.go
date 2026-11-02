@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"gopurr/internal/core"
 	"strings"
 	"testing"
 	"time"
@@ -104,5 +106,20 @@ func TestProxySwitchReturnsDuringAuthorizationAndCommitsOnMainThread(t *testing.
 	}
 	if busyNetwork(a) || a.sysApplied || a.sysOn || a.Prefs().RestoreSystemProxy {
 		t.Fatal("canceled authorization changed the user's preference")
+	}
+}
+
+func TestProxyPreflightFailureIsRetryableWithoutChangingOS(t *testing.T) {
+	w := proxyChange{
+		on: true, port: 7890,
+		runtime: func(context.Context) (core.RuntimeStatus, error) {
+			return core.RuntimeStatus{}, context.DeadlineExceeded
+		},
+		current:    func() (sysproxy.State, error) { return sysproxy.State{}, nil },
+		controller: proxyControllerFixture{enable: func(int, *sysproxy.State) error { t.Fatal("preflight failure changed OS"); return nil }},
+	}
+	r := w.run()
+	if !errors.Is(r.err, errProxyNotReady) || !errors.Is(r.err, context.DeadlineExceeded) {
+		t.Fatalf("preflight lost retry classification or cause: %v", r.err)
 	}
 }

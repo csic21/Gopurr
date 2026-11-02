@@ -77,3 +77,24 @@ func TestOverviewQuickSwitchAndRoutingModes(t *testing.T) {
 		t.Fatal("Escape did not close the quick picker")
 	}
 }
+
+func TestOverviewStaleDataDoesNotAppearLive(t *testing.T) {
+	a := subscriptionTestApp(t)
+	a.booted, a.ticking, a.page = true, true, "overview"
+	fixtureOverviewTraffic(a)
+	a.last.TrafficAt = time.Now().Add(-time.Minute)
+	a.last.TrafficStale, a.last.ConnectionsStale = true, true
+	for _, size := range [][2]int{{1060, 720}, {840, 560}} {
+		view := ui.NewTester(a.View, size[0], size[1])
+		view.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
+		view.Advance(300 * time.Millisecond)
+		for _, text := range []string{"数据已暂停", "等待新数据", "活跃连接 —", "系统代理", "TUN 模式"} {
+			if !view.HasText(text) {
+				t.Fatalf("%dx%d missing %q", size[0], size[1], text)
+			}
+		}
+		if view.HasText("实时更新") || view.HasText("现在") || view.HasText(fmtRate(a.last.DownNow)) {
+			t.Fatal("stale sample presented as live")
+		}
+	}
+}

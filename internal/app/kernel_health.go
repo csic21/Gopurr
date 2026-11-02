@@ -123,6 +123,8 @@ func (a *App) kernelHealthLoop() {
 			continue
 		}
 		generation := a.networkGeneration.Load()
+		// Snapshot the expected port on the UI thread before probing.
+		port := a.healthMixedPort()
 		hard, profile := a.kernelHealthBusyState()
 		h := kernel.HealthBusy
 		var status core.RuntimeStatus
@@ -130,7 +132,7 @@ func (a *App) kernelHealthLoop() {
 		var proxy sysproxy.State
 		var proxyErr error
 		if !hard {
-			h = healthDuringWork(a.k.Health(kernelProbeTimeout), profile)
+			h = a.k.Health(kernelProbeTimeout)
 			if h == kernel.HealthOK {
 				ctx, cancel := context.WithTimeout(context.Background(), kernelProbeTimeout)
 				status, statusErr = a.k.Runtime(ctx)
@@ -139,6 +141,11 @@ func (a *App) kernelHealthLoop() {
 					h = kernel.HealthUnresponsive
 				}
 			}
+			// A controller outage is not proof that the traffic listener failed.
+			h, status = checkLocalProxyHealth(h, status, statusErr, port, func() error {
+				return core.ProbeMixed(context.Background(), port)
+			})
+			h = healthDuringWork(h, profile)
 			proxy, proxyErr = sysproxy.Current()
 		}
 		runOnMain(func() {
@@ -226,9 +233,9 @@ func (a *App) resumeProxyAfterKernelRecovery() {
 	if hard, _ := a.kernelHealthBusyState(); hard {
 		return
 	}
-	a.proxySuspendedByHealth.Store(false)
 	suspendedNotice := a.isKernelSuspendNotice(a.notice)
 	if a.sysApplied || !systemProxyAvailable() {
+		a.proxySuspendedByHealth.Store(false)
 		if suspendedNotice {
 			a.notice = ""
 		}
@@ -236,6 +243,14 @@ func (a *App) resumeProxyAfterKernelRecovery() {
 		return
 	}
 	a.requestSystemProxy(true, false, false, func(err error) {
+		// Preflight failures have not requested authorization or changed the OS.
+		// Keep the pending resume so the next healthy tick can retry it.
+		if errors.Is(err, errProxyNotReady) {
+			a.proxySuspendedByHealth.Store(true)
+			a.invalidate()
+			return
+		}
+		a.proxySuspendedByHealth.Store(false)
 		if errors.Is(err, errProxyOwnershipChanged) {
 			a.sysApplied, a.sysOn, a.proxyChanged = false, false, true
 			a.setSysErr("")
@@ -289,4 +304,24 @@ func (a *App) isKernelFailureNotice(notice string) bool {
 		}
 	}
 	return false
+}
+
+// checkLocalProxyHealth independently verifies the expected traffic listener
+// when management requests fail. It must not hide a confirmed process exit or
+// an observed port mismatch. Unknown TUN/controller state remains unknown.
+func checkLocalProxyHealth(h kernel.Health, status core.RuntimeStatus, statusErr error, port int, probe func() error) (kernel.Health, core.RuntimeStatus) {
+	if h != kernel.HealthUnresponsive || statusErr == nil || port <= 0 {
+		return h, status
+	}
+	if probe() != nil {
+		return h, status
+	}
+	status.MixedPort, status.ProxyReady = port, true
+	return kernel.HealthOK, status
+}
+
+func (a *App) healthMixedPort() int {
+	port := make(chan int, 1)
+	runOnMain(func() { port <- a.mixedPort() })
+	return <-port
 }

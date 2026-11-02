@@ -100,7 +100,7 @@ func (a *App) navigationTitleBar(c *ui.Context, collapsed bool, progress float32
 			Opacity(progress).Children(func() {
 			if collapsed || moving {
 				label, dot := a.navigationStatus(), pal.Faint
-				if a.k.Running() {
+				if a.k.RunningCached() {
 					dot = pal.Success
 				}
 				ui.Box(c).Size(5, 5).Radius(3).Background(dot)
@@ -175,7 +175,7 @@ func (a *App) navigationStatus() string {
 	if a.kernelBusyState() {
 		return tr("正在启动…")
 	}
-	if a.k.Running() {
+	if a.k.RunningCached() {
 		return tr("内核运行中")
 	}
 	return tr("内核已停止")

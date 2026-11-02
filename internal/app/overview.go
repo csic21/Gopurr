@@ -62,7 +62,10 @@ func resolveGroupExit(groups []core.Group, group core.Group) (core.Group, string
 func (a *App) overviewPage(c *ui.Context) {
 	pal := paletteFor(c)
 	snap, hist := a.snapshot()
-	running := a.k.Running()
+	if snap.TrafficStale {
+		hist = nil
+	}
+	running := a.k.RunningCached()
 	_, height := c.Size()
 	compact := height < 660
 	all := a.k.Groups()
@@ -106,20 +109,34 @@ func (a *App) overviewPage(c *ui.Context) {
 					if len(hist) > 0 {
 						peak = tr("峰值 ") + fmtRate(trafficPeak(hist))
 					}
+					if snap.TrafficStale && !snap.TrafficAt.IsZero() {
+						peak = tr("数据已暂停")
+					}
 					sectionHeading(c, tr("实时流量"), peak)
 					ui.Row(c).FillWidth().Gap(20).Children(func() {
-						overviewRate(c, iconDown, tr("下行"), fmtRate(snap.DownNow), pal.Down)
-						overviewRate(c, iconUp, tr("上行"), fmtRate(snap.UpNow), pal.Up)
+						down, up := fmtRate(snap.DownNow), fmtRate(snap.UpNow)
+						if snap.TrafficStale {
+							down, up = "—", "—"
+						}
+						overviewRate(c, iconDown, tr("下行"), down, pal.Down)
+						overviewRate(c, iconUp, tr("上行"), up, pal.Up)
 					})
 					a.chart(c, hist)
 					ui.Row(c).FillWidth().Children(func() {
 						start := tr("实时更新")
+						if snap.TrafficStale {
+							start = peak
+						}
 						if len(hist) > 1 {
 							start = fmt.Sprintf(tr("%d 秒前"), len(hist)-1)
 						}
 						ui.Text(c, start).FontSize(11).TextColor(pal.Faint)
 						ui.Spacer(c)
-						ui.Text(c, tr("现在")).FontSize(11).TextColor(pal.Faint)
+						end := tr("现在")
+						if snap.TrafficStale {
+							end = tr("等待新数据")
+						}
+						ui.Text(c, end).FontSize(11).TextColor(pal.Faint)
 					})
 				})
 			})
@@ -128,8 +145,12 @@ func (a *App) overviewPage(c *ui.Context) {
 				settingsGroup(c, "", func() { a.overviewNetworkControls(c) })
 			})
 			ui.Row(c).FillWidth().Gap(16).Children(func() {
+				connections := fmt.Sprintf(tr("活跃连接 %d"), snap.Conns)
+				if snap.ConnectionsStale {
+					connections = tr("活跃连接 —")
+				}
 				for _, item := range []string{
-					fmt.Sprintf(tr("活跃连接 %d"), snap.Conns),
+					connections,
 					fmt.Sprintf(tr("生效规则 %d"), len(a.k.Rules())),
 					tr("累计下行 ") + fmtBytes(snap.DownTotal),
 					tr("累计上行 ") + fmtBytes(snap.UpTotal),

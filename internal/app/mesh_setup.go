@@ -15,7 +15,7 @@ func (a *App) meshAccessReady() bool {
 	}
 	// Rendering several controls must not repeat the same controller request.
 	if time.Since(a.meshKernelChecked) > time.Second {
-		a.meshKernelRunning, a.meshKernelChecked = a.k.Running(), time.Now()
+		a.meshKernelRunning, a.meshKernelChecked = a.k.RunningCached(), time.Now()
 	}
 	return a.meshKernelRunning
 }

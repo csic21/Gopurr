@@ -1,13 +1,13 @@
 package service
 
 import (
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"gopurr/internal/localize"
+	"gopurr/internal/rotatelog"
 )
 
 const Label = "io.github.gopurr.core"
@@ -23,7 +23,7 @@ func LogTail(dataDir string) string {
 	if runtime.GOOS == "windows" {
 		path = windowsServiceLogPath()
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := rotatelog.Tail(path, 64<<10)
 	if err != nil {
 		return ""
 	}

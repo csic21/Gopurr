@@ -20,6 +20,7 @@ import (
 	"gopurr/internal/buildinfo"
 	"gopurr/internal/core"
 	"gopurr/internal/process"
+	"gopurr/internal/rotatelog"
 	"gopurr/internal/securefs"
 	"gopurr/internal/service"
 )
@@ -36,10 +37,12 @@ type Manager struct {
 	home       string
 	logPath    string
 
-	mu     sync.Mutex
-	cmd    *exec.Cmd // non-nil when this app spawned the daemon
-	exit   *processExit
-	remote *Remote
+	runningMu      sync.Mutex
+	runningProbeAt time.Time
+	mu             sync.Mutex
+	cmd            *exec.Cmd // non-nil when this app spawned the daemon
+	exit           *processExit
+	remote         *Remote
 }
 
 type processExit struct {
@@ -157,6 +160,7 @@ func (m *Manager) Health(timeout time.Duration) Health {
 	if exit != nil {
 		select {
 		case <-exit.done:
+			m.remote.lastSeen.Store(0)
 			return HealthExited
 		default:
 		}
@@ -169,6 +173,7 @@ func (m *Manager) Health(timeout time.Duration) Health {
 	if exit != nil {
 		select {
 		case <-exit.done:
+			m.remote.lastSeen.Store(0)
 			return HealthExited
 		default:
 		}
@@ -187,8 +192,29 @@ func (m *Manager) Status() (core.DaemonStatus, error) {
 	return st, err
 }
 
-// Running reports a daemon that answers.
-func (m *Manager) Running() bool { return m.healthy() }
+// Running uses recent controller evidence, including the live traffic stream.
+// A frame can ask several times: expired evidence schedules one background
+// probe and never blocks rendering or overwrites newer authenticated traffic.
+func (m *Manager) Running() bool {
+	if m.remote.recentlyAlive() {
+		return true
+	}
+	if !m.runningMu.TryLock() {
+		return m.remote.recentlyAlive()
+	}
+	if time.Since(m.runningProbeAt) < time.Second {
+		m.runningMu.Unlock()
+		return m.remote.recentlyAlive()
+	}
+	m.runningProbeAt = time.Now()
+	// The renderer never waits for I/O, even on cold start or after an outage.
+	// Holding this lock across the worker coalesces all widgets into one probe.
+	go func() {
+		defer m.runningMu.Unlock()
+		m.answersWithin(slowProbeTimeout)
+	}()
+	return m.remote.recentlyAlive()
+}
 
 // IsRoot reports the daemon's privilege capability, independently of readiness.
 // Health/runtime probes already run in the watchdog. A fresh 700ms network
@@ -249,6 +275,10 @@ func (m *Manager) ReclaimStale() {
 	} // the SCM/launchd owns its PID and socket
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Cached UI state is not authority to stop an adopted live process.
+	if m.answersWithin(slowProbeTimeout) {
+		return
+	}
 	m.reapStaleLocked()
 	m.remote.resetTransport()
 }
@@ -296,8 +326,8 @@ func (m *Manager) Ensure() error {
 	if err != nil {
 		return err
 	}
-	// Truncate so startupError shows this attempt, not an older failure.
-	logFile, err := os.OpenFile(m.logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	// Keep bounded history across starts; failures report only the bounded tail.
+	logFile, err := rotatelog.Open(m.logPath)
 	if err != nil {
 		return err
 	}
@@ -321,9 +351,9 @@ func (m *Manager) Ensure() error {
 	m.cmd = cmd
 	m.exit = &processExit{done: make(chan struct{})}
 	exit := m.exit
-	_ = logFile.Close()
 	go func() {
 		exit.err = cmd.Wait()
+		_ = logFile.Close()
 		close(exit.done)
 	}()
 	// Large subscriptions spend most of this window inside hub.Parse before the
@@ -415,7 +445,7 @@ func (m *Manager) waitReady(exit *processExit, timeout time.Duration) error {
 }
 
 func (m *Manager) startupError(reason string) error {
-	tail, _ := os.ReadFile(m.logPath)
+	tail, _ := rotatelog.Tail(m.logPath, 2000)
 	if len(tail) > 2000 {
 		tail = tail[len(tail)-2000:]
 	}

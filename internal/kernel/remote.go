@@ -34,13 +34,16 @@ type Remote struct {
 	stream *http.Client // no timeout: traffic and logs are long-lived
 	call   *http.Client // short timeout for request/response
 
-	mu       sync.Mutex
-	logs     []core.LogLine
-	traffic  core.Sample
-	conns    int
-	lastErr  string
-	quiet    atomic.Bool
-	pollWake chan struct{}
+	mu        sync.Mutex
+	logs      []core.LogLine
+	traffic   core.Sample
+	trafficAt time.Time
+	connsAt   time.Time
+	conns     int
+	lastErr   string
+	quiet     atomic.Bool
+	lastSeen  atomic.Int64 // successful authenticated responses or fresh traffic
+	pollWake  chan struct{}
 }
 
 type httpStatusError struct {
@@ -101,10 +104,17 @@ func (r *Remote) requestContext(ctx context.Context, client *http.Client, method
 		return &httpStatusError{method: method, path: path, code: resp.StatusCode, message: strings.TrimSpace(string(msg))}
 	}
 	if out == nil {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil
+		_, err := io.Copy(io.Discard, resp.Body)
+		if err == nil {
+			r.markAlive()
+		}
+		return err
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return err
+	}
+	r.markAlive()
+	return nil
 }
 
 // Probe reports whether a daemon answers on the socket.
@@ -121,11 +131,21 @@ func (r *Remote) Probe(ctx context.Context) error {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("controller answered HTTP %d", resp.StatusCode)
 	}
+	r.markAlive()
 	return nil
+}
+
+func (r *Remote) markAlive() { r.lastSeen.Store(time.Now().UnixNano()) }
+
+func (r *Remote) recentlyAlive() bool {
+	seen := r.lastSeen.Load()
+	return seen != 0 && time.Since(time.Unix(0, seen)) < 10*time.Second
 }
 
 // resetTransport drops idle connections so a restarted daemon at the same
@@ -134,6 +154,7 @@ func (r *Remote) resetTransport() {
 	if r == nil {
 		return
 	}
+	r.lastSeen.Store(0)
 	if t, ok := r.stream.Transport.(*http.Transport); ok {
 		t.CloseIdleConnections()
 	}
@@ -169,6 +190,11 @@ func (r *Remote) watchTraffic() {
 			time.Sleep(2 * time.Second)
 			continue
 		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			time.Sleep(2 * time.Second)
+			continue
+		}
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 64*1024), 1<<20)
 		for scanner.Scan() {
@@ -182,6 +208,8 @@ func (r *Remote) watchTraffic() {
 				continue
 			}
 			r.mu.Lock()
+			r.markAlive()
+			r.trafficAt = time.Now()
 			r.traffic.UpNow = t.Up
 			r.traffic.DownNow = t.Down
 			r.traffic.UpTotal = t.UpTotal
@@ -197,6 +225,11 @@ func (r *Remote) watchLogs() {
 	for {
 		resp, err := r.streamGet("/logs?level=info")
 		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -231,6 +264,7 @@ func (r *Remote) pollConnections() {
 		if err := r.request(http.MethodGet, "/connections", nil, &out); err == nil {
 			r.mu.Lock()
 			r.conns = len(out.Connections)
+			r.connsAt = time.Now()
 			r.mu.Unlock()
 		}
 		timer := time.NewTimer(r.connectionPollInterval())
@@ -264,6 +298,15 @@ func (r *Remote) Sample() core.Sample {
 	defer r.mu.Unlock()
 	s := r.traffic
 	s.Conns = r.conns
+	s.TrafficAt = r.trafficAt
+	s.TrafficStale = r.trafficAt.IsZero() || time.Since(r.trafficAt) > 5*time.Second
+	s.ConnectionsStale = r.connsAt.IsZero() || time.Since(r.connsAt) > 2*r.connectionPollInterval()+time.Second
+	if s.TrafficStale {
+		s.UpNow, s.DownNow = 0, 0
+	}
+	if s.ConnectionsStale {
+		s.Conns = 0
+	}
 	return s
 }
 

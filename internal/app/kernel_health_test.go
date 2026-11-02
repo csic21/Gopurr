@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"gopurr/internal/core"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -143,7 +145,7 @@ func TestKernelRecoveryReenablesSuspendedProxy(t *testing.T) {
 	if !strings.Contains(a.notice, "内核已退出") || !strings.Contains(a.notice, "重新启动内核") {
 		t.Fatalf("exit notice should ask for a manual start: %q", a.notice)
 	}
-	if !a.k.Running() {
+	if a.k.Health(time.Second) != kernel.HealthOK {
 		t.Fatal("fixture kernel should answer")
 	}
 	a.resumeProxyAfterKernelRecovery()
@@ -211,8 +213,8 @@ func TestKernelResumeNeverStartsSlowButAliveKernel(t *testing.T) {
 	if h := a.k.Health(kernelProbeTimeout); h != kernel.HealthOK {
 		t.Fatalf("slow core health = %v, want ok", h)
 	}
-	if a.k.Running() {
-		t.Fatal("fixture should look not-running to the 700ms UI probe")
+	if !a.k.Running() {
+		t.Fatal("successful health probe must keep the slow core visible as running")
 	}
 	a.suspendProxyForKernelFailure(false)
 	waitProxyChange(t, a)
@@ -423,5 +425,53 @@ func TestStartKernelAsyncCompletesOnMainThread(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("async start timed out")
+	}
+}
+
+func TestControllerOutageDoesNotSuspendWorkingProxy(t *testing.T) {
+	var watch kernelHealthWatch
+	start := time.Now()
+	for i := 0; i < 10; i++ {
+		h, s := checkLocalProxyHealth(kernel.HealthUnresponsive, core.RuntimeStatus{}, context.DeadlineExceeded, 7890, func() error { return nil })
+		if h != kernel.HealthOK || !s.ProxyReady || s.MixedPort != 7890 || s.TunReady {
+			t.Fatalf("independent data path observation: %v %+v", h, s)
+		}
+		if got := watch.observe(h, false, start.Add(time.Duration(i)*3*time.Second)); got == kernelHealthSuspend {
+			t.Fatal("working proxy was suspended")
+		}
+	}
+	for _, h := range []kernel.Health{kernel.HealthExited, kernel.HealthBusy} {
+		got, _ := checkLocalProxyHealth(h, core.RuntimeStatus{}, context.DeadlineExceeded, 7890, func() error { t.Fatal("must not override exit or in-flight work"); return nil })
+		if got != h {
+			t.Fatalf("health changed: %v", got)
+		}
+	}
+	h, _ := checkLocalProxyHealth(kernel.HealthUnresponsive, core.RuntimeStatus{}, context.DeadlineExceeded, 7890, func() error { return errors.New("connection refused") })
+	if h != kernel.HealthUnresponsive {
+		t.Fatal("failed local handshake hid outage")
+	}
+	h, _ = checkLocalProxyHealth(kernel.HealthUnresponsive, core.RuntimeStatus{MixedPort: 7891}, nil, 7890, func() error { t.Fatal("must not mask observed port mismatch"); return nil })
+	if h != kernel.HealthUnresponsive {
+		t.Fatal("observed misconfiguration hidden")
+	}
+}
+
+func TestKernelResumeKeepsPendingOnPreflightFailure(t *testing.T) {
+	a, calls := healthTestApp(t, errProxyNotReady)
+	a.suspendProxyForKernelFailure(false)
+	waitProxyChange(t, a)
+	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
+	if !a.healthResumePending() || a.sysApplied {
+		t.Fatal("transient preflight failure discarded pending resume")
+	}
+	a.proxy = proxyControllerFixture{
+		enable:  func(int, *sysproxy.State) error { calls.enable++; return nil },
+		restore: func(int, *sysproxy.State) error { return nil },
+	}
+	a.resumeProxyAfterKernelRecovery()
+	waitProxyChange(t, a)
+	if a.healthResumePending() || !a.sysApplied {
+		t.Fatal("healthy retry did not restore proxy")
 	}
 }

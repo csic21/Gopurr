@@ -44,6 +44,8 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Build
         run: go build -o bin/Gopurr${{ runner.os == 'Windows' && '.exe' || '' }} .
+      - name: Isolated real-core traffic smoke test
+        run: go run ./scripts/smoke -binary bin/Gopurr${{ runner.os == 'Windows' && '.exe' || '' }}
       - name: Windows service and Wintun smoke test
         if: runner.os == 'Windows'
         run: go run ./scripts/smoke-windows -binary bin/Gopurr.exe

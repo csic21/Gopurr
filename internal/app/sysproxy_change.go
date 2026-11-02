@@ -21,6 +21,15 @@ type proxyChange struct {
 	baseline    *sysproxy.State
 }
 
+var errProxyNotReady = errors.New("local proxy is not ready")
+
+type proxyNotReadyError struct{ cause error }
+
+func (e *proxyNotReadyError) Error() string {
+	return tr("本地代理未就绪，请检查内核状态与端口设置")
+}
+func (e *proxyNotReadyError) Unwrap() []error { return []error{errProxyNotReady, e.cause} }
+
 var errProxyOwnershipChanged = errors.New("system proxy ownership changed")
 
 type proxyChangeResult struct {
@@ -50,7 +59,7 @@ func (w proxyChange) run() proxyChangeResult {
 			r.runtime, r.err = w.runtime(ctx)
 			cancel()
 			if r.err != nil || !r.runtime.ProxyReady || r.runtime.MixedPort != w.port {
-				r.err = errors.New(tr("本地代理未就绪，请检查内核状态与端口设置"))
+				r.err = &proxyNotReadyError{cause: r.err}
 			}
 		}
 		if r.err == nil && !w.applied {

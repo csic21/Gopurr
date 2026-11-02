@@ -24,11 +24,19 @@ func (a *App) requestTun(on bool, after ...func()) {
 	a.bmu.Lock()
 	a.tunChanging = true
 	a.bmu.Unlock()
-	complete := func() {
-		notify()
+	complete := func(ready bool) {
 		a.bmu.Lock()
 		a.tunChanging = false
 		a.bmu.Unlock()
+		// Release the transition before restoring the system proxy; otherwise
+		// setSystemProxy rejects its own successful boot as a busy operation.
+		if ready {
+			a.finishKernelBoot()
+			if a.booted {
+				a.refreshNetworkState()
+			}
+		}
+		notify()
 		a.invalidate()
 	}
 	previous := a.ov.TunEnable
@@ -38,7 +46,7 @@ func (a *App) requestTun(on bool, after ...func()) {
 		if !ok {
 			a.ov.TunEnable, a.tunOn = previous, previous
 			a.setTunErr(a.notice)
-			complete()
+			complete(false)
 			return
 		}
 		if err := a.saveOverridesAtomic(); err != nil {
@@ -52,14 +60,10 @@ func (a *App) requestTun(on bool, after ...func()) {
 					message += tr("；已恢复原设置")
 				}
 				a.setTunErr(message)
-				complete()
+				complete(false)
 			})
 			return
 		}
-		a.finishKernelBoot()
-		if a.booted {
-			a.refreshNetworkState()
-		}
-		complete()
+		complete(true)
 	})
 }

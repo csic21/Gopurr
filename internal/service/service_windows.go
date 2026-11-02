@@ -1,11 +1,16 @@
 package service
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +25,7 @@ import (
 
 	"gopurr/internal/localize"
 	"gopurr/internal/process"
+	"gopurr/internal/rotatelog"
 	"gopurr/internal/securefs"
 )
 
@@ -205,9 +211,6 @@ func installWindowsService(dataDir string) error {
 	old, err := manager.OpenService(Label)
 	if err == nil {
 		defer old.Close()
-		if err := stopWindowsService(old); err != nil {
-			return err
-		}
 	} else if !errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 		return err
 	}
@@ -225,101 +228,247 @@ func installWindowsService(dataDir string) error {
 	if err != nil {
 		return err
 	}
+	var previousConfig mgr.Config
+	wasRunning := false
+	if old != nil {
+		previousConfig, err = old.Config()
+		if err != nil {
+			return err
+		}
+		state, err := old.Query()
+		if err != nil {
+			return err
+		}
+		wasRunning = state.State != svc.Stopped
+	}
+	var staged, backup string
+	retainBackup := false
+	defer func() {
+		if staged != "" {
+			_ = os.Remove(staged)
+		}
+		if backup != "" && !retainBackup {
+			_ = os.Remove(backup)
+		}
+	}()
+	var service *mgr.Service
+	upgrade := serviceUpgrade{
+		prepare: func() error {
+			var err error
+			staged, err = stageServiceBinary(source, filepath.Dir(target))
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			check := exec.CommandContext(ctx, staged, "--version")
+			process.Configure(check)
+			output, err := check.Output()
+			if err != nil || !strings.HasPrefix(string(output), "Gopurr ") {
+				return fmt.Errorf("staged service executable failed validation: %v", err)
+			}
+			if _, err := os.Stat(target); err == nil {
+				backup, err = stageServiceBinary(target, filepath.Dir(target))
+				return err
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			return nil
+		},
+		stop: func() error {
+			if old != nil {
+				return stopWindowsService(old)
+			}
+			return nil
+		},
+		commit: func() error {
+			if err := replaceServiceBinary(staged, target); err != nil {
+				return err
+			}
+			config := mgr.Config{ServiceType: windows.SERVICE_WIN32_OWN_PROCESS, ErrorControl: mgr.ErrorNormal, DisplayName: "Gopurr Core", Description: "Gopurr mihomo kernel for TUN networking", StartType: mgr.StartAutomatic}
+			if old != nil {
+				config.BinaryPathName = syscall.EscapeArg(target) + " --windows-service " + syscall.EscapeArg(dataDir)
+				if err := old.UpdateConfig(config); err != nil {
+					return err
+				}
+				service = old
+			} else {
+				service, err = manager.CreateService(Label, target, config, "--windows-service", dataDir)
+				if err != nil {
+					return err
+				}
+			}
+			// Only the installing data directory's owner can start/stop this service;
+			// changing its executable or configuration still requires administrator rights.
+			sd, err := windows.GetNamedSecurityInfo(dataDir, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+			if err != nil {
+				return err
+			}
+			owner, _, err := sd.Owner()
+			if err != nil {
+				return err
+			}
+			for _, path := range []string{filepath.Dir(filepath.Dir(target)), filepath.Dir(target)} {
+				readAccess, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;" + owner.String() + ")")
+				if err != nil {
+					return err
+				}
+				dacl, _, err := readAccess.DACL()
+				if err != nil {
+					return err
+				}
+				if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+					return err
+				}
+			}
+			access, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;CCLCRPWPLO;;;" + owner.String() + ")")
+			if err != nil {
+				return err
+			}
+			dacl, _, err := access.DACL()
+			if err != nil {
+				return err
+			}
+			if err := windows.SetSecurityInfo(service.Handle, windows.SE_SERVICE, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+				return err
+			}
+			if err := service.SetRecoveryActions([]mgr.RecoveryAction{
+				{Type: mgr.ServiceRestart, Delay: 2 * time.Second},
+				{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+				{Type: mgr.ServiceRestart, Delay: 15 * time.Second},
+				{Type: mgr.NoAction},
+			}, 300); err != nil {
+				return err
+			}
+			if err := service.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+				return err
+			}
+			if err := configureFirewall(target); err != nil {
+				return err
+			}
+			return nil
+		},
+		start:  func() error { return service.Start() },
+		verify: func() error { return waitWindowsServiceReady(service, dataDir, 30*time.Second) },
+		rollback: func() error {
+			var restoreErr error
+			if service != nil {
+				if err := stopWindowsService(service); err != nil {
+					retainBackup = true
+					return err
+				}
+			}
+			if backup != "" {
+				if err := replaceServiceBinary(backup, target); err != nil {
+					retainBackup = true
+					return fmt.Errorf("previous binary retained at %s: %w", backup, err)
+				}
+			} else if old == nil {
+				restoreErr = errors.Join(restoreErr, os.Remove(target))
+			}
+			if old != nil {
+				restoreErr = errors.Join(restoreErr, old.UpdateConfig(previousConfig))
+				if wasRunning && restoreErr == nil {
+					restoreErr = old.Start()
+					if restoreErr == nil {
+						restoreErr = waitWindowsServiceReady(old, dataDir, 30*time.Second)
+					}
+				}
+			} else if service != nil {
+				restoreErr = errors.Join(restoreErr, service.Delete())
+				removeFirewall(target)
+			}
+			return restoreErr
+		},
+	}
+	result := upgrade.run()
+	if service != nil && old == nil {
+		_ = service.Close()
+	}
+	return result
+}
+
+// A fully written, synced, hash-checked copy exists before SCM stop is sent.
+func stageServiceBinary(source, directory string) (string, error) {
 	in, err := os.Open(source)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer in.Close()
-	staged, err := os.CreateTemp(filepath.Dir(target), ".core-*.exe")
+	out, err := os.CreateTemp(directory, ".core-*.exe")
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer os.Remove(staged.Name())
-	_, copyErr := io.Copy(staged, in)
-	closeErr := staged.Close()
-	if copyErr != nil {
-		return copyErr
+	path := out.Name()
+	hash := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(out, hash), in)
+	syncErr, closeErr := out.Sync(), out.Close()
+	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
+		os.Remove(path)
+		return "", err
 	}
-	if closeErr != nil {
-		return closeErr
+	check, err := os.Open(path)
+	if err != nil {
+		os.Remove(path)
+		return "", err
 	}
-	from, _ := windows.UTF16PtrFromString(staged.Name())
+	verify := sha256.New()
+	_, err = io.Copy(verify, check)
+	check.Close()
+	if err != nil || !bytes.Equal(hash.Sum(nil), verify.Sum(nil)) {
+		os.Remove(path)
+		return "", errors.New("service copy checksum mismatch")
+	}
+	return path, nil
+}
+
+func replaceServiceBinary(source, target string) error {
+	from, _ := windows.UTF16PtrFromString(source)
 	to, _ := windows.UTF16PtrFromString(target)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		err = windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
+		err := windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+		if err == nil || time.Now().After(deadline) {
 			return err
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	config := mgr.Config{ServiceType: windows.SERVICE_WIN32_OWN_PROCESS, ErrorControl: mgr.ErrorNormal, DisplayName: "Gopurr Core", Description: "Gopurr mihomo kernel for TUN networking", StartType: mgr.StartAutomatic}
-	var service *mgr.Service
-	if old != nil {
-		config.BinaryPathName = syscall.EscapeArg(target) + " --windows-service " + syscall.EscapeArg(dataDir)
-		if err := old.UpdateConfig(config); err != nil {
-			return err
-		}
-		service = old
-	} else {
-		service, err = manager.CreateService(Label, target, config, "--windows-service", dataDir)
-		if err != nil {
-			return err
-		}
-		defer service.Close()
-	}
-	// Only the installing data directory's owner can start/stop this service;
-	// changing its executable or configuration still requires administrator rights.
-	sd, err := windows.GetNamedSecurityInfo(dataDir, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+}
+
+func waitWindowsServiceReady(service *mgr.Service, dataDir string, timeout time.Duration) error {
+	secret, err := os.ReadFile(filepath.Join(dataDir, "core.secret"))
 	if err != nil {
 		return err
 	}
-	owner, _, err := sd.Owner()
-	if err != nil {
-		return err
-	}
-	for _, path := range []string{filepath.Dir(filepath.Dir(target)), filepath.Dir(target)} {
-		readAccess, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;" + owner.String() + ")")
-		if err != nil {
-			return err
+	socket := filepath.Join(dataDir, "core.sock")
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+	}}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for {
+		state, queryErr := service.Query()
+		var status struct{ PID uint32 }
+		raw, _ := os.ReadFile(filepath.Join(dataDir, "core.json"))
+		if queryErr == nil && state.State == svc.Running && json.Unmarshal(raw, &status) == nil && status.PID == state.ProcessId {
+			req, _ := http.NewRequestWithContext(ctx, "GET", "http://localhost/version", nil)
+			req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(secret)))
+			if resp, err := client.Do(req); err == nil {
+				_, readErr := io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK && readErr == nil {
+					return nil
+				}
+			}
 		}
-		dacl, _, err := readAccess.DACL()
-		if err != nil {
-			return err
-		}
-		if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("service readiness: %w", ctx.Err())
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	access, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;CCLCRPWPLO;;;" + owner.String() + ")")
-	if err != nil {
-		return err
-	}
-	dacl, _, err := access.DACL()
-	if err != nil {
-		return err
-	}
-	if err := windows.SetSecurityInfo(service.Handle, windows.SE_SERVICE, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
-		return err
-	}
-	if err := service.SetRecoveryActions([]mgr.RecoveryAction{
-		{Type: mgr.ServiceRestart, Delay: 2 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 15 * time.Second},
-		{Type: mgr.NoAction},
-	}, 300); err != nil {
-		return err
-	}
-	if err := service.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
-		return err
-	}
-	if err := configureFirewall(target); err != nil {
-		return err
-	}
-	return service.Start()
 }
 
 const firewallRule = "Gopurr Core TUN"
@@ -467,7 +616,7 @@ func (h *windowsHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, 
 		return true, 1
 	}
 	serviceDir := filepath.Dir(binary)
-	file, err := os.OpenFile(filepath.Join(serviceDir, "core.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	file, err := rotatelog.Open(filepath.Join(serviceDir, "core.log"))
 	if err != nil {
 		return true, 1
 	}

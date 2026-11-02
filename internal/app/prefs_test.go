@@ -569,7 +569,11 @@ func fakeSettingsSystemProxy(t *testing.T, a *App, port int, cancelFirst bool) s
 // refuses the candidate while retaining the previously running config.
 func newSettingsTestApp(t *testing.T, reject func(string) bool) (*App, func() []string) {
 	t.Helper()
-	return newSettingsTestAppWithVersionDelay(t, reject, 0)
+	a, reloads := newSettingsTestAppWithVersionDelay(t, reject, 0)
+	if !a.k.Running() {
+		t.Fatal("fake controller did not start")
+	}
+	return a, reloads
 }
 
 // newSettingsTestAppWithVersionDelay answers GET /version only after delay,

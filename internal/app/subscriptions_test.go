@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"gopurr/internal/kernel"
 )
 
 func TestSubscriptionAddDialogRetainsErrorsAndClosesAfterSuccess(t *testing.T) {
@@ -80,6 +81,9 @@ func subscriptionTestApp(t *testing.T) *App {
 		t.Fatal(err)
 	}
 	startFakeCore(t, dir, string(secret))
+	if a.k.Health(time.Second) != kernel.HealthOK {
+		t.Fatal("fake controller did not start")
+	}
 	return a
 }
 

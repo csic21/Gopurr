@@ -13,7 +13,7 @@ func (a *App) saveLocalConfig() {
 		a.rawError = tr("配置验证失败: ") + err.Error()
 		return
 	}
-	running := a.k != nil && a.k.Running()
+	running := a.k != nil && a.k.RunningForChange()
 	if running && !a.startKernel() {
 		a.cfgText = previous
 		a.rawError = a.notice

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -45,6 +46,15 @@ func serveController(socket, backend, secret string, geo *geoUpdater, restart ..
 	}}
 	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "localhost"})
 	proxy.Transport = transport
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		// UI timeouts and closed streams are expected cancellations. Logging
+		// each one can saturate the service log during a reconnect storm.
+		if r.Context().Err() != nil {
+			return
+		}
+		log.Printf("controller %s %s: %v", r.Method, r.URL.Path, err)
+		http.Error(w, "Controller unavailable", http.StatusBadGateway)
+	}
 	proxy.FlushInterval = -1
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		if resp.Request.Method == http.MethodPut && strings.TrimSuffix(resp.Request.URL.Path, "/") == "/configs" && resp.StatusCode >= 200 && resp.StatusCode < 300 {

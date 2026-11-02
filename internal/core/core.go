@@ -25,12 +25,15 @@ import (
 
 // Sample is one second of kernel accounting.
 type Sample struct {
-	UpNow     int64
-	DownNow   int64
-	UpTotal   int64
-	DownTotal int64
-	Conns     int
-	Mem       uint64
+	TrafficAt        time.Time
+	TrafficStale     bool
+	ConnectionsStale bool
+	UpNow            int64
+	DownNow          int64
+	UpTotal          int64
+	DownTotal        int64
+	Conns            int
+	Mem              uint64
 }
 
 // Conn is one live connection, flattened for the UI.

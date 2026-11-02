@@ -164,7 +164,7 @@ func (a *App) commitOverrideLibrary(next patch.Overrides) (bool, error) {
 		}
 	}
 	previous := a.ov
-	running := a.k != nil && a.k.Running()
+	running := a.k != nil && a.k.RunningForChange()
 	var previousRaw []byte
 	if running {
 		var err error

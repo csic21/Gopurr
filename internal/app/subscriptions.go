@@ -27,7 +27,7 @@ func (a *App) subsPage(c *ui.Context) {
 	if len(items) == 0 {
 		a.showAddSub = false
 	}
-	running := a.k.Running()
+	running := a.k.RunningCached()
 	a.pageHeader(c, tr("订阅"), fmt.Sprintf(tr("%d 个配置 · 管理来源与更新"), len(items)), func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			if len(items) > 0 {

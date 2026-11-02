@@ -113,7 +113,7 @@ func manualGroup(g core.Group) bool { return strings.EqualFold(g.Type, "Selector
 
 func (a *App) proxiesPage(c *ui.Context) {
 	pal := paletteFor(c)
-	running := a.k.Running()
+	running := a.k.RunningCached()
 	var all []core.Group
 	if running {
 		all = a.k.Groups()

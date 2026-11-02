@@ -145,7 +145,7 @@ func (a *App) refreshDependentAggregates(id string) error {
 
 func (a *App) refreshManagedProfileOnly(id string) error {
 	active := a.store.ActiveID() == id
-	running := active && a.k != nil && a.k.Running()
+	running := active && a.k != nil && a.k.RunningForChange()
 	var previous []byte
 	var err error
 	if running {

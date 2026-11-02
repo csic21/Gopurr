@@ -48,8 +48,16 @@ func (k *Kernel) WatchLogs() {
 	k.watchOnce.Do(func() { k.r.Watch() })
 }
 
-func (k *Kernel) Running() bool {
-	return k.mgr.Running()
+// RunningCached is a nonblocking UI hint and schedules a background probe
+// when evidence has expired. It must not decide configuration transactions.
+func (k *Kernel) RunningCached() bool { return k.mgr.Running() }
+
+// Running confirms uncertain status for actions where skipping a live core
+// would lose a change. Never call it while painting a frame.
+func (k *Kernel) Running() bool { return k.RunningForChange() }
+
+func (k *Kernel) RunningForChange() bool {
+	return k.mgr.Running() || k.mgr.answersWithin(slowProbeTimeout)
 }
 
 // Health is the crash-recovery probe: it reports HealthBusy while a Start

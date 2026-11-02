@@ -198,7 +198,7 @@ func (a *App) restoreBackup(s *backup.Snapshot) error {
 	if err != nil {
 		return err
 	}
-	running := a.k != nil && a.k.Running()
+	running := a.k != nil && a.k.RunningForChange()
 	rollback := func(cause error) error {
 		a.store, a.cfgText, a.ov = oldStore, oldConfig, oldOverrides
 		diskErr := tx.Rollback()

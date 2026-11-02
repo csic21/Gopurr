@@ -47,7 +47,7 @@ func (a *App) commitProfileOverrides(id string, next patch.ProfileOverrides) (bo
 	if err != nil {
 		return false, fmt.Errorf(tr("订阅配置验证失败：%w"), err)
 	}
-	running := a.store.ActiveID() == id && a.k != nil && a.k.Running()
+	running := a.store.ActiveID() == id && a.k != nil && a.k.RunningForChange()
 	var previous []byte
 	if running {
 		previous, err = a.lastAcceptedConfig()

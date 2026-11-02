@@ -48,7 +48,7 @@ func (a *App) ReadTrayKernel() TrayKernel {
 	if a.k == nil || a.ShuttingDown() {
 		return TrayKernel{}
 	}
-	s := TrayKernel{Running: a.k.Running()}
+	s := TrayKernel{Running: a.k.RunningCached()}
 	if s.Running {
 		s.Mode, s.Groups = a.k.Mode(), a.k.Groups()
 	}

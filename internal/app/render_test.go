@@ -180,6 +180,12 @@ func TestRenderPages(t *testing.T) {
 		{"software-update-error", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Failed) }},
 		{"overview", func() { a.page = "overview" }},
 		{"overview-live", func() { a.page = "overview"; fixtureOverviewTraffic(a) }},
+		{"overview-stale", func() {
+			a.page = "overview"
+			fixtureOverviewTraffic(a)
+			a.last.TrafficAt = time.Now().Add(-time.Minute)
+			a.last.TrafficStale, a.last.ConnectionsStale = true, true
+		}},
 		{"overview-idle", func() {
 			a.page = "overview"
 			a.mu.Lock()

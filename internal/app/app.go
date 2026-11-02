@@ -460,7 +460,7 @@ func (a *App) StartBackground() {
 				a.tunWanted = true
 				a.setTunErr(tr("TUN 服务未就绪，请安装或修复服务后重新开启"))
 			}
-			if !a.k.Running() && os.Getenv("GOPURR_AUTOSTART") != "0" {
+			if !a.k.RunningCached() && os.Getenv("GOPURR_AUTOSTART") != "0" {
 				// Ensure/Reload can take tens of seconds on large profiles; keep
 				// the UI thread free and finish mode/proxy restore in the callback.
 				a.startKernelAsync(func(ok bool) {
@@ -493,7 +493,7 @@ func (a *App) StartBackground() {
 }
 
 func (a *App) StartupNeedsAttention() bool {
-	return a.initErr != "" || a.k == nil || !a.k.Running() || a.tunErrText() != "" || a.sysErrText() != "" || a.shortcutError != ""
+	return a.initErr != "" || a.k == nil || !a.k.RunningCached() || a.tunErrText() != "" || a.sysErrText() != "" || a.shortcutError != ""
 }
 
 func (a *App) sampleLoop() {
@@ -515,8 +515,13 @@ func (a *App) sampleLoop() {
 				readHeap()/1048576)
 		}
 		a.mu.Lock()
+		if s.TrafficStale || a.last.TrafficStale {
+			a.hist = nil // never draw a false live plateau or bridge a data gap
+		}
 		a.last = s
-		a.hist = append(a.hist, sample{up: s.UpNow, down: s.DownNow})
+		if !s.TrafficStale {
+			a.hist = append(a.hist, sample{up: s.UpNow, down: s.DownNow})
+		}
 		if len(a.hist) > bars {
 			a.hist = a.hist[len(a.hist)-bars:]
 		}
@@ -579,7 +584,7 @@ func (a *App) sidebar(c *ui.Context, progress float32, moving bool) {
 
 		ui.Column(c).FillWidth().Padding(16).Opacity(1 - progress).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 0, 0, 0).Gap(6).Children(func() {
-				running := a.k.Running()
+				running := a.k.RunningCached()
 				busy := a.kernelBusyState()
 				ui.Row(c).AlignItems(ui.Center).Gap(7).Children(func() {
 					dot := pal.Faint
@@ -877,7 +882,7 @@ func (a *App) Reload() { a.restart() }
 
 // UseMode switches routing mode from the tray menu.
 func (a *App) UseMode(token string) {
-	if a.k.Running() {
+	if a.k.RunningForChange() {
 		if err := a.k.SetMode(token); err != nil {
 			a.notice = tr("切换模式失败: ") + err.Error()
 			a.modePick = labelFor(a.modeToken)
@@ -897,7 +902,7 @@ func (a *App) toggle() {
 	if a.kernelBusyState() {
 		return
 	}
-	if a.k.Running() {
+	if a.k.RunningForChange() {
 		a.kernelStopped = true
 		// An explicit stop is the user's decision; do not bring a
 		// watchdog-suspended proxy back if they start the core later, even
@@ -952,7 +957,7 @@ func (a *App) toggle() {
 // finishKernelBoot applies mode and restore-proxy preferences once a kernel is
 // known to be running after launch.
 func (a *App) finishKernelBoot() {
-	if a.shutdownPending.Load() || a.k == nil || !a.k.Running() {
+	if a.shutdownPending.Load() || a.k == nil || !a.k.RunningCached() {
 		return
 	}
 	a.modeToken = a.k.Mode()
@@ -1115,6 +1120,9 @@ func (a *App) ensureMixedPortAvailable() bool {
 	}
 	if a.mgr != nil {
 		a.mgr.ReclaimStale()
+		if a.k.Running() {
+			return true
+		}
 	}
 	return waitPortFree(port, 2*time.Second)
 }
@@ -1489,7 +1497,7 @@ func (a *App) sysProxyHint() string {
 	if a.sysState.Enabled {
 		return tr("当前由其他代理设置管理")
 	}
-	if !a.k.Running() {
+	if !a.k.RunningCached() {
 		return tr("未启用 · 内核未运行")
 	}
 	return tr("未开启 · 可代理遵循系统设置的应用")
@@ -1517,7 +1525,7 @@ func delayColor(c *ui.Context, d uint16) ui.Color {
 }
 
 func (a *App) statusLine() string {
-	if a.k.Running() {
+	if a.k.RunningCached() {
 		return tr("内核运行中 · ") + a.modeLabel()
 	}
 	if e := a.k.LastError(); e != "" {

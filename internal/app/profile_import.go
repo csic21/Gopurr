@@ -12,7 +12,7 @@ import (
 // the same transaction, then rebuilds dependent aggregates without fetching
 // the source a second time. Callers hold beginProfileWork for this operation.
 func (a *App) importManagedProfile(importer func(func(profile.Profile, []byte) error) (profile.Profile, error)) (profile.Profile, error) {
-	running := a.k != nil && a.k.Running()
+	running := a.k != nil && a.k.RunningForChange()
 	var previous []byte
 	var err error
 	if running {

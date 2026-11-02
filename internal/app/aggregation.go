@@ -97,7 +97,7 @@ func (a *App) saveAggregation() {
 	}
 	defer a.endProfileWork()
 	active := a.aggregationID != "" && a.store.ActiveID() == a.aggregationID
-	running := active && a.k != nil && a.k.Running()
+	running := active && a.k != nil && a.k.RunningForChange()
 	var previous []byte
 	var err error
 	if running {

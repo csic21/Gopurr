@@ -409,7 +409,7 @@ func (a *App) commitExtensionOverrides(next patch.Overrides) (applied bool, err 
 		a.ov = previous
 		return false, fmt.Errorf(tr("配置验证失败：%w"), err)
 	}
-	running := a.k != nil && a.k.Running()
+	running := a.k != nil && a.k.RunningForChange()
 	if running && !a.startKernel() {
 		a.ov = previous
 		return false, fmt.Errorf(tr("内核未接受配置，未保存：%s"), a.notice)
