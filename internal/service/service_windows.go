@@ -165,28 +165,27 @@ func serviceBinary() (string, error) {
 }
 
 func stopWindowsService(s *mgr.Service) error {
-	state, err := s.Query()
-	if err != nil {
-		return err
-	}
-	if state.State == svc.Stopped {
-		return nil
-	}
-	if state.State != svc.StopPending {
-		if _, err := s.Control(svc.Stop); err != nil {
-			return err
-		}
-	}
-	deadline := time.Now().Add(20 * time.Second)
+	return waitWindowsServiceStopped(s.Query, func() error { _, err := s.Control(svc.Stop); return err }, 20*time.Second, 100*time.Millisecond)
+}
+
+func waitWindowsServiceStopped(query func() (svc.Status, error), stop func() error, timeout, poll time.Duration) error {
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		state, err = s.Query()
+		state, err := query()
 		if err != nil {
 			return err
 		}
 		if state.State == svc.Stopped {
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		// A controller can become ready before SCM receives the Running status.
+		// StartPending cannot accept STOP, even if the data path is already up.
+		if (state.State == svc.Running || state.State == svc.Paused) && state.Accepts&svc.AcceptStop != 0 {
+			if err := stop(); err != nil && !errors.Is(err, windows.ERROR_SERVICE_CANNOT_ACCEPT_CTRL) && !errors.Is(err, windows.ERROR_INVALID_SERVICE_CONTROL) && !errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
+				return err
+			}
+		}
+		time.Sleep(poll)
 	}
 	return errors.New(localize.Text("停止 TUN 服务超时"))
 }
