@@ -229,6 +229,10 @@ throw 'Wintun adapter Gopurr-CI was not created'
 		return err
 	}
 	fmt.Println("PASS: SCM recovery after forced kernel termination")
+	before, err = manager.Status()
+	if err != nil {
+		return err
+	}
 	if err := admin("install"); err != nil {
 		return fmt.Errorf("service upgrade: %w", err)
 	}
@@ -454,15 +458,10 @@ func testServiceRecovery(manager *kernel.Manager) error {
 	if err := process.Kill(); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		status, err := manager.Status()
-		if err == nil && status.PID != before.PID && manager.Running() {
-			return nil
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := waitServicePID(manager, before.PID); err != nil {
+		return fmt.Errorf("SCM did not restore the crashed kernel's data path: %w", err)
 	}
-	return errors.New("SCM did not restart the crashed kernel")
+	return nil
 }
 
 func testServiceLifecycle(manager *kernel.Manager) error {
