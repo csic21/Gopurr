@@ -11,6 +11,19 @@ type State struct {
 	Port      int
 	// RawServer preserves Windows' per-protocol proxy configuration on restore.
 	RawServer string `json:",omitempty"`
+	// WindowsOptions marks a complete WinINet snapshot, including disabled
+	// manual settings, PAC, auto-detection and bypass rules.
+	WindowsOptions bool   `json:",omitempty"`
+	Flags          uint32 `json:",omitempty"`
+	Bypass         string `json:",omitempty"`
+	PAC            string `json:",omitempty"`
+}
+
+func Recover(c Controller) error {
+	if r, ok := c.(interface{ Recover() error }); ok {
+		return r.Recover()
+	}
+	return nil
 }
 
 // Available reports whether this build can change the system proxy.

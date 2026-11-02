@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -150,18 +151,29 @@ func (a *App) overviewPage(c *ui.Context) {
 		}
 	}
 	a.overviewNodePicker(c, compact)
+	a.networkDetails(c)
 }
 
 func (a *App) overviewRoute(c *ui.Context, groups []core.Group, group core.Group, hasGroup, running bool) {
 	pal := paletteFor(c)
 	status, color := tr("系统代理未开启"), pal.Muted
 	switch {
+	case busyNetwork(a):
+		status, color = tr("正在应用网络设置"), pal.Muted
 	case !running:
 		status, color = tr("内核尚未就绪"), pal.Warn
 	case a.sysErrText() != "":
 		status, color = tr("系统代理需要处理"), pal.Danger
 	case a.healthResumePending():
 		status, color = tr("系统代理等待内核恢复"), pal.Warn
+	case a.proxyReadErr != "":
+		status, color = tr("网络接管状态未知"), pal.Warn
+	case (a.tunOn || a.sysApplied) && !a.networkFresh():
+		status, color = tr("正在确认网络接管状态"), pal.Warn
+	case a.tunOn && !a.networkRuntime.TunReady:
+		status, color = tr("TUN 接管需要处理"), pal.Danger
+	case a.sysApplied && (!a.networkRuntime.ProxyReady || a.networkRuntime.MixedPort != a.mixedPort()):
+		status, color = tr("本地代理需要处理"), pal.Danger
 	case a.tunOn && a.sysApplied:
 		status, color = tr("系统代理与 TUN 已开启"), pal.Success
 	case a.tunOn:
@@ -261,10 +273,11 @@ func (a *App) overviewNetworkControls(c *ui.Context) {
 		proxyColor = pal.Danger
 	}
 	overviewControlRow(c, tr("系统代理"), a.sysProxyHint(), proxyColor, func() {
+		softButton(c, tr("详情")).Label(tr("系统代理详情")).OnClick(func() { a.showNetworkDetails = true; a.refreshNetworkState() })
 		if a.healthResumePending() {
-			softSwitch(c, &a.sysResumeSwitch).Label(tr("系统代理开关"))
+			softSwitch(c, &a.sysResumeSwitch).Disabled(busyNetwork(a)).Label(tr("系统代理开关"))
 		} else {
-			softSwitch(c, &a.sysOn).Label(tr("系统代理开关"))
+			softSwitch(c, &a.sysOn).Disabled(busyNetwork(a)).Label(tr("系统代理开关"))
 		}
 	})
 	hairline(c)
@@ -272,11 +285,11 @@ func (a *App) overviewNetworkControls(c *ui.Context) {
 	root := a.k.IsRoot()
 	if a.tunWanted && root {
 		a.tunWanted = false
-		a.applyTun(true)
+		a.requestTun(true)
 		root = a.k.IsRoot()
 	}
 	tunColor := pal.Muted
-	if svcErr != "" || a.tunErrText() != "" {
+	if svcErr != "" || a.tunErrText() != "" || (a.ov.TunEnable && a.networkFresh() && !a.networkRuntime.TunReady) {
 		tunColor = pal.Danger
 	}
 	overviewControlRow(c, tr("TUN 模式"), a.tunHint(), tunColor, func() {
@@ -287,13 +300,21 @@ func (a *App) overviewNetworkControls(c *ui.Context) {
 		case !installed:
 			softButton(c, tr("安装服务…")).OnClick(func() { a.confirmInstall = true })
 		case !root || a.mgr.ServiceNeedsUpdate():
-			softButton(c, tr("重新安装…")).OnClick(func() { a.confirmInstall = true })
+			if runtime.GOOS == "windows" && !a.mgr.ServiceNeedsUpdate() {
+				softButton(c, tr("重启服务")).OnClick(a.restartService)
+			} else {
+				softButton(c, tr("重新安装…")).OnClick(func() { a.confirmInstall = true })
+			}
 		default:
-			softButton(c, tr("卸载服务")).OnClick(func() { a.confirmUninstall = true })
+			if runtime.GOOS == "windows" {
+				softButton(c, tr("重启服务")).OnClick(a.restartService)
+			} else {
+				softButton(c, tr("卸载服务")).OnClick(func() { a.confirmUninstall = true })
+			}
 		}
-		softSwitch(c, &a.tunOn).Disabled(!root || busy).Label(tr("TUN 模式"))
+		softSwitch(c, &a.tunOn).Disabled((!root && !a.tunOn) || busy || a.kernelBusyState()).Label(tr("TUN 模式"))
 		if a.tunOn != a.ov.TunEnable {
-			a.applyTun(a.tunOn)
+			a.requestTun(a.tunOn)
 		}
 	})
 	hairline(c)

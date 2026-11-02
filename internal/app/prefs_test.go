@@ -599,7 +599,13 @@ func newSettingsTestAppWithVersionDelay(t *testing.T, reject func(string) bool, 
 	}
 	var mu sync.Mutex
 	var payloads []string
+	active := string(raw)
 	mux := http.NewServeMux()
+	mux.HandleFunc("/gopurr/runtime", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(fixtureRuntime(active))
+	})
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		if delay > 0 {
 			time.Sleep(delay)
@@ -621,6 +627,9 @@ func newSettingsTestAppWithVersionDelay(t *testing.T, reject func(string) bool, 
 			http.Error(w, "test rejection", http.StatusBadRequest)
 			return
 		}
+		mu.Lock()
+		active = request.Payload
+		mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
 	srv := &http.Server{Handler: mux}

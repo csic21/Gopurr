@@ -4,6 +4,7 @@ package patch
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/metacubex/mihomo/common/utils"
 	"gopurr/internal/configyaml"
@@ -179,9 +180,7 @@ func ApplyLayers(raw []byte, ov Overrides, local ProfileOverrides) ([]byte, erro
 		}
 		tun["auto-detect-interface"] = true
 		tun["auto-route"] = ov.TunAutoRout
-		if _, ok := tun["dns-hijack"]; !ok {
-			tun["dns-hijack"] = []any{"any:53"}
-		}
+		defaultTunOptions(tun, runtime.GOOS)
 	}
 	doc["tun"] = tun
 	if err := applyMeshRoutes(doc, ov); err != nil {
@@ -214,6 +213,20 @@ func ApplyLayers(raw []byte, ov Overrides, local ProfileOverrides) ([]byte, erro
 		return nil, fmt.Errorf(localize.Text("生成运行配置失败: %w"), err)
 	}
 	return out, nil
+}
+
+func defaultTunOptions(tun map[string]any, platform string) {
+	if _, ok := tun["dns-hijack"]; !ok {
+		tun["dns-hijack"] = []any{"any:53", "tcp://any:53"}
+	}
+	if platform == "windows" {
+		if _, ok := tun["strict-route"]; !ok {
+			tun["strict-route"] = true
+		}
+		if _, ok := tun["device"]; !ok {
+			tun["device"] = "Gopurr"
+		}
+	}
 }
 
 // MixedPort reads the mixed port a config would listen on, for the system

@@ -192,6 +192,9 @@ func TestExtensionRunningSaveTransaction(t *testing.T) {
 				switch {
 				case r.URL.Path == "/version":
 					_, _ = w.Write([]byte(`{"version":"test","meta":true}`))
+				case r.URL.Path == "/gopurr/runtime":
+					raw, _ := os.ReadFile(mgr.ConfigPath())
+					_ = json.NewEncoder(w).Encode(fixtureRuntime(string(raw)))
 				case r.URL.Path == "/configs" && r.Method == http.MethodPut:
 					body, readErr := os.ReadFile(mgr.ConfigPath())
 					if readErr != nil {

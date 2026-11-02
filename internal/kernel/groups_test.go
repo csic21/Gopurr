@@ -42,6 +42,8 @@ func TestKernelGroupsFollowRuntimeConfig(t *testing.T) {
 			_, _ = w.Write([]byte(`{"version":"test"}`))
 		case "/configs":
 			w.WriteHeader(http.StatusNoContent)
+		case "/gopurr/runtime":
+			_, _ = w.Write([]byte(`{}`))
 		case "/proxies":
 			// An explicitly configured GLOBAL can have a different member order.
 			_, _ = w.Write([]byte(`{"proxies":{

@@ -124,7 +124,7 @@ rules: ["MATCH,DIRECT"]
 	t.Run("reject_missing_wrong_and_subscription_secrets", func(t *testing.T) {
 		for _, secret := range []string{"", "wrong", "subscription-secret"} {
 			for _, operation := range []struct{ method, path, body string }{
-				{"GET", "/version", ""}, {"GET", "/configs", ""}, {"GET", "/logs", ""}, {"GET", "/debug/pprof/", ""},
+				{"GET", "/version", ""}, {"GET", "/configs", ""}, {"GET", "/gopurr/runtime", ""}, {"GET", "/logs", ""}, {"GET", "/debug/pprof/", ""},
 				{"PATCH", "/configs", `{"mode":"direct"}`}, {"PUT", "/configs", `{"payload":"mode: direct"}`},
 				{"DELETE", "/connections", ""}, {"POST", "/upgrade", ""},
 			} {
@@ -142,6 +142,11 @@ rules: ["MATCH,DIRECT"]
 		}
 	})
 	t.Run("authorized_control_and_reload", func(t *testing.T) {
+		code, data := request("GET", "/gopurr/runtime", opts.Secret, "")
+		var status core.RuntimeStatus
+		if code != 200 || json.Unmarshal(data, &status) != nil || status.ProxyReady || status.TunReady {
+			t.Fatalf("disabled traffic paths reported ready: %d %s", code, data)
+		}
 		if code, data := request("PATCH", "/configs", opts.Secret, `{"mode":"direct"}`); code != 204 {
 			t.Fatalf("patch: %d %s", code, data)
 		}
@@ -165,6 +170,28 @@ rules: ["MATCH,DIRECT"]
 			if code, _ := request("POST", path, opts.Secret, ""); code != 403 {
 				t.Errorf("exposed privileged route %s: %d", path, code)
 			}
+		}
+	})
+	t.Run("UDP_bind_failure_is_not_reported_as_ready", func(t *testing.T) {
+		udp, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer udp.Close()
+		port := udp.LocalAddr().(*net.UDPAddr).Port
+		payload := fmt.Sprintf("mixed-port: %d\nrules: [\"MATCH,DIRECT\"]\n", port)
+		body, _ := json.Marshal(map[string]string{"payload": payload})
+		if code, data := request("PUT", "/configs?force=true", opts.Secret, string(body)); code != 204 {
+			t.Fatalf("reload: %d %s", code, data)
+		}
+		code, data := request("GET", "/gopurr/runtime", opts.Secret, "")
+		var status core.RuntimeStatus
+		if code != 200 || json.Unmarshal(data, &status) != nil || status.ProxyReady {
+			t.Fatalf("closed mixed listener reported ready: %d %s", code, data)
+		}
+		body, _ = json.Marshal(map[string]string{"payload": raw})
+		if code, data := request("PUT", "/configs?force=true", opts.Secret, string(body)); code != 204 {
+			t.Fatalf("restore: %d %s", code, data)
 		}
 	})
 	t.Run("streaming_works", func(t *testing.T) {

@@ -1,6 +1,8 @@
 # 发布流程
 
-支持 macOS `darwin/arm64` 与 Windows `windows/amd64`。所有正式构建都启用 `with_gvisor`，以支持默认的 mixed 和可选的 gvisor TUN 协议栈；不要用缺少该标签的裸 `go build` 作为发布包。在 `main` 推送和 PR 时，CI 在两个系统运行全部测试、编译程序并保存界面截图。Windows 还在临时 runner 上验证真实 SCM 服务安装、Wintun 网卡创建、HTTP 代理、配置重载、服务升级和卸载，不修改系统代理或默认路由。
+支持 macOS `darwin/arm64` 与 Windows `windows/amd64`。所有正式构建都启用 `with_gvisor`，以支持默认的 mixed 和可选的 gvisor TUN 协议栈；不要用缺少该标签的裸 `go build` 作为发布包。在 `main` 推送和 PR 时，CI 在两个系统运行全部测试、编译程序并保存界面截图。Windows 还在一次性 runner 上验证真实 SCM 服务安装与崩溃重启、Wintun 网卡、系统代理请求与应用崩溃恢复、TUN 自动路由与 DNS、配置重载、服务升级和卸载。系统代理完整还原；TUN 自动路由仅接管保留的测试目的地址，不改变默认路由。不要在日常使用的 Windows 主机上运行该系统级冒烟命令。
+
+当前控制接口版本为 2，新增经过认证的 `/gopurr/runtime` 实际状态接口。此前安装的 TUN 服务需要在概览重新安装一次；安装也会配置新的服务恢复策略、所属用户启停权限和内核专用防火墙规则。
 
 ## 发布一个版本
 

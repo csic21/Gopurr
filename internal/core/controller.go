@@ -52,6 +52,13 @@ func serveController(socket, backend, secret string, geo *geoUpdater) (*http.Ser
 			return
 		}
 		path := strings.TrimSuffix(r.URL.Path, "/")
+		if r.Method == http.MethodGet && path == "/gopurr/runtime" {
+			geo.mu.Lock()
+			defer geo.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(runtimeStatus(r.Context()))
+			return
+		}
 		allowed := false
 		switch r.Method {
 		case http.MethodGet:
@@ -65,12 +72,14 @@ func serveController(socket, backend, secret string, geo *geoUpdater) (*http.Ser
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
-		if r.Method == http.MethodPut && path == "/configs" {
+		if (r.Method == http.MethodPut || r.Method == http.MethodPatch) && path == "/configs" {
 			geo.mu.Lock()
 			defer geo.mu.Unlock()
-			if err := sanitizeReload(r); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
+			if r.Method == http.MethodPut {
+				if err := sanitizeReload(r); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
 			}
 		}
 		proxy.ServeHTTP(w, r)

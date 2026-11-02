@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo"
@@ -40,10 +41,12 @@ func TestTraySwitchesWithoutWindow(t *testing.T) {
 	}
 	tun := findTrayItem(t, items, "tun")
 	clickTrayItem(t, tun)
+	waitNetworkIdle(t, a)
 	if !a.ov.TunEnable || !a.tunOn || !tun.IsChecked() {
 		t.Fatal("tray did not enable TUN")
 	}
 	clickTrayItem(t, tun)
+	waitNetworkIdle(t, a)
 	if a.ov.TunEnable || a.tunOn || tun.IsChecked() {
 		t.Fatal("tray did not disable TUN")
 	}
@@ -91,6 +94,7 @@ func TestTrayFailuresRestoreChecksAndShowErrors(t *testing.T) {
 	items := a.trayItems(true, a.k.Groups(), openWindow)
 	tun := findTrayItem(t, items, "tun")
 	clickTrayItem(t, tun)
+	waitNetworkIdle(t, a)
 	if tun.IsChecked() || a.tunOn || a.ov.TunEnable || a.tunErrText() == "" || opened != 1 {
 		t.Fatal("rejected TUN reload did not restore state and show its error")
 	}
@@ -103,6 +107,17 @@ func TestTrayFailuresRestoreChecksAndShowErrors(t *testing.T) {
 	clickTrayItem(t, group.Submenu[1])
 	if group.Submenu[1].IsChecked() || !group.Submenu[0].IsChecked() || a.page != "proxies" || !strings.Contains(a.notice, "切换节点失败") {
 		t.Fatal("rejected node selection did not restore the original selection")
+	}
+}
+
+func waitNetworkIdle(t *testing.T, a *App) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for a.kernelHealthBusy() {
+		if time.Now().After(deadline) {
+			t.Fatal("network operation timed out")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -273,6 +288,15 @@ func newTrayTestApp(t *testing.T) (*App, *trayTestController) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, `{"version":"test"}`)
+	})
+	mux.HandleFunc("/gopurr/runtime", func(w http.ResponseWriter, r *http.Request) {
+		controller.mu.Lock()
+		defer controller.mu.Unlock()
+		raw := "mixed-port: 7890\n"
+		if len(controller.reloads) > 0 {
+			raw = controller.reloads[len(controller.reloads)-1]
+		}
+		_ = json.NewEncoder(w).Encode(fixtureRuntime(raw))
 	})
 	mux.HandleFunc("/configs", func(w http.ResponseWriter, r *http.Request) {
 		controller.mu.Lock()

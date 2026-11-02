@@ -4,45 +4,77 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
-
 	"gopurr/internal/localize"
 )
 
 const supported = true
-const internetSettings = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 
-var internetSetOption = windows.NewLazySystemDLL("wininet.dll").NewProc("InternetSetOptionW")
+var wininet = windows.NewLazySystemDLL("wininet.dll")
+var internetSetOption = wininet.NewProc("InternetSetOptionW")
+var internetQueryOption = wininet.NewProc("InternetQueryOptionW")
+var globalFree = windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalFree")
+
+// INTERNET_PER_CONN_OPTIONW contains a union whose largest member is FILETIME.
+type internetOption struct {
+	Option uint32
+	Value  uint64
+}
+
+type internetOptionList struct {
+	Size       uint32
+	Connection *uint16 // nil selects the current user's LAN settings
+	Count      uint32
+	Error      uint32
+	Options    *internetOption
+}
 
 func SetTimeout(time.Duration) {}
 func Service() (string, error) { return localize.Text("当前用户"), nil }
 
 func Current() (State, error) {
-	st := State{Supported: true, Service: localize.Text("当前用户")}
-	key, err := registry.OpenKey(registry.CURRENT_USER, internetSettings, registry.QUERY_VALUE)
-	if errors.Is(err, registry.ErrNotExist) {
-		return st, nil
-	}
+	state, err := queryWindowsOptions(10) // INTERNET_PER_CONN_FLAGS_UI
 	if err != nil {
-		return st, err
+		state, err = queryWindowsOptions(1) // legacy INTERNET_PER_CONN_FLAGS
 	}
-	defer key.Close()
-	enabled, _, err := key.GetIntegerValue("ProxyEnable")
-	if err != nil && !errors.Is(err, registry.ErrNotExist) {
-		return st, err
+	return state, err
+}
+
+func queryWindowsOptions(flagsOption uint32) (State, error) {
+	options := []internetOption{{Option: flagsOption}, {Option: 2}, {Option: 3}, {Option: 4}}
+	list := internetOptionList{Count: uint32(len(options)), Options: &options[0]}
+	list.Size = uint32(unsafe.Sizeof(list))
+	size := list.Size
+	ok, _, callErr := internetQueryOption.Call(0, 75, uintptr(unsafe.Pointer(&list)), uintptr(unsafe.Pointer(&size)))
+	defer func() {
+		for _, option := range options[1:] {
+			if option.Value != 0 {
+				_, _, _ = globalFree.Call(uintptr(option.Value))
+			}
+		}
+	}()
+	if ok == 0 {
+		return State{}, fmt.Errorf(localize.Text("读取 Windows 系统代理失败: %v"), callErr)
 	}
-	st.Enabled = enabled != 0
-	st.RawServer, _, err = key.GetStringValue("ProxyServer")
-	if err != nil && !errors.Is(err, registry.ErrNotExist) {
-		return st, err
+	state := State{Supported: true, Service: localize.Text("当前用户"), WindowsOptions: true,
+		Flags: uint32(options[0].Value), RawServer: optionString(options[1]), Bypass: optionString(options[2]), PAC: optionString(options[3])}
+	state.Enabled = state.Flags&proxyTypeProxy != 0
+	state.Server, state.Port = parseWindowsProxy(state.RawServer)
+	return state, nil
+}
+
+//go:nocheckptr
+func optionString(option internetOption) string {
+	if option.Value == 0 {
+		return ""
 	}
-	st.Server, st.Port = parseWindowsProxy(st.RawServer)
-	return st, nil
+	return windows.UTF16PtrToString((*uint16)(unsafe.Pointer(uintptr(option.Value))))
 }
 
 func parseWindowsProxy(raw string) (string, int) {
@@ -71,63 +103,73 @@ func Apply(server string, port int) error {
 	if strings.TrimSpace(server) == "" || strings.ContainsAny(server, "\x00;=\r\n") || port < 1 || port > 65535 {
 		return errors.New(localize.Text("系统代理地址或端口无效"))
 	}
-	return writeWindowsProxy(net.JoinHostPort(server, strconv.Itoa(port)), true)
+	return writeWindowsOptions(windowsManualProxy(server, port))
 }
 
-func Restore(st State) error {
-	if st.RawServer != "" {
-		return writeWindowsProxy(st.RawServer, st.Enabled)
+func Restore(state State) error {
+	if !state.WindowsOptions {
+		current, err := Current()
+		if err != nil {
+			return err
+		}
+		current.RawServer = state.RawServer
+		if current.RawServer == "" && state.Server != "" && state.Port > 0 {
+			current.RawServer = net.JoinHostPort(state.Server, strconv.Itoa(state.Port))
+		}
+		current.Flags &^= proxyTypeProxy
+		if state.Enabled {
+			current.Flags |= proxyTypeProxy
+		}
+		state = current
 	}
-	return Apply(st.Server, st.Port)
+	return writeWindowsOptions(state)
 }
 
-func Disable() error { return writeWindowsProxy("", false) }
-
-// PAC and bypass preferences keep their values. Raw per-protocol proxy values
-// are preserved in State and restored exactly after Gopurr gives up ownership.
-func writeWindowsProxy(server string, enabled bool) error {
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, internetSettings, registry.QUERY_VALUE|registry.SET_VALUE)
+func Disable() error {
+	state, err := Current()
 	if err != nil {
 		return err
 	}
-	defer key.Close()
-	oldServer, _, oldServerErr := key.GetStringValue("ProxyServer")
-	oldEnable, _, oldEnableErr := key.GetIntegerValue("ProxyEnable")
-	rollback := func() {
-		if oldServerErr == nil {
-			_ = key.SetStringValue("ProxyServer", oldServer)
-		} else {
-			_ = key.DeleteValue("ProxyServer")
-		}
-		if oldEnableErr == nil {
-			_ = key.SetDWordValue("ProxyEnable", uint32(oldEnable))
-		} else {
-			_ = key.DeleteValue("ProxyEnable")
-		}
-		_ = notifyWindowsProxy()
-	}
-	if server != "" {
-		if err := key.SetStringValue("ProxyServer", server); err != nil {
-			return err
-		}
-	}
-	var value uint32
-	if enabled {
-		value = 1
-	}
-	if err := key.SetDWordValue("ProxyEnable", value); err != nil {
-		rollback()
+	state.Flags &^= proxyTypeProxy
+	state.Flags |= proxyTypeDirect
+	return writeWindowsOptions(state)
+}
+
+func writeWindowsOptions(state State) error {
+	before, err := Current()
+	if err != nil {
 		return err
 	}
-	if err := notifyWindowsProxy(); err != nil {
-		rollback()
-		return err
+	if err := setWindowsOptions(state); err != nil {
+		return errors.Join(err, setWindowsOptions(before))
 	}
 	return nil
 }
 
+func setWindowsOptions(state State) error {
+	stringsUTF16 := make([]*uint16, 3)
+	for index, value := range []string{state.RawServer, state.Bypass, state.PAC} {
+		p, err := windows.UTF16PtrFromString(value)
+		if err != nil {
+			return err
+		}
+		stringsUTF16[index] = p
+	}
+	options := []internetOption{{Option: 1, Value: uint64(state.Flags)},
+		{Option: 2, Value: uint64(uintptr(unsafe.Pointer(stringsUTF16[0])))},
+		{Option: 3, Value: uint64(uintptr(unsafe.Pointer(stringsUTF16[1])))},
+		{Option: 4, Value: uint64(uintptr(unsafe.Pointer(stringsUTF16[2])))}}
+	list := internetOptionList{Count: uint32(len(options)), Options: &options[0]}
+	list.Size = uint32(unsafe.Sizeof(list))
+	ok, _, callErr := internetSetOption.Call(0, 75, uintptr(unsafe.Pointer(&list)), uintptr(list.Size))
+	runtime.KeepAlive(stringsUTF16)
+	if ok == 0 {
+		return fmt.Errorf(localize.Text("设置 Windows 系统代理失败: %v"), callErr)
+	}
+	return notifyWindowsProxy()
+}
+
 func notifyWindowsProxy() error {
-	// INTERNET_OPTION_SETTINGS_CHANGED and INTERNET_OPTION_REFRESH.
 	for _, option := range []uintptr{39, 37} {
 		if ok, _, err := internetSetOption.Call(0, option, 0, 0); ok == 0 {
 			return fmt.Errorf(localize.Text("通知 Windows 系统代理失败: %v"), err)

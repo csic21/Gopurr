@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"time"
 
+	"gopurr/internal/core"
 	"gopurr/internal/kernel"
 	"gopurr/internal/sysproxy"
 )
@@ -23,8 +25,9 @@ import (
 //   - ignores probes while a start/reload/service/proxy operation is in
 //     flight, and during subscription/profile work honours only a real exit;
 //   - suspends the proxy without touching prefs, remembers that it did, and
-//     re-enables it as soon as the core answers again, without ever starting
-//     (and so possibly reaping) the core itself;
+//     re-enables it as soon as the core's local data path answers again;
+//   - bounds retries for confirmed exits or local data-path failures, while
+//     leaving a merely unresponsive process alone;
 //   - lets the user cancel that pending resume from any proxy control.
 const (
 	kernelHealthInterval = 2 * time.Second
@@ -90,7 +93,7 @@ func (a *App) kernelHealthBusyState() (hard, profile bool) {
 	}
 	a.bmu.Lock()
 	defer a.bmu.Unlock()
-	return a.kernelBusy || a.svcBusy || a.sysBusy, a.subBusy
+	return a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging, a.subBusy
 }
 
 // kernelHealthBusy reports any operation during which a failed probe is
@@ -113,21 +116,62 @@ func (a *App) kernelHealthLoop() {
 	t := time.NewTicker(kernelHealthInterval)
 	defer t.Stop()
 	var w kernelHealthWatch
+	var tunWatch kernelHealthWatch
 	for range t.C {
+		if a.shutdownPending.Load() {
+			continue
+		}
+		generation := a.networkGeneration.Load()
 		hard, profile := a.kernelHealthBusyState()
 		h := kernel.HealthBusy
+		var status core.RuntimeStatus
+		var statusErr error = context.DeadlineExceeded
+		var proxy sysproxy.State
+		var proxyErr error
 		if !hard {
 			h = healthDuringWork(a.k.Health(kernelProbeTimeout), profile)
-		}
-		switch w.observe(h, hard, time.Now()) {
-		case kernelHealthSuspend:
-			exited := h == kernel.HealthExited
-			runOnMain(func() { a.suspendProxyForKernelFailure(exited) })
-		case kernelHealthResume:
-			if a.proxySuspendedByHealth.Load() {
-				runOnMain(a.resumeProxyAfterKernelRecovery)
+			if h == kernel.HealthOK {
+				ctx, cancel := context.WithTimeout(context.Background(), kernelProbeTimeout)
+				status, statusErr = a.k.Runtime(ctx)
+				cancel()
+				if statusErr != nil || !status.ProxyReady {
+					h = kernel.HealthUnresponsive
+				}
 			}
+			proxy, proxyErr = sysproxy.Current()
 		}
+		runOnMain(func() {
+			if generation != a.networkGeneration.Load() || hard {
+				w.reset()
+				tunWatch.reset()
+				return
+			}
+			if h == kernel.HealthOK && status.MixedPort != a.mixedPort() {
+				h = kernel.HealthUnresponsive
+			}
+			action := w.observe(h, false, time.Now())
+			observedErr := statusErr
+			if h != kernel.HealthOK && observedErr == nil && !status.ProxyReady {
+				observedErr = context.DeadlineExceeded
+			}
+			a.acceptNetworkObservation(status, observedErr, proxy, proxyErr)
+			switch action {
+			case kernelHealthSuspend:
+				a.suspendProxyForKernelFailure(h == kernel.HealthExited)
+				a.recoverFailedKernel(h == kernel.HealthExited, statusErr == nil && (!status.ProxyReady || status.MixedPort != a.mixedPort()))
+			case kernelHealthResume:
+				if a.proxySuspendedByHealth.Load() {
+					a.resumeProxyAfterKernelRecovery()
+				}
+			}
+			tunHealth := kernel.HealthOK
+			if a.ov.TunEnable && statusErr == nil && (!status.TunReady || !status.DNSReady || (a.ov.TunAutoRout && !status.AutoRoute)) {
+				tunHealth = kernel.HealthUnresponsive
+			}
+			if tunWatch.observe(tunHealth, a.kernelHealthBusy(), time.Now()) == kernelHealthSuspend {
+				a.recoverFailedKernel(false, true)
+			}
+		})
 	}
 }
 
@@ -142,6 +186,7 @@ func (a *App) suspendProxyForKernelFailure(exited bool) {
 	err := a.restoreProxy()
 	if st, serr := sysproxy.Current(); serr == nil {
 		a.sysState = st
+		a.healthProxyBaseline, a.healthBaselineValid = st, true
 	}
 	if err != nil {
 		a.sysOn = a.sysApplied
@@ -158,7 +203,7 @@ func (a *App) suspendProxyForKernelFailure(exited bool) {
 	// generic banner; the overview and tray still show the pending resume.
 	if !a.isKernelFailureNotice(a.notice) {
 		if exited {
-			// Nothing restarts a core this app spawned: the user has to.
+			// Recovery is bounded; a manual restart remains available.
 			a.notice = tr("内核已退出，已临时恢复系统代理；重新启动内核后将自动重新开启")
 		} else {
 			// A system service may still come back on its own.
@@ -180,6 +225,14 @@ func (a *App) resumeProxyAfterKernelRecovery() {
 	if hard, _ := a.kernelHealthBusyState(); hard {
 		return
 	}
+	if current, err := sysproxy.Current(); err == nil && a.healthBaselineValid &&
+		!sameProxySettings(current, a.healthProxyBaseline) && !ownsProxy(current, a.mixedPort()) {
+		a.proxySuspendedByHealth.Store(false)
+		a.sysState, a.sysApplied, a.sysOn, a.proxyChanged = current, false, false, true
+		a.notice = tr("系统代理设置已变化，已取消自动恢复")
+		a.invalidate()
+		return
+	}
 	a.proxySuspendedByHealth.Store(false)
 	suspendedNotice := a.isKernelSuspendNotice(a.notice)
 	if a.sysApplied || !systemProxyAvailable() {
@@ -195,6 +248,11 @@ func (a *App) resumeProxyAfterKernelRecovery() {
 		a.notice = ""
 	}
 	a.invalidate()
+}
+
+func sameProxySettings(a, b sysproxy.State) bool {
+	return a.Enabled == b.Enabled && a.Server == b.Server && a.Port == b.Port && a.RawServer == b.RawServer &&
+		a.WindowsOptions == b.WindowsOptions && a.Flags == b.Flags && a.Bypass == b.Bypass && a.PAC == b.PAC
 }
 
 // cancelHealthResume drops a pending watchdog resume because the user turned

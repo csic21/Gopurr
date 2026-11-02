@@ -12,6 +12,36 @@ import (
 	"gopurr/internal/update"
 )
 
+func TestShutdownWaitsForNetworkCommitBeforeTakingSnapshot(t *testing.T) {
+	restored := make(chan struct{}, 1)
+	a := &App{proxy: proxyControllerFixture{restore: func(int, *sysproxy.State) error { restored <- struct{}{}; return nil }}}
+	a.tunChanging = true
+	done := make(chan error, 1)
+	a.beginShutdown(func(fn func()) { fn() }, func(err error) { done <- err })
+	select {
+	case <-done:
+		t.Fatal("shutdown finished before network commit")
+	case <-time.After(30 * time.Millisecond):
+	}
+	a.sysApplied = true
+	a.bmu.Lock()
+	a.tunChanging = false
+	a.bmu.Unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not resume")
+	}
+	select {
+	case <-restored:
+	default:
+		t.Fatal("shutdown used the proxy state from before the commit")
+	}
+}
+
 func TestUpdateRestartStaysResponsiveAndRetriesCleanup(t *testing.T) {
 	a, _ := newSettingsTestApp(t, nil)
 	a.booted, a.ticking = true, true

@@ -24,6 +24,7 @@ import (
 	"gopurr/internal/mesh"
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
+	"gopurr/internal/sysproxy"
 	"gopurr/internal/update"
 )
 
@@ -199,6 +200,26 @@ func TestRenderPages(t *testing.T) {
 			a.page = "overview"
 			a.sysApplied, a.sysOn = true, true
 			a.setSysErr(text("恢复系统代理失败，应用保持运行。请重新开启系统代理后重试。"))
+		}},
+		{"overview-network-details", func() {
+			a.page, a.showNetworkDetails = "overview", true
+			a.sysApplied, a.sysOn = true, true
+			a.sysState = sysproxy.State{Supported: true, Enabled: true, Server: "127.0.0.1", Port: 7890, Service: "Ethernet"}
+		}},
+		{"overview-network-error", func() {
+			a.page, a.showNetworkDetails = "overview", true
+			a.networkRuntime.ProxyReady = false
+			a.setSysErr("本地代理握手失败：连接被拒绝，请检查端口 127.0.0.1:7890 是否由内核监听。其他代理软件、VPN 或系统策略可能已经修改了设置。")
+			a.setTunErr("TUN 网卡未就绪，已恢复上一份运行配置。请检查系统服务与防火墙，然后重试。")
+		}},
+		{"overview-tun-ready", func() {
+			a.page, a.svcInstalled, a.tunOn, a.ov.TunEnable = "overview", true, true, true
+			a.sysState = sysproxy.State{Supported: true}
+			status, _ := json.Marshal(core.DaemonStatus{UID: 0, PID: os.Getpid(), ControllerVersion: core.ControllerVersion, SecurityVersion: core.SecurityVersion})
+			if err := os.WriteFile(filepath.Join(a.dir, "core.json"), status, 0600); err != nil {
+				t.Fatal(err)
+			}
+			a.networkRuntime = core.RuntimeStatus{MixedPort: 7890, ProxyReady: true, TunEnabled: true, TunReady: true, DNSReady: true, AutoRoute: true, TunDevice: "Gopurr", TunStack: "mixed"}
 		}},
 		{"subs", func() { a.page = "subs" }},
 		{"subs-empty", func() { a.page, a.store.Items, a.store.Active = "subs", nil, "" }},
@@ -631,6 +652,12 @@ func TestRenderPages(t *testing.T) {
 						a.applicationRulesState = applicationRulesState{}
 						a.meshState = meshState{meshClient: &meshFixture{}}
 						a.tunOn, a.ov.TunEnable, a.ov.TunAutoRout = false, false, true
+						_ = os.Remove(filepath.Join(a.dir, "core.json"))
+						a.networkRuntime, a.networkChecked = fixtureRuntime("mixed-port: 7890\n"), time.Now()
+						a.networkErr, a.proxyChanged, a.showNetworkDetails = "", false, false
+						a.proxyReadErr = ""
+						a.setTunErr("")
+						a.svcErr = ""
 						a.ov.AppRules, a.ov.Mode = nil, "rule"
 						a.ruleQuery, a.ruleAdapter = "", allAdapters
 						a.generalSettingsError, a.mergeYAMLError = "", ""
@@ -869,11 +896,18 @@ func TestRenderPages(t *testing.T) {
 						}
 						// English frames are clipped and colour-checked above, but not
 						// stored. The committed review set is the Chinese matrix.
+						destination := outDir
 						if strings.HasPrefix(page, "en-") {
-							continue
+							destination = os.Getenv("GOPURR_RENDER_ENGLISH_DIR")
+							if destination == "" {
+								continue
+							}
+							if err := os.MkdirAll(destination, 0700); err != nil {
+								t.Fatal(err)
+							}
 						}
 
-						f, err := os.Create(filepath.Join(outDir, "render-"+page+".png"))
+						f, err := os.Create(filepath.Join(destination, "render-"+page+".png"))
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -1059,7 +1093,25 @@ func startFakeCore(t *testing.T, dir, secret string) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	activeRuntime := "mixed-port: 7890\n"
+	mux.HandleFunc("/gopurr/runtime", func(w http.ResponseWriter, r *http.Request) {
+		selectionMu.Lock()
+		defer selectionMu.Unlock()
+		_ = json.NewEncoder(w).Encode(fixtureRuntime(activeRuntime))
+	})
 	mux.HandleFunc("/configs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			var request struct{ Payload string }
+			if json.NewDecoder(r.Body).Decode(&request) != nil {
+				w.WriteHeader(400)
+				return
+			}
+			selectionMu.Lock()
+			activeRuntime = request.Payload
+			selectionMu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		_, _ = w.Write([]byte(`{"mixed-port":7890,"mode":"rule"}`))
 	})
 	mux.HandleFunc("/rules", func(w http.ResponseWriter, r *http.Request) {

@@ -19,7 +19,11 @@ func LogTail(dataDir string) string {
 	if dataDir == "" {
 		return ""
 	}
-	raw, err := os.ReadFile(filepath.Join(dataDir, "service.log"))
+	path := filepath.Join(dataDir, "service.log")
+	if runtime.GOOS == "windows" {
+		path = windowsServiceLogPath()
+	}
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
@@ -62,7 +66,7 @@ func WaitInstalled(timeout time.Duration) bool {
 
 func InstallDescription() string {
 	if runtime.GOOS == "windows" {
-		return localize.Text("会将内核复制到 Program Files\\Gopurr\\Service，并注册 Gopurr Core Windows 系统服务，以 SYSTEM 身份运行。\n\n只有 TUN 需要它；不安装也能使用系统代理。可随时在这里卸载。\n\nWindows 会显示 UAC 管理员授权。")
+		return localize.Text("会将内核复制到 Program Files\\Gopurr\\Service，并注册 Gopurr Core Windows 系统服务，以 SYSTEM 身份运行，同时配置内核专用防火墙规则和崩溃恢复。\n\n只有 TUN 需要它；不安装也能使用系统代理。可在网络详情中卸载并清理防火墙规则。\n\nWindows 会显示 UAC 管理员授权。")
 	}
 	return localize.Text("会写入 /Library/LaunchDaemons/io.github.gopurr.core.plist，并让内核以 root 常驻运行。\n\n只有开启 TUN 才需要它；不安装也能正常使用系统代理。随时可以在这里卸载。\n\nmacOS 会要求一次管理员密码。")
 }

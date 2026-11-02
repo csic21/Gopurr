@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -50,6 +51,22 @@ func (a *App) beginShutdown(dispatch func(func()), done func(error)) {
 	}
 	a.cancelMeshProbe()
 	a.shutdown.err = ""
+	if busyNetwork(a) {
+		// Wait off the UI thread, then snapshot the committed proxy/TUN state.
+		// Otherwise a late service handover could resurrect a core after quit.
+		go func() {
+			for busyNetwork(a) {
+				time.Sleep(25 * time.Millisecond)
+			}
+			dispatch(func() { a.startShutdownWorker(dispatch, done) })
+		}()
+		a.invalidate()
+		return
+	}
+	a.startShutdownWorker(dispatch, done)
+}
+
+func (a *App) startShutdownWorker(dispatch func(func()), done func(error)) {
 	work := a.shutdownWork()
 	a.invalidate()
 	go func() {

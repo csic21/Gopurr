@@ -126,12 +126,12 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 			ID: "tun", Label: tr("TUN 模式"), Type: mygo.MenuItemCheckbox,
 			Checked: a.tunOn, Disabled: !tunEnabled, ToolTip: a.tunHint(),
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
-				a.applyTun(item.IsChecked())
-				item.SetChecked(a.tunOn)
-				a.invalidate()
-				if a.tunErrText() != "" {
-					openPage("overview")
-				}
+				a.requestTun(item.IsChecked(), func() {
+					item.SetChecked(a.tunOn)
+					if a.tunErrText() != "" {
+						openPage("overview")
+					}
+				})
 			},
 		},
 	}

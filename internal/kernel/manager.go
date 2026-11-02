@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -192,7 +193,7 @@ func (m *Manager) Running() bool { return m.healthy() }
 // IsRoot reports whether the answering daemon has privileges (needed for TUN).
 func (m *Manager) IsRoot() bool {
 	st, err := m.Status()
-	return err == nil && st.UID == 0
+	return err == nil && st.UID == 0 && (st.PID == 0 || process.Alive(st.PID)) && m.healthy()
 }
 
 // ServiceNeedsUpdate reports that an installed privileged service must be
@@ -206,7 +207,7 @@ func (m *Manager) IsRoot() bool {
 // Never copy into Program Files / LaunchDaemons without an explicit UAC /
 // admin authorization path (Install/Reinstall).
 func (m *Manager) ServiceNeedsUpdate() bool {
-	if !service.Installed() {
+	if !service.ForDataDir(m.dir) {
 		return false
 	}
 	st, err := m.Status()
@@ -217,7 +218,7 @@ func (m *Manager) ServiceNeedsUpdate() bool {
 // (or different) marketing Version but remains API-compatible. The overview
 // may soft-suggest reinstall; it must not block TUN or force "重新安装".
 func (m *Manager) ServiceVersionSkew() bool {
-	if !service.Installed() {
+	if !service.ForDataDir(m.dir) {
 		return false
 	}
 	st, err := m.Status()
@@ -246,10 +247,21 @@ func serviceVersionSkew(st core.DaemonStatus, appVersion string) bool {
 // socket/status files. Safe to call before mixed-port binding or after Shutdown
 // when a previous session may still hold the port.
 func (m *Manager) ReclaimStale() {
+	if m.ServiceOwnsRuntime() {
+		return
+	} // the SCM/launchd owns its PID and socket
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reapStaleLocked()
 	m.remote.resetTransport()
+}
+
+func (m *Manager) ServiceOwnsRuntime() bool {
+	if !service.ForDataDir(m.dir) {
+		return false
+	}
+	st, err := m.Status()
+	return err == nil && st.UID == 0 && st.Socket == m.socket
 }
 
 // Ensure makes sure a daemon is up. If one is already listening (installed as a
@@ -261,9 +273,10 @@ func (m *Manager) Ensure() error {
 	}
 	// An installed system service owns the socket. Spawning a child here would
 	// just make the two fight over it.
-	if service.Installed() {
-		// An unhealthy installed service should fail fast so the UI can point
-		// at reinstall instead of looking frozen for a long poll.
+	if service.ForDataDir(m.dir) {
+		if err := service.EnsureRunning(); err != nil {
+			return fmt.Errorf(localize.Text("启动系统服务失败，请使用「重启服务」修复: %w"), err)
+		}
 		return m.waitServiceReady(serviceReadyWait)
 	}
 	m.mu.Lock()
@@ -329,7 +342,7 @@ func (m *Manager) Ensure() error {
 	return nil
 }
 
-const serviceReadyWait = 2 * time.Second
+const serviceReadyWait = 30 * time.Second
 
 // waitServiceReady polls an already-installed system service. Unlike a child
 // spawn, waiting longer rarely helps: the service is either coming up quickly
@@ -420,6 +433,13 @@ func (m *Manager) Stop() error {
 	exit := m.exit
 	m.mu.Unlock()
 	if cmd == nil || cmd.Process == nil {
+		if runtime.GOOS == "windows" && service.ForDataDir(m.dir) {
+			if err := service.StopRunning(); err != nil {
+				return err
+			}
+			m.remote.resetTransport()
+			return nil
+		}
 		return errNotOwned
 	}
 	_ = process.Stop(cmd.Process)

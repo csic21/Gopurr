@@ -57,7 +57,7 @@ const SecurityVersion = 1
 // ControllerVersion must bump when the UI needs controller endpoints absent
 // from an older installed service. Mismatch forces reinstall; marketing
 // Version skew alone does not (see kernel.ServiceVersionSkew).
-const ControllerVersion = 1
+const ControllerVersion = 2
 
 // RunDaemon is the privileged side of the app. It is the same kernel code as
 // before, just owned by a process that can legally create TUN devices.
@@ -156,6 +156,9 @@ func RunDaemon(opts DaemonOptions) error {
 		addr := net.JoinHostPort("127.0.0.1", fmt.Sprint(port))
 		if err := waitLocalTCP(addr, 10*time.Second); err != nil {
 			return fmt.Errorf("混合端口未就绪 (%s): %w", addr, err)
+		}
+		if err := ProbeMixed(context.Background(), port); err != nil {
+			return err
 		}
 	}
 

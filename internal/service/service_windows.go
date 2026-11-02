@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -53,6 +54,9 @@ func Install(binary, dataDir string) error {
 func Uninstall(dataDir string) error {
 	if !filepath.IsAbs(dataDir) {
 		return errors.New(localize.Text("数据目录必须是绝对路径"))
+	}
+	if Installed() && !ForDataDir(dataDir) {
+		return errors.New(localize.Text("系统服务不属于当前数据目录，请重新安装服务"))
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -125,6 +129,8 @@ func HandleCommand(args []string, run func([]string) error) (bool, error) {
 			err = installWindowsService(args[2])
 		case "uninstall":
 			err = uninstallWindowsService()
+		case "restart":
+			err = restartWindowsService()
 		default:
 			err = errors.New(localize.Text("未知服务操作"))
 		}
@@ -266,7 +272,158 @@ func installWindowsService(dataDir string) error {
 		}
 		defer service.Close()
 	}
+	// Only the installing data directory's owner can start/stop this service;
+	// changing its executable or configuration still requires administrator rights.
+	sd, err := windows.GetNamedSecurityInfo(dataDir, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return err
+	}
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return err
+	}
+	for _, path := range []string{filepath.Dir(filepath.Dir(target)), filepath.Dir(target)} {
+		readAccess, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;" + owner.String() + ")")
+		if err != nil {
+			return err
+		}
+		dacl, _, err := readAccess.DACL()
+		if err != nil {
+			return err
+		}
+		if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+			return err
+		}
+	}
+	access, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;CCLCRPWPLO;;;" + owner.String() + ")")
+	if err != nil {
+		return err
+	}
+	dacl, _, err := access.DACL()
+	if err != nil {
+		return err
+	}
+	if err := windows.SetSecurityInfo(service.Handle, windows.SE_SERVICE, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+		return err
+	}
+	if err := service.SetRecoveryActions([]mgr.RecoveryAction{
+		{Type: mgr.ServiceRestart, Delay: 2 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 15 * time.Second},
+		{Type: mgr.NoAction},
+	}, 300); err != nil {
+		return err
+	}
+	if err := service.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+		return err
+	}
+	if err := configureFirewall(target); err != nil {
+		return err
+	}
 	return service.Start()
+}
+
+const firewallRule = "Gopurr Core TUN"
+
+func configureFirewall(binary string) error {
+	// The system/mixed TUN stack needs Windows Firewall to allow the protected
+	// core executable. Never disable the firewall or grant all programs access.
+	removeFirewall(binary)
+	system, err := windows.GetSystemDirectory()
+	if err != nil {
+		return err
+	}
+	for _, direction := range []string{"in", "out"} {
+		out, err := exec.Command(filepath.Join(system, "netsh.exe"), "advfirewall", "firewall", "add", "rule", "name="+firewallRule,
+			"dir="+direction, "action=allow", "program="+binary, "profile=any", "enable=yes").CombinedOutput()
+		if err != nil {
+			return fmt.Errorf(localize.Text("配置 TUN 防火墙规则失败: %s: %w"), strings.TrimSpace(string(out)), err)
+		}
+	}
+	return nil
+}
+
+func removeFirewall(binary string) {
+	system, err := windows.GetSystemDirectory()
+	if err != nil {
+		return
+	}
+	_ = exec.Command(filepath.Join(system, "netsh.exe"), "advfirewall", "firewall", "delete", "rule", "name="+firewallRule, "program="+binary).Run()
+}
+
+func withWindowsService(access uint32, action func(*mgr.Service) error) error {
+	h, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseServiceHandle(h)
+	name, _ := windows.UTF16PtrFromString(Label)
+	s, err := windows.OpenService(h, name, access)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseServiceHandle(s)
+	return action(&mgr.Service{Name: Label, Handle: s})
+}
+
+// EnsureRunning never elevates or interrupts a healthy service. Newly installed
+// services grant the owning user only the rights needed for normal lifecycle.
+func EnsureRunning() error {
+	return withWindowsService(windows.SERVICE_QUERY_STATUS|windows.SERVICE_START, func(s *mgr.Service) error {
+		state, err := s.Query()
+		if err != nil {
+			return err
+		}
+		if state.State == svc.Running || state.State == svc.StartPending {
+			return nil
+		}
+		if state.State == svc.StopPending {
+			return errors.New(localize.Text("TUN 服务正在停止，请稍后重试"))
+		}
+		return s.Start()
+	})
+}
+
+func ForDataDir(dir string) bool {
+	matched := false
+	_ = withWindowsService(windows.SERVICE_QUERY_CONFIG, func(s *mgr.Service) error {
+		config, err := s.Config()
+		if err != nil {
+			return err
+		}
+		args, err := windows.DecomposeCommandLine(config.BinaryPathName)
+		matched = err == nil && len(args) == 3 && args[1] == "--windows-service" && strings.EqualFold(filepath.Clean(args[2]), filepath.Clean(dir))
+		return err
+	})
+	return matched
+}
+
+func StopRunning() error {
+	return withWindowsService(windows.SERVICE_QUERY_STATUS|windows.SERVICE_STOP, stopWindowsService)
+}
+
+func restartWindowsService() error {
+	if err := StopRunning(); err != nil {
+		return err
+	}
+	return EnsureRunning()
+}
+
+// Restart may elevate only in response to an explicit repair action, for
+// services installed by an older version without owner lifecycle rights.
+func Restart(dataDir string) error {
+	if !ForDataDir(dataDir) {
+		return errors.New(localize.Text("系统服务不属于当前数据目录，请重新安装服务"))
+	}
+	err := restartWindowsService()
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return elevate(exe, "restart", dataDir)
 }
 
 func uninstallWindowsService() error {
@@ -290,6 +447,7 @@ func uninstallWindowsService() error {
 		return err
 	}
 	if target, err := serviceBinary(); err == nil {
+		removeFirewall(target)
 		_ = os.Remove(target)
 		_ = os.Remove(filepath.Dir(target))
 	}
@@ -318,14 +476,30 @@ func (h *windowsHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, 
 	log.SetOutput(file)
 	logrus.SetOutput(file)
 	result := make(chan error, 1)
+	_ = os.Remove(filepath.Join(h.dir, "core.json"))
 	go func() {
 		result <- h.run([]string{"--config", filepath.Join(h.dir, "runtime.yaml"), "--socket", filepath.Join(h.dir, "core.sock"),
 			"--secret-file", filepath.Join(h.dir, "core.secret"), "--home", filepath.Join(serviceDir, "mihomo"), "--status", filepath.Join(h.dir, "core.json")})
 	}()
-	status := svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+	status := svc.Status{State: svc.StartPending, WaitHint: 45000, CheckPoint: 1}
 	changes <- status
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	for {
 		select {
+		case <-ticker.C:
+			if status.State == svc.StartPending {
+				var ready struct {
+					PID int `json:"pid"`
+				}
+				raw, _ := os.ReadFile(filepath.Join(h.dir, "core.json"))
+				if json.Unmarshal(raw, &ready) == nil && ready.PID == os.Getpid() {
+					status = svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+				} else {
+					status.CheckPoint++
+				}
+				changes <- status
+			}
 		case err := <-result:
 			if err != nil {
 				log.Print(err)

@@ -114,7 +114,30 @@ func (k *Kernel) Start(cfg []byte) error {
 	}
 	k.WatchLogs()
 	if err := k.r.Reload(k.mgr.ConfigPath()); err != nil {
-		return rollback(err)
+		result := rollback(err)
+		var responseError *httpStatusError
+		if !errors.As(err, &responseError) && readErr == nil {
+			// A lost response does not prove that the reload was rejected.
+			// Reapply the old payload after restoring its file as well.
+			result = errors.Join(result, k.r.Reload(path))
+			k.setErr(result)
+		}
+		return result
+	}
+	if err := k.verifyRuntime(cfg); err != nil {
+		// A successful reload may still have failed to bind a listener. Restore
+		// both the file and the running config; restoring just the file leaves
+		// the system proxy aimed at a broken traffic path.
+		result := rollback(err)
+		if readErr == nil {
+			if restoreErr := k.r.Reload(path); restoreErr != nil {
+				result = errors.Join(result, restoreErr)
+			} else if restoreErr := k.verifyRuntime(previous); restoreErr != nil {
+				result = errors.Join(result, restoreErr)
+			}
+		}
+		k.setErr(result)
+		return result
 	}
 	order := configuredGroupOrder(cfg)
 	k.mu.Lock()

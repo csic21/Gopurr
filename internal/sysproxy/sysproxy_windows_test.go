@@ -1,6 +1,21 @@
 package sysproxy
 
-import "testing"
+import (
+	"testing"
+	"unsafe"
+)
+
+func TestWindowsOptionNativeLayoutAndReadOnlySnapshot(t *testing.T) {
+	// The supported Windows release target is amd64. These offsets are the
+	// WinINet ABI, not Go-only serialization details.
+	if unsafe.Sizeof(uintptr(0)) == 8 && (unsafe.Sizeof(internetOption{}) != 16 || unsafe.Offsetof(internetOptionList{}.Options) != 24) {
+		t.Fatal("WinINet option layout does not match the Windows ABI")
+	}
+	state, err := Current()
+	if err != nil || !state.Supported || !state.WindowsOptions {
+		t.Fatalf("could not read Windows proxy options: %v", err)
+	}
+}
 
 func TestParseWindowsProxy(t *testing.T) {
 	for _, tc := range []struct {

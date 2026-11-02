@@ -68,7 +68,7 @@ func (a *App) RunShortcut(action shortcuts.Action, openWindow func()) {
 	}
 	a.notice = ""
 	_, busy, _ := a.svcState()
-	if busy || a.k == nil {
+	if busy || busyNetwork(a) || a.k == nil {
 		a.notice = tr("网络服务暂不可用，请稍后重试")
 	} else {
 		switch action {
@@ -92,7 +92,7 @@ func (a *App) RunShortcut(action shortcuts.Action, openWindow func()) {
 			if !a.tunOn && !a.k.IsRoot() {
 				a.notice = tr("请先在概览中安装或修复 TUN 服务")
 			} else {
-				a.applyTun(!a.tunOn)
+				a.requestTun(!a.tunOn)
 			}
 		case shortcuts.RuleMode:
 			a.UseMode("rule")

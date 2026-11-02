@@ -43,6 +43,15 @@ type Remote struct {
 	pollWake chan struct{}
 }
 
+type httpStatusError struct {
+	method, path, message string
+	code                  int
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("%s %s: HTTP %d %s", e.method, e.path, e.code, e.message)
+}
+
 func NewRemote(socket, secret string) *Remote {
 	dial := func(ctx context.Context, _, _ string) (net.Conn, error) {
 		var d net.Dialer
@@ -89,8 +98,7 @@ func (r *Remote) requestContext(ctx context.Context, client *http.Client, method
 
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("%s %s: HTTP %d %s", method, path, resp.StatusCode,
-			strings.TrimSpace(string(msg)))
+		return &httpStatusError{method: method, path: path, code: resp.StatusCode, message: strings.TrimSpace(string(msg))}
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, resp.Body)

@@ -185,6 +185,7 @@ type App struct {
 	ticking      bool
 	booted       bool
 	windowHidden atomic.Bool
+	networkState
 }
 
 // New builds the app with a built-in demo profile so the first launch does
@@ -350,6 +351,10 @@ func (a *App) saveOverrides() {
 // configBytes is what the kernel actually runs: the active subscription, with
 // this app's overrides applied on top.
 func (a *App) configBytes() ([]byte, error) {
+	return a.configBytesFor(a.runtimeOverrides())
+}
+
+func (a *App) configBytesFor(overrides patch.Overrides) ([]byte, error) {
 	raw := []byte(a.cfgText)
 	var local patch.ProfileOverrides
 	if a.store != nil {
@@ -371,7 +376,7 @@ func (a *App) configBytes() ([]byte, error) {
 	if len(raw) == 0 {
 		return nil, errors.New(tr("没有可用的配置"))
 	}
-	return patch.ApplyLayers(raw, a.runtimeOverrides(), local)
+	return patch.ApplyLayers(raw, overrides, local)
 }
 
 // View is the window's root.
@@ -431,8 +436,11 @@ func (a *App) StartBackground() {
 		a.k.WatchLogs()
 		go a.autoUpdateLoop()
 		a.startSoftwareUpdates()
+		if err := sysproxy.Recover(a.proxyController()); err != nil {
+			a.setSysErr(err.Error())
+		}
 		a.bmu.Lock()
-		a.svcInstalled = service.Installed()
+		a.svcInstalled = service.ForDataDir(a.dir)
 		a.bmu.Unlock()
 		if st, err := sysproxy.Current(); err == nil && st.Supported {
 			a.sysState = st
@@ -444,8 +452,7 @@ func (a *App) StartBackground() {
 		a.prepareMixedPort()
 		wantTUN := os.Getenv("GOPURR_TUN") == "1" || a.ov.TunEnable
 		if wantTUN && a.k.IsRoot() {
-			a.applyTun(true)
-			a.finishKernelBoot()
+			a.requestTun(true)
 		} else {
 			a.ov.TunEnable, a.tunOn = false, false
 			if wantTUN {
@@ -457,7 +464,11 @@ func (a *App) StartBackground() {
 				// the UI thread free and finish mode/proxy restore in the callback.
 				a.startKernelAsync(func(ok bool) {
 					if ok {
-						a.finishKernelBoot()
+						if a.tunWanted && a.k.IsRoot() {
+							a.requestTun(true)
+						} else {
+							a.finishKernelBoot()
+						}
 					}
 				})
 			} else {
@@ -886,6 +897,7 @@ func (a *App) toggle() {
 		return
 	}
 	if a.k.Running() {
+		a.kernelStopped = true
 		if a.sysApplied {
 			a.setSystemProxy(false)
 			if a.sysApplied {
@@ -905,7 +917,7 @@ func (a *App) toggle() {
 		return
 	}
 	if a.ov.TunEnable {
-		a.applyTun(true)
+		a.requestTun(true)
 		return
 	}
 	a.startKernelAsync(func(ok bool) {
@@ -924,7 +936,7 @@ func (a *App) toggle() {
 // finishKernelBoot applies mode and restore-proxy preferences once a kernel is
 // known to be running after launch.
 func (a *App) finishKernelBoot() {
-	if a.k == nil || !a.k.Running() {
+	if a.shutdownPending.Load() || a.k == nil || !a.k.Running() {
 		return
 	}
 	a.modeToken = a.k.Mode()
@@ -949,11 +961,13 @@ func (a *App) kernelBusyState() bool {
 // Ensure/Reload run off it so the window stays responsive.
 func (a *App) startKernelAsync(after func(ok bool)) {
 	a.bmu.Lock()
-	if a.kernelBusy || a.shutdownPending.Load() {
+	if a.kernelBusy || a.svcBusy || a.sysBusy || a.shutdownPending.Load() {
 		a.bmu.Unlock()
 		return
 	}
 	a.kernelBusy = true
+	a.kernelStopped = false
+	a.networkGeneration.Add(1)
 	a.bmu.Unlock()
 
 	if !a.ensureMixedPortAvailable() {
@@ -969,13 +983,6 @@ func (a *App) startKernelAsync(after func(ok bool)) {
 	a.notice = tr("正在启动…")
 	go func() {
 		err := a.k.Start(raw)
-		if a.shutdownPending.Load() {
-			a.bmu.Lock()
-			a.kernelBusy = false
-			a.bmu.Unlock()
-			a.invalidate()
-			return
-		}
 		if err != nil {
 			runOnMain(func() { a.completeKernelStart(false, tr("启动失败: ")+err.Error(), after) })
 			return
@@ -985,13 +992,6 @@ func (a *App) startKernelAsync(after func(ok bool)) {
 		// thread, and the watchdog must not see the core as idle until the
 		// follow-up (such as re-enabling the system proxy) has run.
 		runOnMain(func() {
-			if a.shutdownPending.Load() {
-				// Quitting: leave the proxy and notices to the shutdown path.
-				a.bmu.Lock()
-				a.kernelBusy = false
-				a.bmu.Unlock()
-				return
-			}
 			a.bmu.Lock()
 			a.delays = map[string]uint16{}
 			a.delayErrors = map[string]string{}
@@ -1019,6 +1019,11 @@ func (a *App) completeKernelStart(ok bool, notice string, after func(ok bool)) {
 // when the kernel refuses it. Callers that need a synchronous result (config
 // transactions, tests) keep using this path; UI start/reload use startKernelAsync.
 func (a *App) startKernel() bool {
+	if busyNetwork(a) {
+		a.notice = tr("网络操作进行中，请稍后重试")
+		return false
+	}
+	a.networkGeneration.Add(1)
 	if !a.ensureMixedPortAvailable() {
 		a.notice = fmt.Sprintf(tr("端口 %d 已被占用（可能是另一个代理客户端），换一个端口再试"),
 			a.mixedPort())
@@ -1082,6 +1087,9 @@ func waitPortFree(port int, timeout time.Duration) bool {
 // portFree preflight before Ensure could reap, which surfaced as "端口已被占用"
 // after updates when the previous process was slow to release listeners.
 func (a *App) ensureMixedPortAvailable() bool {
+	if a.mgr != nil && a.mgr.ServiceOwnsRuntime() {
+		return true
+	}
 	if a.k != nil && a.k.Running() {
 		return true
 	}
@@ -1100,6 +1108,9 @@ func (a *App) ensureMixedPortAvailable() bool {
 // did not ask to restore system proxy next launch.
 func (a *App) prepareMixedPort() {
 	if a.mgr == nil {
+		return
+	}
+	if a.mgr.ServiceOwnsRuntime() {
 		return
 	}
 	port := a.mixedPort()
@@ -1133,6 +1144,9 @@ func (a *App) mixedPort() int {
 // setSystemProxy flips macOS's proxy settings. It runs on the UI thread
 // because the authorization prompt is modal anyway.
 func (a *App) setSystemProxy(on bool) {
+	if on && a.shutdownPending.Load() {
+		return
+	}
 	if !systemProxyAvailable() {
 		a.setSysErr(tr("当前平台暂不支持自动设置系统代理"))
 		return
@@ -1166,6 +1180,7 @@ func (a *App) setSystemProxy(on bool) {
 // watchdog uses it to re-enable a proxy it suspended, after a probe that
 // already proved the core answers. Callers check systemProxyAvailable.
 func (a *App) applySystemProxy(on bool) error {
+	a.networkGeneration.Add(1)
 	a.bmu.Lock()
 	a.sysBusy = true
 	a.bmu.Unlock()
@@ -1177,9 +1192,19 @@ func (a *App) applySystemProxy(on bool) error {
 	port := a.mixedPort()
 	var err error
 	if on {
+		ctx, cancel := context.WithTimeout(context.Background(), kernelProbeTimeout)
+		status, checkErr := a.k.Runtime(ctx)
+		cancel()
+		if checkErr != nil || !status.ProxyReady || status.MixedPort != port {
+			err := errors.New(tr("本地代理未就绪，请检查内核状态与端口设置"))
+			a.sysOn = a.sysApplied
+			a.setSysErr(err.Error())
+			return err
+		}
+		a.networkRuntime, a.networkChecked, a.networkErr = status, time.Now(), ""
 		// Whoever owned the system proxy before us gets it back on stop.
 		if !a.sysApplied {
-			if cur, cerr := sysproxy.Current(); cerr == nil && cur.Enabled && !ownsProxy(cur, port) {
+			if cur, cerr := sysproxy.Current(); cerr == nil && (cur.Enabled || cur.WindowsOptions) && !ownsProxy(cur, port) {
 				prev := cur
 				a.prev = &prev
 				a.savePrevProxy()
@@ -1199,6 +1224,7 @@ func (a *App) applySystemProxy(on bool) error {
 	}
 	a.sysApplied = on
 	a.sysOn = on
+	a.proxyChanged = false
 	a.setSysErr("")
 	return nil
 }
@@ -1226,6 +1252,9 @@ func (a *App) proxyController() sysproxy.Controller {
 }
 
 func ownsProxy(st sysproxy.State, port int) bool {
+	if st.WindowsOptions && st.Flags != 3 {
+		return false
+	}
 	if st.RawServer != "" && st.RawServer != fmt.Sprintf("127.0.0.1:%d", port) {
 		return false
 	}
@@ -1253,7 +1282,7 @@ func (a *App) loadPrevProxy() {
 		return
 	}
 	var st sysproxy.State
-	if json.Unmarshal(b, &st) == nil && st.Enabled {
+	if json.Unmarshal(b, &st) == nil && (st.Enabled || st.WindowsOptions) {
 		a.prev = &st
 	}
 }
@@ -1301,86 +1330,6 @@ func (a *App) svcState() (installed, busy bool, errText string) {
 
 // installService asks for administrator rights after the user explicitly
 // confirms installing the persistent TUN service.
-func (a *App) installService() {
-	a.bmu.Lock()
-	if a.svcBusy {
-		a.bmu.Unlock()
-		return
-	}
-	a.svcBusy = true
-	a.svcErr = ""
-	a.bmu.Unlock()
-
-	go func() {
-		defer a.invalidate()
-
-		// The socket belongs to the daemon; hand it over before launchd binds it.
-		a.k.Shutdown()
-
-		exe, err := os.Executable()
-		if err == nil {
-			err = service.Install(exe, a.dir)
-		}
-
-		installed := err == nil && service.WaitInstalled(5*time.Second)
-		deadline := time.Now().Add(10 * time.Second)
-		for installed && time.Now().Before(deadline) {
-			if a.k.Running() && a.k.IsRoot() {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-
-		a.bmu.Lock()
-		a.svcBusy = false
-		a.svcInstalled = installed
-		switch {
-		case err != nil:
-			a.svcErr = err.Error()
-		case !installed:
-			a.svcErr = tr("服务没有安装成功，请查看 README 的安装步骤")
-		case !a.k.IsRoot():
-			if tail := service.LogTail(a.dir); tail != "" {
-				a.svcErr = tr("服务已安装，但内核没有启动：") + tail
-			} else {
-				a.svcErr = tr("服务已安装，但内核尚未获得管理员权限，请稍后重试或重新安装")
-			}
-		}
-		a.bmu.Unlock()
-	}()
-}
-
-func (a *App) uninstallService() {
-	a.bmu.Lock()
-	if a.svcBusy {
-		a.bmu.Unlock()
-		return
-	}
-	a.svcBusy = true
-	a.bmu.Unlock()
-
-	go func() {
-		defer a.invalidate()
-		err := service.Uninstall(a.dir)
-
-		a.bmu.Lock()
-		a.svcBusy = false
-		a.svcInstalled = service.Installed()
-		if err != nil {
-			a.svcErr = err.Error()
-		} else {
-			a.svcErr = ""
-		}
-		a.bmu.Unlock()
-
-		if err == nil {
-			a.ov.TunEnable = false
-			a.tunOn = false
-			a.saveOverrides()
-		}
-	}()
-}
-
 // ---------- TUN ----------
 
 func (a *App) tunErrText() string {
@@ -1436,19 +1385,19 @@ func (a *App) tunHint() string {
 	}
 	installed, busy, svcErr := a.svcState()
 	if e := a.tunErrText(); e != "" {
-		return e
+		return tr("接管未完成 · 查看详情")
 	}
 	if svcErr != "" {
-		return svcErr
+		return tr("服务需要处理 · 查看详情")
 	}
 	if busy {
 		return service.AuthorizationHint()
 	}
 	if !installed {
-		return tr("可选 · 不装也能用系统代理，装了才能全局接管")
+		return tr("未安装服务 · 系统代理可独立使用")
 	}
 	if !a.k.IsRoot() {
-		return tr("服务已安装，但内核尚未获得管理员权限")
+		return tr("服务未就绪 · 请启动或修复服务")
 	}
 	if a.mgr.ServiceNeedsUpdate() {
 		return tr("服务需要更新 · 重新安装以使用新版本内核")
@@ -1457,9 +1406,24 @@ func (a *App) tunHint() string {
 		return tr("应用已更新 · 服务仍兼容，可选择重新安装")
 	}
 	if a.ov.TunEnable {
-		return tr("已启用 · 路由由内核自己接管")
+		if a.kernelBusyState() {
+			return tr("正在检查网卡与路由…")
+		}
+		if !a.networkFresh() {
+			if a.networkErr != "" {
+				return tr("接管状态未知 · 查看详情")
+			}
+			return tr("已请求开启 · 等待实际状态")
+		}
+		if !a.networkRuntime.TunReady {
+			return tr("接管异常 · 查看详情")
+		}
+		if !a.networkRuntime.AutoRoute {
+			return tr("网卡已就绪 · 自动路由未开启")
+		}
+		return tr("已接管 · 网卡与路由就绪")
 	}
-	return tr("已就绪 · 打开开关即全局接管")
+	return tr("未开启 · 可接管不遵循系统代理的应用")
 }
 
 // ---------- subscriptions ----------
@@ -1571,28 +1535,39 @@ func (a *App) removeSubscription(id string) {
 
 func (a *App) sysProxyHint() string {
 	if e := a.sysErrText(); e != "" {
-		return e
+		return tr("系统代理需要处理 · 查看详情")
 	}
 	if a.healthResumePending() {
 		return tr("内核恢复后自动重新开启 · 关闭开关可取消")
 	}
+	if a.proxyReadErr != "" {
+		return tr("系统代理状态未知 · 查看详情")
+	}
 	if !sysproxy.Available() {
 		return tr("当前平台暂不支持")
 	}
-	service := a.sysState.Service
-	if service == "" {
-		service = tr("默认网络服务")
-	}
 	if a.sysApplied {
-		return fmt.Sprintf(tr("已指向 127.0.0.1:%d · %s"), a.mixedPort(), service)
+		if !a.networkFresh() {
+			if a.networkErr != "" {
+				return tr("已设置 · 无法验证本地代理")
+			}
+			return tr("已设置 · 等待本地代理检查")
+		}
+		if !a.networkRuntime.ProxyReady || a.networkRuntime.MixedPort != a.mixedPort() {
+			return tr("已设置 · 本地代理不可用")
+		}
+		return tr("已开启 · 本地代理就绪")
+	}
+	if a.proxyChanged {
+		return tr("系统代理已被其他程序更改")
 	}
 	if a.sysState.Enabled {
-		return fmt.Sprintf(tr("当前指向 %s:%d；开启后切到 Gopurr"), a.sysState.Server, a.sysState.Port)
+		return tr("当前由其他代理设置管理")
 	}
 	if !a.k.Running() {
 		return tr("未启用 · 内核未运行")
 	}
-	return tr("未启用 · ") + service
+	return tr("未开启 · 可代理遵循系统设置的应用")
 }
 
 func delayLabel(d uint16) string {
