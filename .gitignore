@@ -26,3 +26,8 @@ dist/
 /core.json
 /mihomo/
 /sysproxy.json
+# Frontend dependencies; the built console under internal/remote/webui is
+# committed so a plain `go build` needs no Node toolchain.
+/web/node_modules/
+/web/.vite/
+/remote.json

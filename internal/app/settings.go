@@ -161,6 +161,17 @@ func (a *App) settingsPage(c *ui.Context) {
 
 			if a.settingsTab == 1 {
 				settingsGroup(c, tr("网络接入"), func() {
+					settingsRow(c, tr("远程 Web 控制台"), a.remoteSummary(), func() {
+						label := tr("配置…")
+						if a.remoteEnabled {
+							label = tr("管理…")
+						}
+						softButton(c, label).OnClick(func() {
+							a.remoteShow = true
+							a.remoteTokenVisible = false
+						})
+					})
+					hairline(c)
 					settingsRow(c, tr("混合代理端口"), tr("HTTP 与 SOCKS 共用，范围 1–65535"), func() {
 						ui.TextInput(c, &a.mixedPortDraft).Width(112).Placeholder("7890").Label(tr("编辑混合代理端口")).
 							Disabled(busyNetwork(a)).OnSubmit(a.requestNetworkSettings)
@@ -258,6 +269,8 @@ func (a *App) settingsPage(c *ui.Context) {
 		}
 		settingsSaveBar(c, tr("测试设置"), tr("用于下次节点延迟测试"), a.testSettingsDirty(), tr("保存测试设置"), a.saveTestSettings)
 	}
+	a.remoteSettingsModal(c)
+	a.remoteSettingsDialogs(c)
 	a.rawConfigModal(c)
 }
 

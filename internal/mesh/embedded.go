@@ -47,7 +47,9 @@ type Embedded struct {
 	visits      []Visit
 	flows       map[*accessFlow]bool
 	pending     chan struct{}
-	// Gopurr's own proxy/API listeners may never be exposed as remote services.
+	// Gopurr's own proxy/control listeners may never be exposed as remote
+	// services. The separately authenticated web console is the one explicit
+	// exception: it is a browser-facing HTTP listener, never the kernel socket.
 	reserved func(uint16) bool
 }
 

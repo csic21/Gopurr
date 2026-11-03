@@ -187,6 +187,7 @@ type App struct {
 	booted       bool
 	windowHidden atomic.Bool
 	networkState
+	remoteSettingsState
 }
 
 // New builds the app with a built-in demo profile so the first launch does
@@ -243,6 +244,8 @@ func New() *App {
 		a.ruleAdapter = allAdapters
 		a.ovPath = filepath.Join(dir, "overrides.json")
 		a.prevPath = filepath.Join(dir, "sysproxy.json")
+		a.remotePath = filepath.Join(dir, "remote.json")
+		a.loadRemoteSettings()
 		a.loadOverrides()
 		a.lanOn, a.ipv6On = a.ov.AllowLAN, a.ov.IPv6
 		a.modeToken = a.ov.Mode
@@ -476,6 +479,7 @@ func (a *App) StartBackground() {
 				a.finishKernelBoot()
 			}
 		}
+		go a.startRemoteAtBoot()
 		// Smoke-test hook: measure a group without a human clicking.
 		if os.Getenv("GOPURR_TEST_DELAY") == "1" {
 			go func() {

@@ -14,6 +14,10 @@ The complete source and build instructions are at https://github.com/csic21/Gopu
 - mygo: https://github.com/egoist/mygo — MIT; its native runtime bundles the
   libraries and licenses supplied by the framework.
 - Lucide icons: https://lucide.dev — ISC; see internal/app/icons/LICENSE.
+- Remote web frontend: React and React DOM (MIT), Vite and @vitejs/plugin-react
+  (MIT), TypeScript (Apache-2.0), and Lucide React (ISC). Exact versions are
+  recorded in web/package.json and web/package-lock.json; the Go binary embeds
+  only the built runtime assets.
 - The Windows TUN implementation in sing-tun embeds Wintun 0.14.1. Wintun is
   Copyright © 2018–2021 WireGuard LLC. The official precompiled driver is
   distributed under its binary distribution license. See

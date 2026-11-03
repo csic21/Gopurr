@@ -82,6 +82,9 @@ func (a *App) prepareNetworkSettings() (networkSettingsChange, error) {
 	if port != a.mixedPort() && !portFree(port) {
 		return networkSettingsChange{}, fmt.Errorf(tr("端口 %d 已被占用，请更换端口"), port)
 	}
+	if a.remoteBase.Enabled && a.remoteBase.Port == port {
+		return networkSettingsChange{}, fmt.Errorf(tr("远程 Web 控制台正在使用端口 %d"), port)
+	}
 	w := networkSettingsChange{previous: a.ov, next: a.ov, path: a.ovPath, previousPort: a.mixedPort()}
 	w.next.MixedPort = port
 	w.next.AllowLAN, w.next.IPv6, w.next.Unified = a.lanOn, a.ipv6On, a.unifiedOn

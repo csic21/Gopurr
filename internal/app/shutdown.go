@@ -97,6 +97,8 @@ func (a *App) shutdownWork() func() shutdownResult {
 	kernel, updates, stopUpdates := a.k, a.softwareUpdates, a.stopSoftwareUpdates
 	meshClient := a.meshClient
 	return func() (result shutdownResult) {
+		// Leave the web listener up until the process exits. If cleanup fails
+		// and the app stays open, remote access must keep working.
 		if applied {
 			if err := proxy.Restore(port, previous); err != nil {
 				result.err = fmt.Errorf(tr("无法恢复系统代理，应用保持运行: %w"), err)

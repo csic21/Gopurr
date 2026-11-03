@@ -9,9 +9,13 @@ export GOTOOLCHAIN := go1.27.3
 # mixed/gvisor TUN stacks require this feature in mihomo.
 export GOFLAGS ?= -tags=with_gvisor
 
+# Keep the frontend build cache inside the checkout, like the Go caches.
+NPM_CONFIG_CACHE ?= $(CURDIR)/.cache/npm
+export NPM_CONFIG_CACHE
+
 BIN := bin/Gopurr
 
-.PHONY: run build bundle brand-master icons preview-icons dev tidy clean autostart test test-native update-geodata
+.PHONY: run build bundle brand-master icons preview-icons dev web web-dev tidy clean autostart test test-native update-geodata
 
 build:
 	go build -o $(BIN) .
@@ -45,6 +49,15 @@ autostart: build
 
 dev:
 	go tool mygo dev
+
+# Rebuild the embedded remote console. The generated files are committed so
+# ordinary Go builds remain Node-free; release builds run this before Go.
+web:
+	cp internal/brand/logo.svg web/public/assets/logo.svg
+	cd web && npm ci --no-audit --no-fund && npm run build
+
+web-dev:
+	cd web && npm run dev
 
 test:
 	go test ./...
