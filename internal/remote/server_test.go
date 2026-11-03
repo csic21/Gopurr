@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -392,6 +393,10 @@ func TestConfigValidation(t *testing.T) {
 }
 
 func TestConfigFileIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows protection is an ACL, not a Unix permission bit.
+		t.Skip("Unix permission bits are not meaningful on Windows")
+	}
 	path := filepath.Join(t.TempDir(), "remote.json")
 	cfg := Config{Enabled: true, Bind: "0.0.0.0", Port: 7899}
 	if err := cfg.EnsureToken(); err != nil {
