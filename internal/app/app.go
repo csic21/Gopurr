@@ -103,9 +103,10 @@ type App struct {
 	// sysBusy is set while the OS proxy is being changed (which may sit on
 	// an authorization prompt), so the kernel watchdog does not act on a
 	// probe taken in the middle of it.
-	sysBusy  bool
-	sysErr   string
-	sysState sysproxy.State
+	sysBusy          bool
+	sysErr           string
+	sysState         sysproxy.State
+	proxyObservation func() (sysproxy.State, error)
 
 	svcInstalled bool
 	svcBusy      bool
@@ -446,7 +447,7 @@ func (a *App) StartBackground() {
 		a.bmu.Lock()
 		a.svcInstalled = service.ForDataDir(a.dir)
 		a.bmu.Unlock()
-		if st, err := sysproxy.Current(); err == nil && st.Supported {
+		if st, err := a.currentSystemProxy(); err == nil && st.Supported {
 			a.sysState = st
 			a.sysApplied = ownsProxy(st, a.mixedPort())
 			a.sysOn = a.sysApplied
@@ -985,6 +986,10 @@ func (a *App) kernelBusyState() bool {
 // startKernelAsync mirrors svcBusy: validation stays on the UI thread, while
 // Ensure/Reload run off it so the window stays responsive.
 func (a *App) startKernelAsync(after func(ok bool)) {
+	a.startKernelAsyncWithForce(after, false)
+}
+
+func (a *App) startKernelAsyncWithForce(after func(ok bool), force bool) {
 	a.bmu.Lock()
 	if a.kernelBusy || a.svcBusy || a.sysBusy || a.shutdownPending.Load() {
 		a.bmu.Unlock()
@@ -1007,7 +1012,11 @@ func (a *App) startKernelAsync(after func(ok bool)) {
 	}
 	a.notice = tr("正在启动…")
 	go func() {
-		err := a.k.Start(raw)
+		start := a.k.Start
+		if force {
+			start = a.k.Reload
+		}
+		err := start(raw)
 		if err != nil {
 			runOnMain(func() { a.completeKernelStart(false, tr("启动失败: ")+err.Error(), after) })
 			return
@@ -1076,7 +1085,7 @@ func (a *App) startKernel() bool {
 // on, the device is rebuilt first: mihomo closes the descriptor it adopted,
 // so the old one cannot be reused.
 func (a *App) restart() {
-	a.startKernelAsync(nil)
+	a.startKernelAsyncWithForce(nil, true)
 }
 
 func portFree(port int) bool {
@@ -1156,7 +1165,7 @@ func (a *App) prepareMixedPort() {
 	// does not want auto-restore, so hand the setting back / turn it off.
 	if err := a.restoreProxy(); err == nil {
 		a.sysApplied, a.sysOn = false, false
-		if st, err := sysproxy.Current(); err == nil {
+		if st, err := a.currentSystemProxy(); err == nil {
 			a.sysState = st
 		}
 	}

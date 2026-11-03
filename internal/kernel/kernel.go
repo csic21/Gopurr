@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.yaml.in/yaml/v3"
 	"gopurr/internal/core"
 )
 
@@ -92,6 +93,13 @@ func (k *Kernel) setErr(err error) {
 // Start writes the config and asks the daemon to run it, spawning the daemon
 // when the app owns it.
 func (k *Kernel) Start(cfg []byte) error {
+	return k.start(cfg, false)
+}
+
+// Reload explicitly reapplies even an unchanged configuration (user action).
+func (k *Kernel) Reload(cfg []byte) error { return k.start(cfg, true) }
+
+func (k *Kernel) start(cfg []byte, force bool) error {
 	k.starting.Add(1)
 	defer k.starting.Add(-1)
 	k.startMu.Lock()
@@ -121,6 +129,18 @@ func (k *Kernel) Start(cfg []byte) error {
 		return rollback(err)
 	}
 	k.WatchLogs()
+	if !force {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		status, err := k.r.Runtime(ctx)
+		cancel()
+		if err == nil && status.ConfigDigest == core.ConfigDigest(cfg) {
+			var expected runtimeExpectation
+			if err := yaml.Unmarshal(cfg, &expected); err == nil && expected.check(status) == nil {
+				k.acceptConfig(cfg)
+				return nil
+			}
+		}
+	}
 	if err := k.r.Reload(k.mgr.ConfigPath()); err != nil {
 		result := rollback(err)
 		var responseError *httpStatusError
@@ -147,13 +167,17 @@ func (k *Kernel) Start(cfg []byte) error {
 		k.setErr(result)
 		return result
 	}
+	k.acceptConfig(cfg)
+	return nil
+}
+
+func (k *Kernel) acceptConfig(cfg []byte) {
 	order := configuredGroupOrder(cfg)
 	k.mu.Lock()
 	k.lastErr = ""
 	k.groupOrder = order
 	k.mu.Unlock()
 	k.invalidate()
-	return nil
 }
 
 func writeRuntimeConfig(path string, cfg []byte) error {

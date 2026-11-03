@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metacubex/mihomo/tunnel/statistic"
 	"gopurr/internal/configyaml"
 	"gopurr/internal/controllerconfig"
 	"gopurr/internal/geodata"
@@ -57,7 +58,9 @@ func serveController(socket, backend, secret string, geo *geoUpdater, restart ..
 	}
 	proxy.FlushInterval = -1
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		if resp.Request.Method == http.MethodPut && strings.TrimSuffix(resp.Request.URL.Path, "/") == "/configs" && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if strings.TrimSuffix(resp.Request.URL.Path, "/") == "/configs" && resp.StatusCode >= 200 && resp.StatusCode < 300 && (resp.Request.Method == http.MethodPut || resp.Request.Method == http.MethodPatch) {
+			// The request handler holds geo.mu until this response is forwarded.
+			geo.configDigest = resp.Request.Header.Get("X-Gopurr-Config-Digest")
 			select {
 			case geo.wake <- struct{}{}:
 			default:
@@ -92,7 +95,18 @@ func serveController(socket, backend, secret string, geo *geoUpdater, restart ..
 			geo.mu.Lock()
 			defer geo.mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(runtimeStatus(r.Context()))
+			status := runtimeStatus(r.Context())
+			status.ConfigDigest = geo.configDigest
+			_ = json.NewEncoder(w).Encode(status)
+			return
+		}
+		if r.Method == http.MethodGet && path == "/gopurr/connections/count" {
+			count := 0
+			statistic.DefaultManager.Range(func(statistic.Tracker) bool { count++; return true })
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(struct {
+				Count int `json:"count"`
+			}{count})
 			return
 		}
 		allowed := false
@@ -111,6 +125,7 @@ func serveController(socket, backend, secret string, geo *geoUpdater, restart ..
 		if (r.Method == http.MethodPut || r.Method == http.MethodPatch) && path == "/configs" {
 			geo.mu.Lock()
 			defer geo.mu.Unlock()
+			r.Header.Del("X-Gopurr-Config-Digest")
 			if r.Method == http.MethodPut {
 				if err := sanitizeReload(r); err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
@@ -158,6 +173,7 @@ func sanitizeReload(r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	r.Header.Set("X-Gopurr-Config-Digest", ConfigDigest([]byte(request.Payload)))
 	request.Payload = string(data)
 	encoded, err := json.Marshal(request)
 	if err != nil {

@@ -64,7 +64,7 @@ func (a *App) startDiagnostics() {
 	}
 	if sysproxy.Available() {
 		opt.ProxyStatus = func(context.Context) (bool, bool, error) {
-			state, err := sysproxy.Current()
+			state, err := a.currentSystemProxy()
 			return state.Enabled, state.Server == "127.0.0.1" && state.Port == port, err
 		}
 	}

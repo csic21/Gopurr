@@ -25,6 +25,7 @@ func TestProxySelectionIncludesRadioWhitespaceAndLatency(t *testing.T) {
 			a.booted, a.ticking, a.page, a.proxyGroup = true, true, "proxies", "节点选择"
 			a.prefs.CloseOnSwitch = false
 			a.proxyQuery = "02" // selection must also work in filtered lists
+			finishSelection := proxySelectionTestMain(t, a)
 			tr := ui.NewTester(a.View, size[0], size[1])
 			tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
 			tr.Advance(200 * time.Millisecond)
@@ -60,6 +61,7 @@ func TestProxySelectionIncludesRadioWhitespaceAndLatency(t *testing.T) {
 				}
 				tr.Press(x, y)
 				tr.Release(x, y)
+				finishSelection()
 				tr.Frame()
 				if current() != "日本 02" {
 					t.Fatalf("clicking %s did not select the node: %s", region, current())
@@ -71,6 +73,7 @@ func TestProxySelectionIncludesRadioWhitespaceAndLatency(t *testing.T) {
 				a.selectProxy("节点选择", "香港 01")
 				tr.Frame()
 				tr.Key(0, key)
+				finishSelection()
 				if current() != "日本 02" {
 					t.Fatalf("keyboard selection failed for %v", key)
 				}

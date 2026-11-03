@@ -15,16 +15,17 @@ import (
 // RuntimeStatus describes observed local traffic paths, not Internet reachability.
 // Read it under the same lock as configuration reloads.
 type RuntimeStatus struct {
-	MixedPort  int    `json:"mixedPort"`
-	ProxyReady bool   `json:"proxyReady"`
-	ProxyError string `json:"proxyError,omitempty"`
-	TunEnabled bool   `json:"tunEnabled"`
-	TunReady   bool   `json:"tunReady"`
-	TunDevice  string `json:"tunDevice,omitempty"`
-	TunStack   string `json:"tunStack,omitempty"`
-	AutoRoute  bool   `json:"autoRoute"`
-	DNSReady   bool   `json:"dnsReady"`
-	TunError   string `json:"tunError,omitempty"`
+	ConfigDigest string `json:"configDigest,omitempty"`
+	MixedPort    int    `json:"mixedPort"`
+	ProxyReady   bool   `json:"proxyReady"`
+	ProxyError   string `json:"proxyError,omitempty"`
+	TunEnabled   bool   `json:"tunEnabled"`
+	TunReady     bool   `json:"tunReady"`
+	TunDevice    string `json:"tunDevice,omitempty"`
+	TunStack     string `json:"tunStack,omitempty"`
+	AutoRoute    bool   `json:"autoRoute"`
+	DNSReady     bool   `json:"dnsReady"`
+	TunError     string `json:"tunError,omitempty"`
 }
 
 func runtimeStatus(ctx context.Context) RuntimeStatus {

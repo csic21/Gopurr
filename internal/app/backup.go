@@ -27,7 +27,7 @@ type backupState struct {
 func (a *App) beginProfileWork() bool {
 	a.bmu.Lock()
 	defer a.bmu.Unlock()
-	if a.subBusy || a.shutdownPending.Load() {
+	if a.subBusy || a.proxySelecting || a.proxySelectionActive.Load() > 0 || a.shutdownPending.Load() {
 		return false
 	}
 	a.subBusy = true

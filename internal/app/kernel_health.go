@@ -94,7 +94,7 @@ func (a *App) kernelHealthBusyState() (hard, profile bool) {
 	}
 	a.bmu.Lock()
 	defer a.bmu.Unlock()
-	return a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging, a.subBusy
+	return a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging || a.proxySelecting || a.proxySelectionActive.Load() > 0, a.subBusy
 }
 
 // kernelHealthBusy reports any operation during which a failed probe is
@@ -146,7 +146,7 @@ func (a *App) kernelHealthLoop() {
 				return core.ProbeMixed(context.Background(), port)
 			})
 			h = healthDuringWork(h, profile)
-			proxy, proxyErr = sysproxy.Current()
+			proxy, proxyErr = a.currentSystemProxy()
 		}
 		runOnMain(func() {
 			if generation != a.networkGeneration.Load() || hard {

@@ -72,7 +72,7 @@ func (a *App) refreshNetworkState() {
 		ctx, cancel := context.WithTimeout(context.Background(), kernelProbeTimeout)
 		defer cancel()
 		status, err := a.k.Runtime(ctx)
-		proxy, proxyErr := sysproxy.Current()
+		proxy, proxyErr := a.currentSystemProxy()
 		runOnMain(func() {
 			if generation == a.networkGeneration.Load() {
 				a.acceptNetworkObservation(status, err, proxy, proxyErr)

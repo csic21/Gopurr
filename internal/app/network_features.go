@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"gopurr/internal/patch"
+	"gopurr/internal/profile"
 )
 
 type dnsDraft struct {
@@ -23,40 +24,117 @@ type snifferDraft struct {
 	HTTP, TLS, QUIC, SkipDomain, ForceDomain, SkipSrc, SkipDst string
 }
 
-type featureState struct {
-	dnsReady, snifferReady                                   bool
-	dnsDraft, dnsBase                                        dnsDraft
-	snifferDraft, snifferBase                                snifferDraft
-	dnsError, dnsStatus, snifferError, snifferStatus         string
-	featureCacheAt                                           time.Time
-	featureCacheKey, featureCacheConfig, featureCacheProfile string
-	featureDNS                                               patch.DNSSettings
-	featureSniffer                                           patch.SnifferSettings
-	featureCacheError                                        error
+type featureSignature struct {
+	overrides, config, profileID string
+	store                        *profile.Store
+	revision                     uint64
+	modified                     time.Time
+	size                         int64
+	missing                      bool
 }
 
-func (a *App) effectiveFeatures() (patch.DNSSettings, patch.SnifferSettings, error) {
-	// Large subscriptions should not be parsed on every UI frame. Changes to
-	// app settings/local YAML invalidate immediately; profile updates refresh
-	// with the overview's one-second sampling interval.
+type featureState struct {
+	dnsReady, snifferReady                           bool
+	dnsDraft, dnsBase                                dnsDraft
+	snifferDraft, snifferBase                        snifferDraft
+	dnsError, dnsStatus, snifferError, snifferStatus string
+	featureCacheAt                                   time.Time
+	featureKey                                       featureSignature
+	featureDNS                                       patch.DNSSettings
+	featureSniffer                                   patch.SnifferSettings
+	featureCacheError                                error
+	featureFileChecked                               time.Time
+	featureFileKey                                   featureSignature
+	featureBusy                                      bool
+	featureGeneration                                uint64
+}
+
+func (a *App) featureSignature() featureSignature {
 	key, _ := json.Marshal(a.ov)
-	profileID := ""
+	sig := featureSignature{overrides: string(key), config: a.cfgText, store: a.store}
 	if a.store != nil {
-		profileID = a.store.ActiveID()
+		sig.profileID = a.store.ActiveID()
+		sig.revision = a.store.Revision()
 	}
-	if string(key) == a.featureCacheKey && a.cfgText == a.featureCacheConfig &&
-		profileID == a.featureCacheProfile && time.Since(a.featureCacheAt) < time.Second {
+	// Poll metadata for external edits, never recompile YAML on a timer.
+	if sig.profileID != "" {
+		file := a.featureFileKey
+		if file.store != sig.store || file.profileID != sig.profileID || file.revision != sig.revision || time.Since(a.featureFileChecked) >= time.Second || a.featureCacheAt.IsZero() {
+			a.featureFileChecked = time.Now()
+			file = sig
+			if info, err := a.store.ContentInfo(sig.profileID); err == nil {
+				file.modified, file.size = info.ModTime(), info.Size()
+			} else {
+				file.missing = true
+			}
+			a.featureFileKey = file
+		}
+		sig.modified, sig.size, sig.missing = file.modified, file.size, file.missing
+	}
+	return sig
+}
+
+func (a *App) cacheFeatures(sig featureSignature, dns patch.DNSSettings, sniffer patch.SnifferSettings, err error) {
+	a.featureGeneration++
+	a.featureKey, a.featureCacheAt = sig, time.Now()
+	a.featureDNS, a.featureSniffer, a.featureCacheError = dns, sniffer, err
+}
+
+// Actions and editors need a synchronous, current answer. Only actual source
+// changes invalidate the cache; ordinary display sampling does not.
+func (a *App) effectiveFeatures() (patch.DNSSettings, patch.SnifferSettings, error) {
+	sig := a.featureSignature()
+	if !a.featureCacheAt.IsZero() && sig == a.featureKey {
 		return a.featureDNS, a.featureSniffer, a.featureCacheError
 	}
-	a.featureCacheAt = time.Now()
-	a.featureCacheKey, a.featureCacheConfig, a.featureCacheProfile = string(key), a.cfgText, profileID
+	dns, sniffer := patch.DefaultDNSSettings(), patch.DefaultSnifferSettings()
 	raw, err := a.configBytes()
-	if err != nil {
-		a.featureDNS, a.featureSniffer, a.featureCacheError = patch.DefaultDNSSettings(), patch.DefaultSnifferSettings(), err
-	} else {
-		a.featureDNS, a.featureSniffer, a.featureCacheError = patch.FeatureSettings(raw)
+	if err == nil {
+		dns, sniffer, err = patch.FeatureSettings(raw)
 	}
-	return a.featureDNS, a.featureSniffer, a.featureCacheError
+	a.cacheFeatures(sig, dns, sniffer, err)
+	return dns, sniffer, err
+}
+
+// Overview painting never compiles configuration. Snapshot mutable settings
+// before dispatch, and reject a result if its source changed while compiling.
+func (a *App) overviewFeatureSettings() (patch.DNSSettings, patch.SnifferSettings, error, bool) {
+	sig := a.featureSignature()
+	if !a.featureCacheAt.IsZero() && sig == a.featureKey {
+		return a.featureDNS, a.featureSniffer, a.featureCacheError, true
+	}
+	if !a.featureBusy {
+		var global patch.Overrides
+		_ = json.Unmarshal([]byte(sig.overrides), &global)
+		local := a.profileOverrides(sig.profileID)
+		a.featureBusy = true
+		generation := a.featureGeneration
+		go func() {
+			raw := []byte(sig.config)
+			var err error
+			if sig.profileID != "" {
+				raw, err = sig.store.Content(sig.profileID)
+			}
+			dns, sniffer := patch.DefaultDNSSettings(), patch.DefaultSnifferSettings()
+			if err == nil {
+				raw, err = patch.ApplyLayers(raw, global, local)
+			}
+			if err == nil {
+				dns, sniffer, err = patch.FeatureSettings(raw)
+			}
+			runOnMain(func() {
+				a.featureBusy = false
+				if a.ShuttingDown() {
+					return
+				}
+				if generation == a.featureGeneration && sig == a.featureSignature() {
+					a.cacheFeatures(sig, dns, sniffer, err)
+				}
+				a.invalidate()
+			})
+		}()
+	}
+	return a.featureDNS, a.featureSniffer, nil, false
 }
 
 func (a *App) resetDNSDraft() {
@@ -349,7 +427,7 @@ func (a *App) toggleNetworkFeature(isDNS, enabled bool) {
 // These rows complete the overview's shared network control group. Settings
 // remain available even while following the subscription.
 func (a *App) overviewFeatures(c *ui.Context) {
-	dns, sniffer, err := a.effectiveFeatures()
+	dns, sniffer, err, ready := a.overviewFeatureSettings()
 	customDNS := a.ov.DNS != nil
 	if a.store != nil {
 		customDNS = customDNS || a.profileOverrides(a.store.ActiveID()).DNS != nil
@@ -377,6 +455,9 @@ func (a *App) overviewFeatures(c *ui.Context) {
 			if err != nil {
 				status = tr("配置读取失败，请检查设置")
 			}
+			if !ready {
+				status = tr("正在读取配置…")
+			}
 			color := paletteFor(c).Muted
 			if err != nil {
 				color = paletteFor(c).Danger
@@ -393,7 +474,7 @@ func (a *App) overviewFeatures(c *ui.Context) {
 					a.page, a.settingsTab = "settings", feature.tab
 				})
 				enabled := feature.enabled
-				softSwitch(c, &enabled).Disabled(err != nil).Label(tr("概览") + feature.name + tr("开关")).
+				softSwitch(c, &enabled).Disabled(err != nil || !ready).Label(tr("概览") + feature.name + tr("开关")).
 					Tooltip(tr("切换后使用自定义设置；可在设置中恢复跟随配置")).OnChange(func() {
 					a.toggleNetworkFeature(feature.tab == 4, enabled)
 				})

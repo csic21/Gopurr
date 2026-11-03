@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -34,16 +35,24 @@ type Remote struct {
 	stream *http.Client // no timeout: traffic and logs are long-lived
 	call   *http.Client // short timeout for request/response
 
-	mu        sync.Mutex
-	logs      []core.LogLine
-	traffic   core.Sample
-	trafficAt time.Time
-	connsAt   time.Time
-	conns     int
-	lastErr   string
-	quiet     atomic.Bool
-	lastSeen  atomic.Int64 // successful authenticated responses or fresh traffic
-	pollWake  chan struct{}
+	mu                         sync.Mutex
+	logs                       []core.LogLine
+	traffic                    core.Sample
+	trafficAt                  time.Time
+	connsAt                    time.Time
+	conns                      int
+	lastErr                    string
+	quiet                      atomic.Bool
+	lastSeen                   atomic.Int64 // successful authenticated responses or fresh traffic
+	pollWake                   chan struct{}
+	countUnsupported           atomic.Bool
+	connectionsMu              sync.Mutex
+	connectionRows             []core.Conn
+	connectionRowsAt           time.Time
+	connectionRead             chan struct{}
+	connectionError            error
+	connectionGeneration       uint64
+	connectionResultGeneration uint64
 }
 
 type httpStatusError struct {
@@ -155,6 +164,8 @@ func (r *Remote) resetTransport() {
 		return
 	}
 	r.lastSeen.Store(0)
+	r.countUnsupported.Store(false)
+	r.invalidateConnections()
 	if t, ok := r.stream.Transport.(*http.Transport); ok {
 		t.CloseIdleConnections()
 	}
@@ -258,12 +269,9 @@ func (r *Remote) watchLogs() {
 // pollConnections keeps a live count without hammering the controller.
 func (r *Remote) pollConnections() {
 	for {
-		var out struct {
-			Connections []json.RawMessage `json:"connections"`
-		}
-		if err := r.request(http.MethodGet, "/connections", nil, &out); err == nil {
+		if count, err := r.connectionCount(); err == nil {
 			r.mu.Lock()
-			r.conns = len(out.Connections)
+			r.conns = count
 			r.connsAt = time.Now()
 			r.mu.Unlock()
 		}
@@ -274,6 +282,36 @@ func (r *Remote) pollConnections() {
 		}
 		timer.Stop()
 	}
+}
+
+func (r *Remote) connectionCount() (int, error) {
+	r.connectionsMu.Lock()
+	if !r.connectionRowsAt.IsZero() && time.Since(r.connectionRowsAt) < r.connectionPollInterval() {
+		count := len(r.connectionRows)
+		r.connectionsMu.Unlock()
+		return count, nil
+	}
+	r.connectionsMu.Unlock()
+	if !r.countUnsupported.Load() {
+		var out struct {
+			Count int `json:"count"`
+		}
+		err := r.request(http.MethodGet, "/gopurr/connections/count", nil, &out)
+		if err == nil {
+			return out.Count, nil
+		}
+		var status *httpStatusError
+		if !errors.As(err, &status) || (status.code != http.StatusNotFound && status.code != http.StatusForbidden) {
+			return 0, err
+		}
+		// Existing compatible services keep working without a reinstall.
+		r.countUnsupported.Store(true)
+	}
+	var out struct {
+		Connections []json.RawMessage `json:"connections"`
+	}
+	err := r.request(http.MethodGet, "/connections", nil, &out)
+	return len(out.Connections), err
 }
 
 func (r *Remote) connectionPollInterval() time.Duration {
@@ -322,7 +360,7 @@ func (r *Remote) Connections(limit int) []core.Conn {
 	return conns
 }
 
-func (r *Remote) ConnectionsWithError() ([]core.Conn, error) {
+func (r *Remote) readConnections(ctx context.Context) ([]core.Conn, error) {
 	var out struct {
 		Connections []struct {
 			ID       string `json:"id"`
@@ -344,7 +382,7 @@ func (r *Remote) ConnectionsWithError() ([]core.Conn, error) {
 			Start       time.Time `json:"start"`
 		} `json:"connections"`
 	}
-	if err := r.request(http.MethodGet, "/connections", nil, &out); err != nil {
+	if err := r.requestContext(ctx, r.call, http.MethodGet, "/connections", nil, &out); err != nil {
 		return nil, err
 	}
 	conns := make([]core.Conn, 0, len(out.Connections))
@@ -366,14 +404,26 @@ func (r *Remote) ConnectionsWithError() ([]core.Conn, error) {
 }
 
 func (r *Remote) CloseConnection(id string) error {
+	return r.CloseConnectionContext(context.Background(), id)
+}
+
+func (r *Remote) CloseConnectionContext(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("%s", localize.Text("连接缺少标识，请刷新后重试"))
 	}
-	return r.request(http.MethodDelete, "/connections/"+url.PathEscape(id), nil, nil)
+	err := r.requestContext(ctx, r.call, http.MethodDelete, "/connections/"+url.PathEscape(id), nil, nil)
+	if err == nil {
+		r.invalidateConnections()
+	}
+	return err
 }
 
 func (r *Remote) CloseAllConnections() error {
-	return r.request(http.MethodDelete, "/connections", nil, nil)
+	err := r.request(http.MethodDelete, "/connections", nil, nil)
+	if err == nil {
+		r.invalidateConnections()
+	}
+	return err
 }
 
 func (r *Remote) Groups() []core.Group {

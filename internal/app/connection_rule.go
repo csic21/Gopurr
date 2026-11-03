@@ -109,7 +109,7 @@ func (a *App) saveConnectionRule() {
 			a.connError = tr("规则已保存，断开原连接失败，请手动重试。")
 		} else {
 			a.notice = tr("规则已保存，原连接已断开；应用重新连接后可查看命中结果。")
-			a.refreshConnections()
+			a.requestConnections()
 		}
 	}
 }

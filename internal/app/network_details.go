@@ -11,7 +11,7 @@ import (
 func busyNetwork(a *App) bool {
 	a.bmu.Lock()
 	defer a.bmu.Unlock()
-	return a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging
+	return a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging || a.proxySelecting || a.proxySelectionActive.Load() > 0
 }
 
 func (a *App) networkDetails(c *ui.Context) {

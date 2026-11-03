@@ -179,6 +179,7 @@ func TestFeatureSettingsControlsAtBothSizes(t *testing.T) {
 func TestOverviewFeatureSwitchUsesEffectiveProfile(t *testing.T) {
 	a := extensionTestApp(t)
 	a.cfgText = "dns: {enable: true, nameserver: [9.9.9.9]}\nsniffer: {enable: false}\nrules: [\"MATCH,DIRECT\"]\n"
+	a.effectiveFeatures()
 	tr := ui.NewTester(a.overviewFeatures, 588, 240)
 	if err := tr.Click("概览域名嗅探开关"); err != nil {
 		t.Fatal(err)

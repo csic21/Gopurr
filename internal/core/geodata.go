@@ -42,13 +42,14 @@ type geoUpdateState struct {
 // The same lock covers config reloads and database commits. Network downloads
 // happen outside it, so switching profiles is never held up by a failed source.
 type geoUpdater struct {
-	mu        sync.Mutex
-	home      string
-	state     geoUpdateState
-	nextTry   time.Time
-	attempted string
-	wake      chan struct{}
-	refresh   func(context.Context, []geoDatabase) error
+	mu           sync.Mutex
+	configDigest string // guarded by mu, cleared by partial config changes
+	home         string
+	state        geoUpdateState
+	nextTry      time.Time
+	attempted    string
+	wake         chan struct{}
+	refresh      func(context.Context, []geoDatabase) error
 }
 
 func newGeoUpdater(home string) *geoUpdater {

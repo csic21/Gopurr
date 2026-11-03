@@ -38,6 +38,8 @@ func TestOverviewQuickSwitchAndRoutingModes(t *testing.T) {
 	a := subscriptionTestApp(t)
 	a.booted, a.ticking, a.page = true, true, "overview"
 	a.prefs.CloseOnSwitch = false // Scoped connection cleanup has separate controller tests.
+	a.effectiveFeatures()
+	finishSelection := proxySelectionTestMain(t, a)
 	tr := ui.NewTester(a.View, 840, 560)
 	tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
 	tr.Advance(200 * time.Millisecond)
@@ -50,6 +52,7 @@ func TestOverviewQuickSwitchAndRoutingModes(t *testing.T) {
 	if err := tr.Click("选择 日本 02"); err != nil {
 		t.Fatal(err)
 	}
+	finishSelection()
 	tr.Frame()
 	if a.showOverviewNodes || !tr.HasText("日本 02") {
 		t.Fatalf("selection not reflected: open=%v, notice=%q", a.showOverviewNodes, a.notice)

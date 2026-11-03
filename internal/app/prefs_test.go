@@ -539,6 +539,7 @@ func TestPrefsNetworkRollsBackWhenProxyAuthorizationIsCanceled(t *testing.T) {
 func fakeSettingsSystemProxy(t *testing.T, a *App, port int, cancelFirst bool) string {
 	t.Helper()
 	a.proxy = scriptedProxyFixture{}
+	a.proxyObservation = observeProxyFixture
 	binDir := t.TempDir()
 	logPath := filepath.Join(binDir, "proxy-call.txt")
 	scripts := map[string]string{

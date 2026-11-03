@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -20,6 +21,13 @@ type connectionState struct {
 	connSelected    core.Conn
 	showConn        bool
 	confirmCloseAll bool
+	connRefreshing  bool
+	connClosing     bool
+	connSearch      []string
+	connIndexedRows []core.Conn
+	connFiltered    []core.Conn
+	connFilterQuery string
+	connFilterReady bool
 }
 
 func filterConnections(rows []core.Conn, query string) []core.Conn {
@@ -38,34 +46,101 @@ func filterConnections(rows []core.Conn, query string) []core.Conn {
 }
 
 func (a *App) refreshConnections() {
-	rows, err := a.k.ConnectionsWithError()
+	rows, err := a.k.CachedConnections(context.Background())
+	a.acceptConnections(rows, err)
+}
+
+func (a *App) acceptConnections(rows []core.Conn, err error) {
 	a.connFetched = time.Now()
 	if err != nil {
 		a.connError = tr("读取连接失败: ") + err.Error()
 		return
 	}
 	a.connRows, a.connError = rows, ""
+	a.connFilterReady = false
+}
+
+// UI callbacks only schedule work. The cached kernel snapshot is also shared
+// with remote web readers, so opening both does not double the controller load.
+func (a *App) requestConnections() {
+	if a.connRefreshing || a.k == nil || a.ShuttingDown() {
+		return
+	}
+	a.connRefreshing = true
+	generation := a.networkGeneration.Load()
+	go func() {
+		rows, err := a.k.CachedConnections(context.Background())
+		search := connectionSearchText(rows)
+		runOnMain(func() {
+			a.connRefreshing = false
+			if a.ShuttingDown() {
+				return
+			}
+			if generation == a.networkGeneration.Load() {
+				a.acceptConnections(rows, err)
+				if err == nil {
+					a.connSearch, a.connIndexedRows = search, rows
+				}
+			} else {
+				a.connFetched = time.Time{}
+			}
+			a.invalidate()
+		})
+	}()
+}
+
+func connectionSearchText(rows []core.Conn) []string {
+	search := make([]string, len(rows))
+	for i, cn := range rows {
+		search[i] = strings.ToLower(strings.Join([]string{cn.Host, cn.Process, cn.ProcessPath, cn.SourceIP, cn.DestinationIP, cn.Rule, cn.RulePayload, cn.Chain, cn.Network}, " "))
+	}
+	return search
+}
+
+func (a *App) visibleConnections() []core.Conn {
+	rows := a.connRows
+	same := len(rows) == len(a.connIndexedRows) && (len(rows) == 0 || &rows[0] == &a.connIndexedRows[0])
+	if !same {
+		a.connSearch, a.connIndexedRows, a.connFilterReady = connectionSearchText(rows), rows, false
+	}
+	query := strings.ToLower(strings.TrimSpace(a.connQuery))
+	if query == "" {
+		return rows
+	}
+	if a.connFilterReady && a.connFilterQuery == query {
+		return a.connFiltered
+	}
+	filtered := make([]core.Conn, 0, len(rows))
+	for i, text := range a.connSearch {
+		if strings.Contains(text, query) {
+			filtered = append(filtered, rows[i])
+		}
+	}
+	a.connFiltered, a.connFilterQuery, a.connFilterReady = filtered, query, true
+	return filtered
 }
 
 func (a *App) connsPage(c *ui.Context) {
 	pal := paletteFor(c)
 	a.connList.KeepOffset = true
 	if time.Since(a.connFetched) >= 2*time.Second {
-		a.refreshConnections()
+		a.requestConnections()
 	}
-	rows := filterConnections(a.connRows, a.connQuery)
+	rows := a.visibleConnections()
 	a.pageHeader(c, tr("连接"), fmt.Sprintf(tr("%d 条活跃会话 · 显示 %d 条"), len(a.connRows), len(rows)), func() {
 		softButton(c, tr("断开全部…")).Disabled(len(a.connRows) == 0).OnClick(func() { a.confirmCloseAll = true })
 	})
 	ui.Row(c).FillWidth().Gap(8).Children(func() {
 		searchRow(c, &a.connQuery, tr("搜索主机、进程、IP、规则或链路")).Grow(1).MinWidth(0).Label(tr("搜索连接"))
-		softButton(c, tr("刷新")).OnClick(a.refreshConnections)
+		softButton(c, tr("刷新")).Disabled(a.connRefreshing).OnClick(a.requestConnections)
 	})
 	if a.connError != "" {
 		settingsFeedback(c, a.connError, true)
 	}
 	if len(rows) == 0 {
-		if a.connQuery != "" {
+		if a.connRefreshing && len(a.connRows) == 0 {
+			emptyListState(c, iconConns, tr("正在读取连接…"), tr("连接信息将在读取完成后显示。"), nil)
+		} else if a.connQuery != "" {
 			emptyListState(c, iconSearch, tr("没有匹配的连接"), tr("尝试主机名、进程名或 IP 地址。"), func() { a.connQuery = "" })
 		} else {
 			emptyListState(c, iconConns, tr("暂无连接"), tr("打开系统代理或 TUN 后，这里会实时出现会话。"), nil)
@@ -144,7 +219,36 @@ func (a *App) disconnectConnection(id string) {
 		return
 	}
 	a.showConn = false
-	a.refreshConnections()
+	a.requestConnections()
+}
+
+func (a *App) requestConnectionClose(id string, all bool) {
+	if a.connClosing || a.k == nil || a.ShuttingDown() {
+		return
+	}
+	a.connClosing = true
+	go func() {
+		var err error
+		if all {
+			err = a.k.CloseAllConnections()
+		} else {
+			err = a.k.CloseConnection(id)
+		}
+		runOnMain(func() {
+			a.connClosing = false
+			if a.ShuttingDown() {
+				return
+			}
+			if err != nil {
+				a.connError = tr("断开失败: ") + err.Error()
+			} else {
+				a.showConn, a.confirmCloseAll = false, false
+				a.connError = ""
+				a.requestConnections()
+			}
+			a.invalidate()
+		})
+	}()
 }
 
 func (a *App) connectionDialogs(c *ui.Context) {
@@ -152,7 +256,7 @@ func (a *App) connectionDialogs(c *ui.Context) {
 	width, _ := c.Size()
 	// When there is room, the inspector keeps the list available for choosing
 	// another connection. Small windows use a focused, scrollable modal.
-	if width < 1000 || len(filterConnections(a.connRows, a.connQuery)) == 0 {
+	if width < 1000 || len(a.visibleConnections()) == 0 {
 		softModal(c, "connection-detail", &a.showConn, func() {
 			ui.Column(c).Width(540).MaxWidth(540).Padding(20).Gap(12).Children(func() {
 				a.connectionDetails(c, false)
@@ -168,14 +272,7 @@ func (a *App) connectionDialogs(c *ui.Context) {
 			}
 			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 				softButton(c, tr("取消")).OnClick(func() { a.confirmCloseAll = false })
-				softPrimaryButton(c, tr("断开全部")).OnClick(func() {
-					if err := a.k.CloseAllConnections(); err != nil {
-						a.connError = tr("断开失败: ") + err.Error()
-						return
-					}
-					a.confirmCloseAll = false
-					a.refreshConnections()
-				})
+				softPrimaryButton(c, tr("断开全部")).Disabled(a.connClosing).OnClick(func() { a.requestConnectionClose("", true) })
 			})
 		})
 	})
@@ -226,7 +323,7 @@ func (a *App) connectionDetails(c *ui.Context, side bool) {
 		softButton(c, tr("复制主机名")).OnClick(func() { a.services().WriteClipboard(cn.Host) })
 		softButton(c, tr("创建规则…")).Disabled(len(connectionRuleChoices(cn)) == 0).OnClick(func() { a.openConnectionRule(cn) })
 		ui.Spacer(c)
-		softButton(c, tr("断开连接")).TextColor(pal.Danger).Disabled(cn.ID == "").OnClick(func() { a.disconnectConnection(cn.ID) })
+		softButton(c, tr("断开连接")).TextColor(pal.Danger).Disabled(cn.ID == "" || a.connClosing).OnClick(func() { a.requestConnectionClose(cn.ID, false) })
 	})
 }
 func connectionAddress(ip, port string) string {

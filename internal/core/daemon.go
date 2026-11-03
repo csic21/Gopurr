@@ -142,6 +142,7 @@ func RunDaemon(opts DaemonOptions) error {
 		time.Sleep(10 * time.Millisecond)
 	}
 	geo := newGeoUpdater(C.Path.HomeDir())
+	geo.configDigest = ConfigDigest(raw)
 	restartRequested := make(chan struct{}, 1)
 	var restart []func()
 	if process.UID() == 0 && opts.ParentPID == 0 {

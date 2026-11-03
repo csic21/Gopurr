@@ -13,7 +13,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 	"gopurr/internal/buildinfo"
-	"gopurr/internal/sysproxy"
 	"gopurr/internal/update"
 )
 
@@ -26,7 +25,7 @@ func (a *App) UpdateProxyURL() *url.URL {
 		}
 		return &url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(port))}
 	}
-	if state, err := sysproxy.Current(); err == nil && state.Enabled {
+	if state, err := a.currentSystemProxy(); err == nil && state.Enabled {
 		if proxy := proxyURL(state.Server, state.Port); proxy != nil {
 			return proxy
 		}

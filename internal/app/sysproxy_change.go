@@ -9,6 +9,13 @@ import (
 	"gopurr/internal/sysproxy"
 )
 
+func (a *App) currentSystemProxy() (sysproxy.State, error) {
+	if a.proxyObservation != nil {
+		return a.proxyObservation()
+	}
+	return sysproxy.Current()
+}
+
 // Workers receive immutable inputs. Only commitProxyChange touches UI state.
 type proxyChange struct {
 	on, applied bool
@@ -87,7 +94,7 @@ func (a *App) proxyChangeWork(on bool) proxyChange {
 		previous = &copy
 	}
 	return proxyChange{on: on, applied: a.sysApplied, port: a.mixedPort(), previous: previous,
-		controller: a.proxyController(), current: sysproxy.Current, runtime: a.k.Runtime}
+		controller: a.proxyController(), current: a.currentSystemProxy, runtime: a.k.Runtime}
 }
 
 func (a *App) commitProxyChange(on bool, r proxyChangeResult) {
@@ -200,7 +207,7 @@ func (a *App) toggleSystemProxy(after func(error)) {
 	a.bmu.Unlock()
 	a.networkGeneration.Add(1)
 	go func() {
-		current, err := sysproxy.Current()
+		current, err := a.currentSystemProxy()
 		runOnMain(func() {
 			a.bmu.Lock()
 			a.sysBusy = false

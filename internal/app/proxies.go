@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -22,15 +23,20 @@ type proxyState struct {
 	listIdentity  string
 
 	// Measurement state is protected by App.bmu.
-	testCancel   context.CancelFunc
-	testRun      uint64
-	testDone     int
-	testTotal    int
-	testOK       int
-	testTargets  map[string]bool
-	delayErrors  map[string]string
-	testFinished time.Time
-	testSummary  string
+	testCancel                            context.CancelFunc
+	testRun                               uint64
+	testDone                              int
+	testTotal                             int
+	testOK                                int
+	testTargets                           map[string]bool
+	delayErrors                           map[string]string
+	testFinished                          time.Time
+	testSummary                           string
+	proxySelecting                        bool       // protected by bmu
+	proxySelectionMu                      sync.Mutex // serializes desktop and remote switches
+	proxyPendingGroup, proxyPendingMember string
+	proxyPendingAfter                     func(bool)
+	proxySelectionActive                  atomic.Int32
 }
 
 var routeTokens = []string{"rule", "global", "direct"}
@@ -305,9 +311,11 @@ func (a *App) nodeRowAction(c *ui.Context, group core.Group, member string, sele
 		if manualGroup(group) {
 			choice = ui.ButtonBase(c).Role(ui.RoleRadio).Checked(on).Label(tr("选择 ") + member).
 				Cursor(ui.CursorPointer).OnClick(func() {
-				if a.selectProxy(group.Name, member) && selected != nil {
-					selected()
-				}
+				a.requestProxySelection(group.Name, member, func(ok bool) {
+					if ok && selected != nil {
+						selected()
+					}
+				})
 			})
 		} else {
 			choice = ui.Row(c)
@@ -358,41 +366,103 @@ func (a *App) nodeRowAction(c *ui.Context, group core.Group, member string, sele
 	})
 }
 
-// selectProxy is shared by the window and tray so failures and cache updates
-// behave the same when the main window has been released.
+// The synchronous path is retained for callers that need an action result.
+// Window and tray callbacks dispatch the same work without blocking painting.
 func (a *App) selectProxy(group, member string) bool {
-	var old []core.Conn
-	var snapshotErr error
-	changed := true
-	for _, g := range a.k.Groups() {
-		if g.Name == group {
-			changed = g.Now != member
-			break
-		}
-	}
-	if changed && a.Prefs().CloseOnSwitch {
-		old, snapshotErr = a.k.ConnectionsWithError()
-	}
-	if err := a.k.Select(group, member); err != nil {
+	if err := a.webSelect(group, member); err != nil {
 		a.notice = tr("切换节点失败: ") + err.Error()
 		a.invalidate()
 		return false
 	}
-	a.notice = ""
-	if snapshotErr != nil {
-		a.notice = tr("节点已切换，但无法读取旧连接: ") + snapshotErr.Error()
-	}
-	for _, cn := range old {
-		if !containsString(cn.Chains, group) {
-			continue
-		}
-		if err := a.k.CloseConnection(cn.ID); err != nil {
-			a.notice = tr("节点已切换，部分旧连接未能断开: ") + err.Error()
-		}
-	}
-	a.connFetched = time.Time{}
-	a.invalidate()
 	return true
+}
+
+func (a *App) requestProxySelection(group, member string, after func(bool)) {
+	a.bmu.Lock()
+	if a.shutdownPending.Load() {
+		a.bmu.Unlock()
+		return
+	}
+	if a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging || a.subBusy {
+		a.bmu.Unlock()
+		a.notice = tr("网络操作进行中，请稍后重试")
+		if after != nil {
+			after(false)
+		}
+		a.invalidate()
+		return
+	}
+	if a.proxySelecting {
+		a.proxyPendingGroup, a.proxyPendingMember, a.proxyPendingAfter = group, member, after
+		a.bmu.Unlock()
+		return
+	}
+	a.proxySelecting = true
+	a.bmu.Unlock()
+	go func() {
+		err := a.webSelect(group, member)
+		runOnMain(func() {
+			if err != nil {
+				a.notice = tr("切换节点失败: ") + err.Error()
+			}
+			if after != nil && !a.ShuttingDown() {
+				after(err == nil)
+			}
+			a.bmu.Lock()
+			a.proxySelecting = false
+			group, member, next := a.proxyPendingGroup, a.proxyPendingMember, a.proxyPendingAfter
+			a.proxyPendingGroup, a.proxyPendingMember, a.proxyPendingAfter = "", "", nil
+			a.bmu.Unlock()
+			a.invalidate()
+			if group != "" {
+				a.requestProxySelection(group, member, next)
+			}
+		})
+	}()
+}
+
+// Cleanup has a fixed concurrency budget even when a group owns thousands of
+// sessions. Other groups' connections are never included in the job queue.
+func closeProxyConnections(ctx context.Context, rows []core.Conn, group string, closeConnection func(string) error) int {
+	var ids []string
+	for _, row := range rows {
+		if containsString(row.Chains, group) {
+			ids = append(ids, row.ID)
+		}
+	}
+	workers := min(8, len(ids))
+	jobs := make(chan string)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	failed := 0
+	for i := 0; i < workers; i++ {
+		wg.Go(func() {
+			for id := range jobs {
+				if ctx.Err() != nil || closeConnection(id) != nil {
+					mu.Lock()
+					failed++
+					mu.Unlock()
+				}
+			}
+		})
+	}
+	skipped := 0
+dispatch:
+	for i, id := range ids {
+		if ctx.Err() != nil {
+			skipped = len(ids) - i
+			break
+		}
+		select {
+		case jobs <- id:
+		case <-ctx.Done():
+			skipped = len(ids) - i
+			break dispatch
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	return failed + skipped
 }
 
 func latencyText(d uint16) string {

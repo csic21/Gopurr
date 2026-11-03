@@ -247,6 +247,7 @@ func TestProductFeatureControlsFitMinimumWindow(t *testing.T) {
 func TestConnectionInspectorKeepsListInteractiveAndSurvivesResize(t *testing.T) {
 	a := subscriptionTestApp(t)
 	a.booted, a.ticking, a.page = true, true, "conns"
+	a.refreshConnections()
 	tr := ui.NewTester(a.View, 1060, 720)
 	tr.SetTitleBar(ui.TitleBar{Height: 38, Left: 88})
 	tr.Advance(200 * time.Millisecond)

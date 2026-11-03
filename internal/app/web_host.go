@@ -198,7 +198,7 @@ func (h webHost) Connections(ctx context.Context) ([]remote.Connection, error) {
 	if a == nil || a.k == nil {
 		return nil, errors.New(tr("内核客户端没有初始化"))
 	}
-	conns, err := a.k.ConnectionsWithError()
+	conns, err := a.k.CachedConnections(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -383,6 +383,16 @@ func uniqueNodeNames(names []string, groups map[string]bool) []string {
 // webSelect mirrors the desktop action without blocking the UI thread on the
 // controller request or on closing each previous connection.
 func (a *App) webSelect(group, member string) error {
+	a.proxySelectionActive.Add(1)
+	defer a.proxySelectionActive.Add(-1)
+	a.proxySelectionMu.Lock()
+	defer a.proxySelectionMu.Unlock()
+	a.bmu.Lock()
+	busy := a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging || a.subBusy || a.shutdownPending.Load()
+	a.bmu.Unlock()
+	if busy {
+		return errors.New(tr("网络操作进行中，请稍后重试"))
+	}
 	changed := true
 	for _, item := range a.k.Groups() {
 		if item.Name == group {
@@ -398,25 +408,19 @@ func (a *App) webSelect(group, member string) error {
 	if err := a.k.Select(group, member); err != nil {
 		return err
 	}
-	var closeErrs []string
-	for _, conn := range old {
-		if !containsString(conn.Chains, group) {
-			continue
-		}
-		if err := a.k.CloseConnection(conn.ID); err != nil {
-			closeErrs = append(closeErrs, err.Error())
-		}
-	}
+	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	failed := closeProxyConnections(cleanup, old, group, func(id string) error { return a.k.CloseConnectionContext(cleanup, id) })
+	cancel()
 	runOnMain(func() {
 		a.notice = ""
 		if snapshotErr != nil {
 			a.notice = tr("节点已切换，但无法读取旧连接: ") + snapshotErr.Error()
 		}
-		if len(closeErrs) != 0 {
+		if failed != 0 {
 			if a.notice != "" {
 				a.notice += "；"
 			}
-			a.notice += fmt.Sprintf(tr("节点已切换，%d 条旧连接未能断开"), len(closeErrs))
+			a.notice += fmt.Sprintf(tr("节点已切换，%d 条旧连接未能断开"), failed)
 		}
 		a.connFetched = time.Time{}
 		a.invalidate()

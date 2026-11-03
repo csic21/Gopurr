@@ -1695,5 +1695,8 @@
   "默认关闭；通过浏览器远程查看与调整": "Off by default. View and adjust Gopurr from a browser.",
   "远程访问服务尚未就绪": "Remote access is not ready yet.",
   "通过组网访问还需在「组网 → 本机访问」中开放此端口；修改端口后需重新开放。": "To use Mesh access, open this port in Mesh → Local access. Reopen it after changing the port.",
-  "远程 Web 控制台正在使用端口 %d": "The remote web console is using port %d."
+  "远程 Web 控制台正在使用端口 %d": "The remote web console is using port %d.",
+  "正在读取连接…": "Loading connections…",
+  "连接信息将在读取完成后显示。": "Connection details will appear when loading finishes.",
+  "正在读取配置…": "Loading configuration…"
 }

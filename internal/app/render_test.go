@@ -179,6 +179,7 @@ func TestRenderPages(t *testing.T) {
 		}},
 		{"software-update-error", func() { a.page = "settings"; a.settingsTab = 3; fixtureSoftwareUpdate(t, a, update.Failed) }},
 		{"overview", func() { a.page = "overview" }},
+		{"overview-loading", func() { a.page = "overview"; a.featureBusy = true; a.featureCacheAt = time.Time{} }},
 		{"overview-live", func() { a.page = "overview"; fixtureOverviewTraffic(a) }},
 		{"overview-stale", func() {
 			a.page = "overview"
@@ -416,6 +417,7 @@ func TestRenderPages(t *testing.T) {
 		{"mesh-long-name", func() { fixtureMesh(a); a.meshQuery = "工作站" }},
 		{"conns-filtered", func() { a.page = "conns"; a.refreshConnections(); a.connQuery = "Browser" }},
 		{"conns-empty", func() { a.page = "conns"; a.connQuery = "no-match.example" }},
+		{"conns-loading", func() { a.page = "conns"; a.connRows = nil; a.connRefreshing = true; a.connFetched = time.Now() }},
 		{"connection-detail", func() { a.page = "conns"; a.refreshConnections(); a.connSelected = a.connRows[0]; a.showConn = true }},
 		{"connection-error", func() {
 			a.page = "conns"
@@ -716,7 +718,17 @@ func TestRenderPages(t *testing.T) {
 								t.Fatal(err)
 							}
 						}
+						a.connRefreshing = false
 						shot.setup()
+						if a.page == "conns" && shot.name != "conns-loading" {
+							// Resolve the asynchronous data source before static rendering.
+							feedback := a.connError
+							a.refreshConnections()
+							a.connError = feedback
+						}
+						if a.page == "overview" && shot.name != "overview-loading" {
+							a.effectiveFeatures()
+						}
 						width, height := size[0], size[1]
 						if width == 840 {
 							page += "-compact"
@@ -1152,6 +1164,11 @@ func startFakeCore(t *testing.T, dir, secret string) {
 			{"id":"conn-npm","metadata":{"host":"registry.npmjs.org","network":"tcp","process":"node"},"rule":"Match","chains":["节点选择","日本 02"],"upload":900,"download":2345111,"start":"2026-10-27T13:00:04+08:00"},
 			{"id":"conn-long","metadata":{"host":"a-very-long-service-name.api.production.example.internal.example.com","network":"tcp","process":"Example Application With A Long Name"},"rule":"DomainSuffix","chains":["手动选择 · 工作与家庭共用的长名称策略组","香港 01 · 低延迟优选线路"],"upload":1234567,"download":98765432,"start":"2026-10-27T13:00:05+08:00"}
 		]}`))
+	})
+	mux.HandleFunc("/gopurr/connections/count", func(w http.ResponseWriter, r *http.Request) {
+		if auth(w, r) {
+			_, _ = w.Write([]byte(`{"count":4}`))
+		}
 	})
 	mux.HandleFunc("/traffic", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {

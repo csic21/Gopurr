@@ -311,7 +311,7 @@ func TestProxyAuthorizationCancellationDoesNotStartASession(t *testing.T) {
 func TestProxyRestoreFixesLeftoverProxyWithoutAuthorization(t *testing.T) {
 	dir, calls := proxyFixture(t, "Enabled: Yes\\nServer: 127.0.0.1\\nPort: 7890\\n")
 	t.Setenv("PATH", dir)
-	c := &helperController{open: func() (net.Conn, error) {
+	c := &helperController{observe: func() (State, error) { return currentUsing(run) }, open: func() (net.Conn, error) {
 		t.Fatal("restoring a leftover proxy must not ask for administration")
 		return nil, nil
 	}}
@@ -333,7 +333,7 @@ func TestProxyRestoreFixesLeftoverProxyWithoutAuthorization(t *testing.T) {
 func TestProxyRestoreReinstatesPreviousProxyWithoutAuthorization(t *testing.T) {
 	dir, calls := proxyFixture(t, "Enabled: Yes\\nServer: 127.0.0.1\\nPort: 7890\\n")
 	t.Setenv("PATH", dir)
-	c := &helperController{open: func() (net.Conn, error) {
+	c := &helperController{observe: func() (State, error) { return currentUsing(run) }, open: func() (net.Conn, error) {
 		t.Fatal("restoring a leftover proxy must not ask for administration")
 		return nil, nil
 	}}
@@ -349,7 +349,7 @@ func TestProxyRestoreReinstatesPreviousProxyWithoutAuthorization(t *testing.T) {
 func TestProxyRestoreLeavesAnotherClientsSettingsAlone(t *testing.T) {
 	dir, calls := proxyFixture(t, "Enabled: Yes\\nServer: 127.0.0.1\\nPort: 9090\\n")
 	t.Setenv("PATH", dir)
-	c := &helperController{open: func() (net.Conn, error) {
+	c := &helperController{observe: func() (State, error) { return currentUsing(run) }, open: func() (net.Conn, error) {
 		t.Fatal("restore must not authorize")
 		return nil, nil
 	}}

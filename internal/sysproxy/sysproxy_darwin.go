@@ -85,6 +85,9 @@ func serviceForDeviceUsing(command commandRunner, device string) (string, error)
 
 // Current observes every proxy protocol and automatic proxy setting.
 func Current() (State, error) {
+	if observer, err := loadProxyObserver(); err == nil {
+		return observer.current()
+	}
 	return currentUsing(run)
 }
 

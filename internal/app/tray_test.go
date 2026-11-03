@@ -107,8 +107,11 @@ func TestTrayFailuresRestoreChecksAndShowErrors(t *testing.T) {
 		t.Fatal("rejected mode change left an incorrect check")
 	}
 	group := findTrayItem(t, items, "select-node").Submenu[0]
+	finishSelection := proxySelectionTestMain(t, a)
 	clickTrayItem(t, group.Submenu[1])
-	if group.Submenu[1].IsChecked() || !group.Submenu[0].IsChecked() || a.page != "proxies" || !strings.Contains(a.notice, "切换节点失败") {
+	finishSelection()
+	updated := a.TrayMenu(openWindow).ItemByID("select-node").Submenu[0]
+	if updated.Submenu[1].IsChecked() || !updated.Submenu[0].IsChecked() || a.page != "proxies" || !strings.Contains(a.notice, "切换节点失败") {
 		t.Fatal("rejected node selection did not restore the original selection")
 	}
 }
@@ -144,10 +147,12 @@ func TestTrayNodesAndModesRoundTrip(t *testing.T) {
 		}
 	}
 	selectedName := manual.Submenu[1].ToolTip
+	finishSelection := proxySelectionTestMain(t, a)
 	if !strings.HasSuffix(manual.Submenu[1].Label, "…") || utf8.RuneCountInString(manual.Submenu[1].Label) > 32 {
 		t.Fatal("long node label was not bounded")
 	}
 	clickTrayItem(t, manual.Submenu[1])
+	finishSelection()
 	controller.mu.Lock()
 	selection := append([]string(nil), controller.selected...)
 	controller.mu.Unlock()
@@ -366,6 +371,7 @@ func newTrayTestApp(t *testing.T) (*App, *trayTestController) {
 func fakeTraySystemProxy(t *testing.T, a *App, port int) string {
 	t.Helper()
 	a.proxy = scriptedProxyFixture{}
+	a.proxyObservation = observeProxyFixture
 	if runtime.GOOS != "darwin" {
 		return ""
 	}

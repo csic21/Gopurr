@@ -124,7 +124,7 @@ rules: ["MATCH,DIRECT"]
 	t.Run("reject_missing_wrong_and_subscription_secrets", func(t *testing.T) {
 		for _, secret := range []string{"", "wrong", "subscription-secret"} {
 			for _, operation := range []struct{ method, path, body string }{
-				{"GET", "/version", ""}, {"GET", "/configs", ""}, {"GET", "/gopurr/runtime", ""}, {"GET", "/logs", ""}, {"GET", "/debug/pprof/", ""},
+				{"GET", "/version", ""}, {"GET", "/configs", ""}, {"GET", "/gopurr/runtime", ""}, {"GET", "/gopurr/connections/count", ""}, {"GET", "/logs", ""}, {"GET", "/debug/pprof/", ""},
 				{"PATCH", "/configs", `{"mode":"direct"}`}, {"PUT", "/configs", `{"payload":"mode: direct"}`},
 				{"DELETE", "/connections", ""}, {"POST", "/upgrade", ""},
 				{"POST", "/gopurr/restart", ""}, {"CONNECT", "/gopurr/system-proxy", ""},
@@ -148,12 +148,27 @@ rules: ["MATCH,DIRECT"]
 		if code != 200 || json.Unmarshal(data, &status) != nil || status.ProxyReady || status.TunReady {
 			t.Fatalf("disabled traffic paths reported ready: %d %s", code, data)
 		}
+		if status.ConfigDigest != core.ConfigDigest([]byte(raw)) {
+			t.Fatal("startup config fingerprint missing")
+		}
+		if code, data := request("GET", "/gopurr/connections/count", opts.Secret, ""); code != 200 || len(data) > 128 {
+			t.Fatal("summary is not a bounded authenticated response")
+		}
 		if code, data := request("PATCH", "/configs", opts.Secret, `{"mode":"direct"}`); code != 204 {
 			t.Fatalf("patch: %d %s", code, data)
+		}
+		_, data = request("GET", "/gopurr/runtime", opts.Secret, "")
+		status = core.RuntimeStatus{}
+		if json.Unmarshal(data, &status) != nil || status.ConfigDigest != "" {
+			t.Fatal("partial config change retained an obsolete fingerprint")
 		}
 		body, _ := json.Marshal(map[string]string{"payload": raw})
 		if code, data := request("PUT", "/configs?force=true", opts.Secret, string(body)); code != 204 {
 			t.Fatalf("reload: %d %s", code, data)
+		}
+		_, data = request("GET", "/gopurr/runtime", opts.Secret, "")
+		if json.Unmarshal(data, &status) != nil || status.ConfigDigest != core.ConfigDigest([]byte(raw)) {
+			t.Fatal("reload fingerprint describes rewritten YAML instead of the accepted payload")
 		}
 		if code, _ := request("GET", "/version", "", ""); code != 401 {
 			t.Fatal("reload removed authentication")

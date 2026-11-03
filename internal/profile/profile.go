@@ -75,6 +75,7 @@ type Store struct {
 	Active   string    `json:"active"`
 	proxyURL func() *url.URL
 	last     string // last error from a background refresh
+	revision uint64 // successful commits; never persisted
 }
 
 // Open loads (or creates) the store under dir.
@@ -118,7 +119,30 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	return securefs.WriteFile(filepath.Join(s.dir, "profiles.json"), b, 0600)
+	if err := securefs.WriteFile(filepath.Join(s.dir, "profiles.json"), b, 0600); err != nil {
+		return err
+	}
+	s.revision++
+	return nil
+}
+
+// Revision lets readers invalidate derived configuration without parsing YAML.
+func (s *Store) Revision() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.revision
+}
+
+// ContentInfo detects edits made outside the app without reading the YAML.
+func (s *Store) ContentInfo(id string) (os.FileInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.Items {
+		if p.ID == id {
+			return os.Stat(filepath.Join(s.dir, "profiles", p.File))
+		}
+	}
+	return nil, errors.New(localize.Text("没有这个订阅"))
 }
 
 // List returns the profiles in a stable order.

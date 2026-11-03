@@ -24,7 +24,7 @@ func (a *App) TrayMenu(openWindow func()) *mygo.Menu {
 			a.ov.Mode = a.modeToken
 		}
 		if !busyNetwork(a) {
-			if st, err := sysproxy.Current(); err == nil && st.Supported {
+			if st, err := a.currentSystemProxy(); err == nil && st.Supported {
 				a.sysState = st
 				a.sysApplied = ownsProxy(st, a.mixedPort())
 				a.sysOn = a.sysApplied
@@ -222,12 +222,11 @@ func (a *App) trayNodeItems(running bool, groups []core.Group, busy bool, openPa
 					Label: trayLabel(member, 32), ToolTip: member, Type: mygo.MenuItemRadio,
 					Checked: member == group.Now, Disabled: busy || !manualGroup(group),
 					Click: func(*mygo.MenuItem, *mygo.Window) {
-						if !a.selectProxy(group.Name, member) {
-							for _, node := range nodes {
-								node.SetChecked(node.ToolTip == group.Now)
+						a.requestProxySelection(group.Name, member, func(ok bool) {
+							if !ok {
+								openPage("proxies")
 							}
-							openPage("proxies")
-						}
+						})
 					},
 				})
 			}

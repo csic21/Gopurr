@@ -53,6 +53,7 @@ type helperController struct {
 	journal        string
 	watcherStarted bool
 	watch          func(string) error
+	observe        func() (State, error)
 }
 
 func NewController() Controller { return &helperController{open: startProxyHelper} }
@@ -158,7 +159,11 @@ func (c *helperController) Restore(port int, previous *State) error {
 	// from an earlier run has no session to restore it. The signed-in
 	// administrator can still change these settings without a password, which
 	// keeps quitting from deadlocking on a missing authorization.
-	current, err := Current()
+	observe := c.observe
+	if observe == nil {
+		observe = Current
+	}
+	current, err := observe()
 	if err != nil {
 		return err
 	}

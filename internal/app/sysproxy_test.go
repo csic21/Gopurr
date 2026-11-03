@@ -47,6 +47,27 @@ func (scriptedProxyFixture) Restore(_ int, previous *sysproxy.State) error {
 }
 func (scriptedProxyFixture) Close() error { return nil }
 
+func observeProxyFixture() (sysproxy.State, error) {
+	output, err := exec.Command("networksetup", "-getwebproxy", "Wi-Fi").Output()
+	st := sysproxy.State{Supported: true, Service: "Wi-Fi", ProtocolsKnown: true}
+	for _, line := range strings.Split(string(output), "\n") {
+		key, value, _ := strings.Cut(line, ":")
+		value = strings.TrimSpace(value)
+		switch key {
+		case "Enabled":
+			st.Enabled = value == "Yes"
+		case "Server":
+			st.Server = value
+		case "Port":
+			st.Port, _ = strconv.Atoi(value)
+		}
+	}
+	for i := range st.Protocols {
+		st.Protocols[i] = sysproxy.Endpoint{Enabled: st.Enabled, Server: st.Server, Port: st.Port}
+	}
+	return st, err
+}
+
 func runProxyFixture(script string) error {
 	output, err := exec.Command("osascript", "-e", script).CombinedOutput()
 	if err != nil && strings.Contains(string(output), "canceled") {
