@@ -3,10 +3,16 @@
 package sysproxy
 
 import (
-	"github.com/ebitengine/purego"
 	"os"
+	"os/exec"
 	"reflect"
+	"runtime"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/ebitengine/purego"
 )
 
 func TestNativeProxyObserverPreservesDisabledProtocolsAndAutomaticSettings(t *testing.T) {
@@ -66,6 +72,59 @@ func TestNativeProxyObserverMatchesReadOnlySystemCommands(t *testing.T) {
 	}
 	if got != want {
 		t.Fatal("native and command observations differ (settings omitted from output)")
+	}
+}
+
+// Go's heap accounting cannot see the native temporary objects created by
+// SystemConfiguration. Run this read-only regression with the other host checks.
+func TestNativeProxyObserverReleasesTemporaryObjects(t *testing.T) {
+	if os.Getenv("GOPURR_TEST_PROXY_OBSERVE") != "1" {
+		t.Skip("opt-in read-only host observation")
+	}
+	a, err := loadProxyObserver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	// Bound any leaked objects even when checking an unfixed implementation.
+	pool := a.poolPush()
+	defer a.poolPop(pool)
+	observe := func(n int) {
+		t.Helper()
+		for i := 0; i < n; i++ {
+			if _, err := a.current(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	objects := func() int {
+		t.Helper()
+		debug.FreeOSMemory()
+		out, err := exec.Command("/usr/bin/heap", "-s", strconv.Itoa(os.Getpid())).CombinedOutput()
+		if err != nil {
+			t.Fatalf("native heap inspection failed: %v", err)
+		}
+		count := 0
+		for line := range strings.SplitSeq(string(out), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 4 && fields[3] == "__NSArrayReverseEnumerator" {
+				n, err := strconv.Atoi(fields[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				count += n
+			}
+		}
+		return count
+	}
+	observe(100) // warm up native framework caches before taking the baseline
+	before := objects()
+	observe(1000)
+	after := objects()
+	t.Logf("native temporary enumerators: %d -> %d after 1000 observations", before, after)
+	if after > before+16 {
+		t.Fatalf("native temporary objects accumulate: %d -> %d", before, after)
 	}
 }
 

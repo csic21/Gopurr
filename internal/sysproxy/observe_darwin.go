@@ -4,6 +4,7 @@ package sysproxy
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -15,6 +16,8 @@ import (
 // protocols. Effective global proxies alone lose the values needed by recovery.
 // No preferences are written and no native callbacks outlive this call.
 type proxyObserver struct {
+	poolPush          func() uintptr
+	poolPop           func(uintptr)
 	release           func(uintptr)
 	typeID            func(uintptr) uintptr
 	stringType        func() uintptr
@@ -57,7 +60,13 @@ var loadProxyObserver = sync.OnceValues(func() (api *proxyObserver, err error) {
 	if err != nil {
 		return nil, err
 	}
+	objc, err := purego.Dlopen("/usr/lib/libobjc.A.dylib", purego.RTLD_NOW|purego.RTLD_LOCAL)
+	if err != nil {
+		return nil, err
+	}
 	a := &proxyObserver{}
+	purego.RegisterLibFunc(&a.poolPush, objc, "objc_autoreleasePoolPush")
+	purego.RegisterLibFunc(&a.poolPop, objc, "objc_autoreleasePoolPop")
 	for _, binding := range []struct {
 		fn   any
 		name string
@@ -127,6 +136,15 @@ func (a *proxyObserver) number(value uintptr) int64 {
 }
 
 func (a *proxyObserver) current() (State, error) {
+	// SystemConfiguration creates autoreleased Objective-C objects internally,
+	// even though its public API uses Core Foundation ownership. The health
+	// watchdog runs off the AppKit thread, with no event-loop pool to drain them.
+	// A pool is thread-local, so keep this goroutine on its thread until it drains.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	pool := a.poolPush()
+	defer a.poolPop(pool)
+
 	st := State{Supported: true}
 	name := a.stringCreate(0, "Gopurr proxy observation", cfUTF8)
 	defer a.release(name)
