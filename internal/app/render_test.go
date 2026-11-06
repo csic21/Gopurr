@@ -104,6 +104,17 @@ func TestRenderPages(t *testing.T) {
 			a.aggregationError = text("筛选后没有节点，请调整聚合来源或筛选条件")
 		}},
 		{"proxy-editor-nodes", func() { fixtureProxyEditor(t, a); a.proxyEditorNodes["香港 01"].Name = "香港 01 · 工作线路" }},
+		{"proxy-editor-new-node", func() {
+			fixtureProxyEditor(t, a)
+			a.addProxyEditorNode()
+			f := a.proxyEditorNodes[a.proxyEditorNode]
+			f.Server, f.Password = "proxy.example.com", "render-fixture-secret"
+		}},
+		{"proxy-editor-advanced", func() {
+			fixtureProxyEditor(t, a)
+			a.proxyEditorNode, a.proxyEditorAdvanced = "日本 02", true
+			a.proxyEditorNodes["日本 02"].Advanced = "sni: japan.example.com\nalpn: [h2, http/1.1]\nskip-cert-verify: false\n"
+		}},
 		{"proxy-editor-groups", func() { fixtureProxyEditor(t, a); a.proxyEditorTab = 1 }},
 		{"proxy-editor-new-group", func() {
 			fixtureProxyEditor(t, a)

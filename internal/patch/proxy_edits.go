@@ -23,25 +23,29 @@ type ProxyEdits struct {
 }
 
 type NodeEdit struct {
-	Source  string   `json:"source"`
-	Aliases []string `json:"aliases,omitempty"`
-	Name    *string  `json:"name,omitempty"`
-	Server  *string  `json:"server,omitempty"`
-	Port    *int     `json:"port,omitempty"`
+	Source  string         `json:"source"`
+	LocalID string         `json:"localId,omitempty"` // stable identity for locally added nodes
+	Aliases []string       `json:"aliases,omitempty"`
+	Name    *string        `json:"name,omitempty"`
+	Server  *string        `json:"server,omitempty"`
+	Port    *int           `json:"port,omitempty"`
+	Options map[string]any `json:"options,omitempty"` // recursive merge patch; null removes a key
 }
 
 type GroupEdit struct {
-	Source  string    `json:"source,omitempty"` // empty for a locally added group
-	Aliases []string  `json:"aliases,omitempty"`
-	Name    *string   `json:"name,omitempty"`
-	Type    *string   `json:"type,omitempty"`
-	Members *[]string `json:"members,omitempty"`
-	Delete  bool      `json:"delete,omitempty"`
+	Source        string    `json:"source,omitempty"` // empty for a locally added group
+	Aliases       []string  `json:"aliases,omitempty"`
+	Name          *string   `json:"name,omitempty"`
+	Type          *string   `json:"type,omitempty"`
+	Members       *[]string `json:"members,omitempty"`
+	AppendMembers []string  `json:"appendMembers,omitempty"` // keep inherited members following subscription updates
+	Delete        bool      `json:"delete,omitempty"`
 }
 
 type ProxyNode struct {
 	Name, Type, Server string
 	Port               int
+	Options            map[string]any
 }
 type ProxyGroup struct {
 	Name, Type string
@@ -109,7 +113,11 @@ func ReadProxyEditor(raw []byte) ([]ProxyNode, []ProxyGroup, error) {
 		m := entry.(map[string]any)
 		port, _ := strconv.Atoi(fmt.Sprint(m["port"]))
 		server, _ := m["server"].(string)
-		nodes = append(nodes, ProxyNode{Name: m["name"].(string), Type: m["type"].(string), Server: server, Port: port})
+		options := MergeProxyOptions(nil, m)
+		delete(options, "name")
+		delete(options, "server")
+		delete(options, "port")
+		nodes = append(nodes, ProxyNode{Name: m["name"].(string), Type: m["type"].(string), Server: server, Port: port, Options: options})
 	}
 	for _, entry := range proxyEntries(doc, "proxy-groups") {
 		m := entry.(map[string]any)
@@ -152,7 +160,7 @@ func (edits *ProxyEdits) Target(name string) string {
 		return name
 	}
 	for _, e := range edits.Nodes {
-		if e.Source == name {
+		if e.Source != "" && e.Source == name {
 			if e.Name != nil {
 				return *e.Name
 			}
@@ -242,13 +250,33 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 	}
 	seen := map[string]bool{}
 	for _, e := range edits.Nodes {
-		if seen["node:"+e.Source] {
+		identity := e.Source
+		if e.Source == "" {
+			identity = "local:" + e.LocalID
+			if e.LocalID == "" {
+				return fmt.Errorf("%s", localize.Text("本地节点缺少标识，请重新添加"))
+			}
+		}
+		if seen["node:"+identity] {
 			return fmt.Errorf(localize.Text("节点 %q 有重复修改"), e.Source)
 		}
-		seen["node:"+e.Source] = true
+		seen["node:"+identity] = true
 		m := nodeSource[e.Source]
-		if m == nil {
+		if e.Source == "" {
+			m = map[string]any{}
+			nodes = append(nodes, m)
+		} else if m == nil {
 			return fmt.Errorf(localize.Text("原节点 %q 已不存在，请移除其本地修改后重试"), e.Source)
+		}
+		for _, key := range []string{"name", "server", "port"} {
+			if _, ok := e.Options[key]; ok {
+				return fmt.Errorf(localize.Text("请在表单中填写 %s，不要放入高级参数"), key)
+			}
+		}
+		options := MergeProxyOptions(m, e.Options)
+		clear(m)
+		for key, value := range options {
+			m[key] = value
 		}
 		if e.Name != nil {
 			if !validProxyName(*e.Name) {
@@ -268,11 +296,18 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 			}
 			m["port"] = *e.Port
 		}
+		if e.Source == "" && (e.Name == nil || e.Server == nil || e.Port == nil) {
+			return fmt.Errorf("%s", localize.Text("新增节点须填写名称、服务器地址和端口"))
+		}
+		if kind, _ := m["type"].(string); strings.TrimSpace(kind) == "" {
+			return fmt.Errorf("%s", localize.Text("请选择节点协议"))
+		}
 	}
 	deleted := map[string]bool{}
 	deletedIndices := map[int]bool{}
 	changedGroups := map[string]bool{}
 	explicitMembers := map[string]bool{}
+	appendedMembers := map[string][]string{}
 	for _, e := range edits.Groups {
 		if e.Source != "" && seen["group:"+e.Source] {
 			return fmt.Errorf(localize.Text("策略组 %q 有重复修改"), e.Source)
@@ -320,6 +355,7 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 			}
 			m["proxies"] = values
 		}
+		appendedMembers[name] = e.AppendMembers
 		if m["type"] != "select" {
 			if m["url"] == nil {
 				m["url"] = "https://www.gstatic.com/generate_204"
@@ -353,6 +389,11 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 	}
 	for source, m := range nodeSource {
 		finalOwner[m["name"].(string)] = "node:" + source
+	}
+	for _, e := range edits.Nodes {
+		if e.Source == "" {
+			finalOwner[*e.Name] = "local-node:" + e.LocalID
+		}
 	}
 	for source, m := range groupSource {
 		if !deleted[source] {
@@ -390,7 +431,11 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 		return nil
 	}
 	for _, e := range edits.Nodes {
-		if err := checkAliases(e.Source, e.Aliases, "node:"+e.Source); err != nil {
+		source, owner := e.Source, "node:"+e.Source
+		if source == "" {
+			source, owner = e.LocalID, "local-node:"+e.LocalID
+		}
+		if err := checkAliases(source, e.Aliases, owner); err != nil {
 			return err
 		}
 	}
@@ -429,6 +474,8 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 		}
 		return nil
 	}
+	// Include newly appended nodes when rewriting chain references.
+	doc["proxies"] = nodes
 	if err := rewriteDialers(doc); err != nil {
 		return err
 	}
@@ -472,10 +519,12 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 		m := v.(map[string]any)
 		name := m["name"].(string)
 		members := proxyMembers(m)
+		inheritedCount := len(members)
+		members = append(members, appendedMembers[name]...)
 		for i, member := range members {
 			// Members supplied by an edited group use final names, while inherited
 			// references follow source renames. This permits swapping two names.
-			if !explicitMembers[name] {
+			if !explicitMembers[name] && i < inheritedCount {
 				members[i] = edits.Target(member)
 			} else {
 				members[i] = edits.aliasTarget(member)

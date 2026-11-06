@@ -12,6 +12,8 @@ import (
 
 type proxyEditorState struct {
 	showProxyEditor                                 bool
+	proxyEditorDiscard                              bool
+	proxyEditorSaved                                string
 	proxyEditorID, proxyEditorTitle, proxyEditorRaw string
 	proxyEditorTab                                  int
 	proxyEditorNode, proxyEditorGroup               string
@@ -22,11 +24,14 @@ type proxyEditorState struct {
 	proxyEditorBaseGroups                           map[string]patch.ProxyGroup
 	proxyEditorError                                string
 	proxyEditorNext                                 int
+	proxyEditorAdvanced                             bool
 }
 
 type proxyNodeForm struct {
-	Source, Name, Server, Port string
-	Missing                    bool
+	Source, Name, Server, Port                                string
+	LocalID, Type, Username, Password, UUID, Cipher, Advanced string
+	Missing                                                   bool
+	originalOptions                                           map[string]any
 }
 type proxyGroupForm struct {
 	Source, Name, Type               string
@@ -68,7 +73,7 @@ func (a *App) openProfileProxyEditor(id string) {
 	for _, n := range nodes {
 		a.proxyEditorBaseNodes[n.Name] = n
 		a.proxyEditorNodeOrder = append(a.proxyEditorNodeOrder, n.Name)
-		a.proxyEditorNodes[n.Name] = &proxyNodeForm{Source: n.Name, Name: n.Name, Server: n.Server, Port: proxyPortText(n.Port)}
+		a.proxyEditorNodes[n.Name] = nodeFormFromBase(n)
 	}
 	for _, g := range groups {
 		a.proxyEditorBaseGroups[g.Name] = g
@@ -77,12 +82,17 @@ func (a *App) openProfileProxyEditor(id string) {
 	}
 	if edits != nil {
 		for _, e := range edits.Nodes {
-			f := a.proxyEditorNodes[e.Source]
-			if f == nil {
-				f = &proxyNodeForm{Source: e.Source, Name: e.Source, Missing: true}
-				a.proxyEditorNodes[e.Source] = f
-				a.proxyEditorNodeOrder = append(a.proxyEditorNodeOrder, e.Source)
+			key := e.Source
+			if key == "" {
+				key = "local:" + e.LocalID
 			}
+			f := a.proxyEditorNodes[key]
+			if f == nil {
+				f = &proxyNodeForm{Source: e.Source, LocalID: e.LocalID, Name: e.Source, Missing: e.Source != ""}
+				a.proxyEditorNodes[key] = f
+				a.proxyEditorNodeOrder = append(a.proxyEditorNodeOrder, key)
+			}
+			f.setOptions(patch.MergeProxyOptions(a.proxyEditorBaseNodes[e.Source].Options, e.Options))
 			if e.Name != nil {
 				f.Name = *e.Name
 			}
@@ -115,6 +125,15 @@ func (a *App) openProfileProxyEditor(id string) {
 				f.Members = slices.Clone(*e.Members)
 				f.MembersTouched = true
 			}
+			if len(e.AppendMembers) > 0 {
+				if !f.MembersTouched {
+					for i, name := range f.Members {
+						f.Members[i] = edits.Target(name)
+					}
+				}
+				f.Members = append(f.Members, e.AppendMembers...)
+				f.MembersTouched = true
+			}
 			f.Deleted = e.Delete
 		}
 	}
@@ -124,6 +143,7 @@ func (a *App) openProfileProxyEditor(id string) {
 	if len(a.proxyEditorGroupOrder) > 0 {
 		a.proxyEditorGroup = a.proxyEditorGroupOrder[0]
 	}
+	a.proxyEditorSaved = a.proxyEditorFingerprint()
 }
 
 func proxyPortText(port int) string {
@@ -141,23 +161,28 @@ func (a *App) proxyEditorEdits() (*patch.ProxyEdits, error) {
 			continue
 		}
 		base := a.proxyEditorBaseNodes[f.Source]
-		e := patch.NodeEdit{Source: f.Source}
-		if f.Name != base.Name || f.Missing {
+		e := patch.NodeEdit{Source: f.Source, LocalID: f.LocalID}
+		if f.Name != base.Name || f.Missing || f.Source == "" {
 			v := strings.TrimSpace(f.Name)
 			e.Name = &v
 		}
-		if f.Server != base.Server {
+		if f.Server != base.Server || f.Source == "" {
 			v := strings.TrimSpace(f.Server)
 			e.Server = &v
 		}
-		if f.Port != proxyPortText(base.Port) {
+		if f.Port != proxyPortText(base.Port) || f.Source == "" {
 			v, err := strconv.Atoi(strings.TrimSpace(f.Port))
 			if err != nil || v < 1 || v > 65535 {
 				return nil, fmt.Errorf("%s", tr("节点端口须为 1–65535"))
 			}
 			e.Port = &v
 		}
-		if f.Missing || e.Name != nil || e.Server != nil || e.Port != nil {
+		options, err := f.options()
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f.Name, err)
+		}
+		e.Options = patch.DiffProxyOptions(base.Options, options)
+		if f.Missing || e.Name != nil || e.Server != nil || e.Port != nil || len(e.Options) > 0 {
 			edits.Nodes = append(edits.Nodes, e)
 		}
 	}
@@ -182,10 +207,18 @@ func (a *App) proxyEditorEdits() (*patch.ProxyEdits, error) {
 			}
 			if f.MembersTouched || f.Source == "" {
 				members := slices.Clone(f.Members)
-				e.Members = &members
+				inherited := slices.Clone(base.Members)
+				for i, name := range inherited {
+					inherited[i] = a.proxyEditorTarget(name)
+				}
+				if f.Source != "" && len(members) >= len(inherited) && slices.Equal(inherited, members[:len(inherited)]) {
+					e.AppendMembers = slices.Clone(members[len(inherited):])
+				} else {
+					e.Members = &members
+				}
 			}
 		}
-		if f.Missing || e.Delete || e.Name != nil || e.Type != nil || e.Members != nil {
+		if f.Missing || e.Delete || e.Name != nil || e.Type != nil || e.Members != nil || len(e.AppendMembers) > 0 {
 			edits.Groups = append(edits.Groups, e)
 		}
 	}
@@ -196,7 +229,7 @@ func (a *App) proxyEditorEdits() (*patch.ProxyEdits, error) {
 	if previous != nil {
 		for i := range edits.Nodes {
 			for _, old := range previous.Nodes {
-				if old.Source == edits.Nodes[i].Source {
+				if old.Source == edits.Nodes[i].Source && old.LocalID == edits.Nodes[i].LocalID {
 					edits.Nodes[i].Aliases = proxyEditorAliases(old.Aliases, old.Source, old.Name, edits.Nodes[i].Name)
 				}
 			}
@@ -237,6 +270,7 @@ func (a *App) saveProxyEditor() {
 		return
 	}
 	a.showProxyEditor = false
+	a.proxyEditorError = ""
 	a.notice = tr("节点与策略组修改已保存")
 }
 
@@ -307,14 +341,17 @@ func (a *App) resetProxyEditorItem() {
 		if f == nil {
 			return
 		}
-		if f.Missing {
+		if f.Missing || f.Source == "" {
+			if f.Source == "" {
+				a.removeProxyMemberDraft(f.Name)
+			}
 			delete(a.proxyEditorNodes, key)
 			a.proxyEditorNodeOrder = slices.DeleteFunc(a.proxyEditorNodeOrder, func(s string) bool { return s == key })
 			a.proxyEditorNode = ""
 		} else {
 			base := a.proxyEditorBaseNodes[key]
 			a.renameProxyMemberDraft(f.Name, base.Name)
-			*f = proxyNodeForm{Source: key, Name: base.Name, Server: base.Server, Port: proxyPortText(base.Port)}
+			*f = *nodeFormFromBase(base)
 		}
 	} else {
 		key := a.proxyEditorGroup
@@ -344,8 +381,8 @@ func (a *App) proxyEditorDialog(c *ui.Context) {
 	ui.Overlay(c, func() {
 		back := ui.Box(c.Key("proxy-editor")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Modal()
 		modalBackdrop(back)
-		if back.OverlayShortcut(0, ui.KeyEscape) {
-			a.showProxyEditor = false
+		if !a.proxyEditorDiscard && back.OverlayShortcut(0, ui.KeyEscape) {
+			a.requestCloseProxyEditor()
 		}
 		back.Children(func() {
 			panel := ui.Column(c).Width(min(float32(780), width-64)).MaxHeight(height-64).Padding(20).Gap(12).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label(tr("节点与策略组"))
@@ -356,30 +393,45 @@ func (a *App) proxyEditorDialog(c *ui.Context) {
 				ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 					softSegmented(c, &a.proxyEditorTab, tr("节点"), tr("策略组")).Label(tr("编辑内容"))
 					ui.Spacer(c)
-					softButton(c, tr("添加策略组")).OnClick(a.addProxyEditorGroup)
+					if a.proxyEditorTab == 0 {
+						softButton(c, tr("新增节点")).Disabled(busyNetwork(a)).OnClick(a.addProxyEditorNode)
+					} else {
+						softButton(c, tr("添加策略组")).Disabled(busyNetwork(a)).OnClick(a.addProxyEditorGroup)
+					}
 				})
-				ui.Scroll(c).FillWidth().Shrink(1).MinHeight(0).Children(func() {
+				ui.Scroll(c).Disabled(busyNetwork(a)).FillWidth().Shrink(1).MinHeight(0).Children(func() {
 					ui.Column(c).FillWidth().Gap(12).Children(func() {
 						ui.Text(c, tr("修改仅保存在当前订阅的本地覆写中，订阅更新后继续生效。未修改字段沿用最新订阅。")).FillWidth().FontSize(11).TextColor(pal.Muted)
+						if a.proxyEditorError != "" {
+							extensionError(c, a.proxyEditorError)
+						}
 						if a.proxyEditorTab == 0 {
 							a.proxyEditorNodeForm(c)
 						} else {
 							a.proxyEditorGroupForm(c)
 						}
-						if a.proxyEditorError != "" {
-							extensionError(c, a.proxyEditorError)
-						}
 					})
 				})
 				ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-					softButton(c, tr("恢复所选项")).OnClick(a.resetProxyEditorItem)
+					resetLabel := tr("恢复所选项")
+					if f := a.proxyEditorNodes[a.proxyEditorNode]; a.proxyEditorTab == 0 && f != nil && f.Source == "" {
+						resetLabel = tr("移除本地节点")
+					}
+					softButton(c, resetLabel).Disabled(busyNetwork(a)).OnClick(a.resetProxyEditorItem)
 					ui.Spacer(c)
-					softButton(c, tr("取消")).OnClick(func() { a.showProxyEditor = false })
-					softPrimaryButton(c, tr("保存并应用")).OnClick(a.saveProxyEditor)
+					softButton(c, tr("取消")).Disabled(busyNetwork(a)).OnClick(a.requestCloseProxyEditor)
+					label := tr("保存并应用")
+					if busyNetwork(a) {
+						label = tr("正在应用…")
+					}
+					softPrimaryButton(c, label).Disabled(busyNetwork(a)).OnClick(a.saveProxyEditor)
 				})
 			})
 		})
 	})
+	if confirmDiscardDraft(c, &a.proxyEditorDiscard) {
+		a.showProxyEditor = false
+	}
 }
 
 func proxyEditorField(c *ui.Context, label string, body func()) {
@@ -389,7 +441,7 @@ func proxyEditorField(c *ui.Context, label string, body func()) {
 func (a *App) proxyEditorNodeForm(c *ui.Context) {
 	pal := paletteFor(c)
 	if len(a.proxyEditorNodeOrder) == 0 {
-		ui.Text(c, tr("当前配置没有内联节点，可编辑策略组；代理集合中的节点由订阅提供方管理。")).FillWidth().FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, tr("暂无可编辑节点，点击新增节点开始。代理集合中的节点仍由提供方管理。")).FillWidth().FontSize(12).TextColor(pal.Muted)
 		return
 	}
 	keys := a.proxyEditorNodeOrder
@@ -398,6 +450,9 @@ func (a *App) proxyEditorNodeForm(c *ui.Context) {
 	for i, key := range keys {
 		f := a.proxyEditorNodes[key]
 		labels[i] = fmt.Sprintf("%d. %s", i+1, f.Name)
+		if f.Source == "" {
+			labels[i] += " · " + tr("本地")
+		}
 		if key == a.proxyEditorNode {
 			selected = labels[i]
 		}
@@ -411,6 +466,7 @@ func (a *App) proxyEditorNodeForm(c *ui.Context) {
 			for i, label := range labels {
 				if selected == label {
 					a.proxyEditorNode = keys[i]
+					a.proxyEditorAdvanced = false
 				}
 			}
 		})
@@ -420,26 +476,50 @@ func (a *App) proxyEditorNodeForm(c *ui.Context) {
 	if f.Missing {
 		ui.Text(c, tr("订阅已移除此项；请点击恢复所选项以移除失效的本地修改。")).FillWidth().FontSize(11.5).TextColor(pal.Warn)
 	}
-	ui.Text(c, base.Type).FontSize(11).TextColor(pal.Faint)
-	proxyEditorField(c, tr("节点名称"), func() {
-		old := f.Name
-		if ui.TextInput(c, &f.Name).FillWidth().Label(tr("节点名称")).Changed() {
-			a.renameProxyMemberDraft(old, f.Name)
-		}
+	if a.proxyEditorAdvanced {
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, tr("高级参数（YAML）")).Grow(1).FontSize(12).TextColor(pal.Text)
+			softButton(c, tr("返回基本信息")).OnClick(func() { a.proxyEditorAdvanced = false })
+		})
+		ui.Text(c, tr("编辑 TLS、传输等协议选项；名称、地址、协议与认证信息请在基本信息中填写。")).FillWidth().FontSize(11).TextColor(pal.Muted)
+		ui.TextArea(c, &f.Advanced).FillWidth().Height(168).Font("monospace").FontSize(12).Label(tr("高级参数（YAML）")).Placeholder("tls: true\nservername: proxy.example.com")
+		return
+	}
+	ui.Row(c).FillWidth().Gap(12).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+			proxyEditorField(c, tr("节点名称"), func() {
+				old := f.Name
+				if ui.TextInput(c, &f.Name).FillWidth().Label(tr("节点名称")).Changed() {
+					a.renameProxyMemberDraft(old, f.Name)
+				}
+			})
+		})
+		ui.Column(c).Width(180).Children(func() {
+			proxyEditorField(c, tr("节点协议"), func() {
+				previous := f.Type
+				types := []string{"ss", "trojan", "vmess", "vless", "hysteria2", "socks5", "http"}
+				if f.Type != "" && !slices.Contains(types, f.Type) {
+					types = append(types, f.Type)
+				}
+				ui.Select(c, &f.Type, types).FillWidth().Label(tr("节点协议")).OnChange(func() {
+					f.changeProtocol(previous)
+				})
+			})
+		})
 	})
 	ui.Row(c).FillWidth().Gap(12).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			proxyEditorField(c, tr("服务器地址"), func() {
-				ui.TextInput(c, &f.Server).FillWidth().Label(tr("服务器地址")).Disabled(base.Server == "" && !f.Missing)
+				ui.TextInput(c, &f.Server).FillWidth().Label(tr("服务器地址")).Placeholder("proxy.example.com").Disabled(base.Server == "" && !f.Missing && f.Source != "" && f.Type == base.Type)
 			})
 		})
 		ui.Column(c).Width(120).Children(func() {
 			proxyEditorField(c, tr("节点端口"), func() {
-				ui.TextInput(c, &f.Port).FillWidth().Label(tr("节点端口")).Disabled(base.Port == 0 && !f.Missing)
+				ui.TextInput(c, &f.Port).FillWidth().Label(tr("节点端口")).Disabled(base.Port == 0 && !f.Missing && f.Source != "" && f.Type == base.Type)
 			})
 		})
 	})
-	ui.Text(c, tr("协议、密码与其他高级参数保持订阅原值；不提供地址或端口的节点只支持改名。")).FillWidth().FontSize(11).TextColor(pal.Faint)
+	a.proxyNodeCredentials(c, f)
 }
 
 func (a *App) proxyEditorGroupForm(c *ui.Context) {

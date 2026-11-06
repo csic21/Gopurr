@@ -135,7 +135,7 @@ func (a *App) proxiesPage(c *ui.Context) {
 	a.pageHeader(c, tr("代理"), fmt.Sprintf(tr("%d 个策略组 · %d 个节点"), len(visibleGroups(all, "rule")), len(nodes)), func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Row(c).Children(func() { a.modeControl(c) }).Tooltip(hint)
-			softButton(c, tr("编辑配置…")).Disabled(a.store == nil || a.store.ActiveID() == "").OnClick(a.openProxyEditor)
+			softButton(c, tr("管理节点…")).Disabled(a.store == nil || a.store.ActiveID() == "" || busyNetwork(a)).OnClick(a.openProxyEditor)
 			if !running {
 				a.kernelButton(c, false)
 				return
@@ -195,6 +195,7 @@ func (a *App) proxiesPage(c *ui.Context) {
 					ui.Text(c, selected.Name).FillWidth().MaxLines(1).Ellipsis("…").Tooltip(selected.Name).FontSize(16).FontWeight(600).TextColor(pal.Text)
 					ui.Text(c, fmt.Sprintf(tr("%s · %d 个成员"), groupTypeLabel(selected.Type), len(selected.Members))).FontSize(11).TextColor(pal.Muted)
 				})
+				softButton(c, tr("新增节点")).Disabled(a.store == nil || a.store.ActiveID() == "" || busyNetwork(a)).OnClick(a.openNewProxyNode)
 				softPrimaryButton(c, tr("测试本组")).Disabled(a.testingGroup() != "").OnClick(func() {
 					a.testGroup(selected.Name, selected.Members)
 				})
@@ -361,6 +362,10 @@ func (a *App) nodeRowAction(c *ui.Context, group core.Group, member string, sele
 				ui.Text(c, label).FontSize(12).FontFeatures("tnum").TextColor(color).ContentTransition(contentMotion())
 			})
 		})
+		if selected == nil && !isBuiltin(member) {
+			softButton(c, tr("编辑")).Label(tr("编辑 ") + member).Tooltip(tr("编辑 ") + member).
+				Disabled(a.store == nil || a.store.ActiveID() == "" || busyNetwork(a)).OnClick(func() { a.openProxyMemberEditor(member) })
+		}
 		iconButton(c, iconRefresh, tr("测试 ")+member).Disabled(a.testingGroup() != "" || (isBuiltin(member) && member != "DIRECT")).
 			Tooltip(tr("测试 ") + member + tr(" 的连通性与延迟")).OnClick(func() { a.testGroup(member, []string{member}) })
 	})
