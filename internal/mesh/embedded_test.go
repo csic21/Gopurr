@@ -73,7 +73,7 @@ func TestEmbeddedReadyWithoutClientAndDoesNotStartNetworkOnRead(t *testing.T) {
 	}
 }
 
-func TestExplicitServicesPersistButOpenAccessNeverSurvivesRestart(t *testing.T) {
+func TestEmbeddedStartsProtectedUntilControllerRestoresSavedChoice(t *testing.T) {
 	dir := t.TempDir()
 	b := NewEmbedded(dir, func(p uint16) bool { return p == 7890 })
 	if err := b.SetServices(context.Background(), "22/tcp, 3389/tcp, 5353/udp"); err != nil {

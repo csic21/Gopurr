@@ -252,7 +252,7 @@ func (a *App) meshPage(c *ui.Context) {
 					hint, color = tr("已开放 · 仅限授权端口：")+mesh.FormatServices(s.Services), pal.Warn
 				}
 				if s.State == "Stopped" {
-					hint, color = tr("组网已断开；再次连接时会先关闭入站访问"), pal.Muted
+					hint, color = tr("组网已断开；连接成功后按已保存的访问设置恢复"), pal.Muted
 				}
 				ui.Text(c, hint).FillWidth().FontSize(11).TextColor(color)
 			})
@@ -519,7 +519,7 @@ func (a *App) meshSecurity(c *ui.Context, snap mesh.Snapshot) {
 					softButton(c, tr("立即断开组网")).Disabled(!snap.Status.Installed || (snap.Busy && snap.Action == "disconnect")).OnClick(func() { a.meshClient.Do("disconnect") })
 				})
 			})
-			ui.Text(c, tr("内核随 Gopurr 运行，每次连接先关闭入站访问，不接管 DNS、不发布子网或出口路由。关闭窗口后继续运行；退出或进程终止后组网和服务转发随之停止。")).FillWidth().FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, tr("内核随 Gopurr 运行，连接成功后恢复已保存的访问设置，不接管 DNS、不发布子网或出口路由。关闭窗口后继续运行；退出后组网和服务转发停止，访问设置保留。")).FillWidth().FontSize(11).TextColor(pal.Muted)
 			ui.Text(c, tr("访问记录保存在本机，最多 100 条，不上传也不包含通信内容。局域网与公网的其他访问仍由系统防火墙和各服务管理。")).FillWidth().FontSize(11).TextColor(pal.Faint)
 			ui.Text(c, tr("通过规则模式与 Gopurr TUN 访问设备的虚拟 IP，支持 TCP / UDP。内嵌节点不向系统分配虚拟网卡 IP；不提供广播发现、子网路由或系统 ICMP 转发。授权的本机端口转发至 127.0.0.1 的同端口服务，服务仍需自己的登录验证。")).FillWidth().FontSize(11).TextColor(pal.Faint)
 		})
@@ -620,7 +620,7 @@ func (a *App) meshServiceDialog(c *ui.Context, snap mesh.Snapshot) {
 				ui.Text(c, title).FillWidth().FontSize(18).FontWeight(600).TextColor(pal.Text)
 				ui.Scroll(c).FillWidth().Shrink(1).MinHeight(0).Children(func() {
 					ui.Column(c).FillWidth().Gap(12).Children(func() {
-						ui.Text(c, tr("只开放下列端口，其他本机服务保持关闭。对方还需通过官方网络权限检查，且未被本机封禁。")).FillWidth().FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, tr("只开放下列端口，并记住访问开关，重启连接成功后恢复。对方仍需通过官方网络权限检查，且未被本机封禁。")).FillWidth().FontSize(12).TextColor(pal.Muted)
 						a.meshServicePresets(c)
 						ui.Text(c, tr("请只开放你认识且有登录保护的服务。Gopurr 不会自动启动 SSH、远程桌面或共享服务；修改端口后需要重新开放访问。")).FillWidth().FontSize(11).TextColor(pal.Muted)
 						if a.meshServicesError != "" {

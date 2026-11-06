@@ -17,9 +17,10 @@ import (
 )
 
 type diskState struct {
-	Managed     bool
-	Visits      []Visit
-	AutoConnect bool
+	Managed       bool
+	Visits        []Visit
+	AutoConnect   bool
+	AllowIncoming bool
 }
 
 type Controller struct {
@@ -33,6 +34,10 @@ type Controller struct {
 	stop    chan struct{}
 	cancel  context.CancelFunc
 	serial  uint64
+	// The saved choice is separate from the live gate, which stays closed
+	// until a new connection is running and the backend confirms the grant.
+	allowIncoming   bool
+	restoreIncoming bool
 }
 
 func New(backend Backend, path string, wake func()) *Controller {
@@ -47,6 +52,7 @@ func New(backend Backend, path string, wake func()) *Controller {
 				b, _ := os.ReadFile(path)
 				if json.Unmarshal(b, &d) == nil {
 					c.s.Managed, c.s.Visits, c.s.AutoConnect = d.Managed, d.Visits, d.AutoConnect
+					c.allowIncoming = d.AllowIncoming
 				} else {
 					c.s.Error = localize.Text("本地组网记录损坏，启动后将重新关闭入站访问")
 				}
@@ -83,7 +89,7 @@ func (c *Controller) notify() {
 }
 
 // Start is lazy for an untouched installation; managed clients resume polling
-// even while the window is hidden. Startup always closes previously open access.
+// even while the window is hidden. Only a connected node can restore saved access.
 func (c *Controller) Start() {
 	c.mu.Lock()
 	if c.s.Started || c.closed {
@@ -96,7 +102,8 @@ func (c *Controller) Start() {
 	if managed && auto {
 		c.Do("connect")
 	} else if managed {
-		c.Do("block")
+		// Protect an existing backend without forgetting the user's choice.
+		c.work("protect", false)
 	} else {
 		c.Refresh()
 	}
@@ -191,6 +198,9 @@ func (c *Controller) work(action string, interrupt bool) {
 }
 
 func (c *Controller) SetServices(raw string, allow bool) {
+	if b, ok := c.backend.(interface{ BlockNow() }); ok {
+		b.BlockNow()
+	}
 	action := "services:"
 	if allow {
 		action = "open:"
@@ -230,7 +240,7 @@ func (c *Controller) saveLocked() error {
 	if err := securefs.PrivateDir(dir); err != nil {
 		return err
 	}
-	b, err := json.Marshal(diskState{Managed: c.s.Managed, Visits: c.s.Visits, AutoConnect: c.s.AutoConnect})
+	b, err := json.Marshal(diskState{Managed: c.s.Managed, Visits: c.s.Visits, AutoConnect: c.s.AutoConnect, AllowIncoming: c.allowIncoming})
 	if err != nil {
 		return err
 	}
@@ -238,13 +248,25 @@ func (c *Controller) saveLocked() error {
 }
 
 func (c *Controller) perform(ctx context.Context, action string) error {
+	var persistErr error
 	if action != "refresh" {
 		c.mu.Lock()
 		c.s.Managed = true
+		switch {
+		case action == "connect":
+			c.restoreIncoming = c.allowIncoming
+		case action == "block", strings.HasPrefix(action, "services:"), strings.HasPrefix(action, "open:"):
+			c.allowIncoming, c.restoreIncoming = false, false
+		default:
+			c.restoreIncoming = false
+		}
 		err := c.saveLocked()
 		c.mu.Unlock()
-		if err != nil && action != "block" && action != "disconnect" {
-			return errors.New(localize.Text("无法保存组网安全状态，未执行操作"))
+		if err != nil {
+			if action != "block" && action != "disconnect" && action != "protect" {
+				return errors.New(localize.Text("无法保存组网安全状态，未执行操作"))
+			}
+			persistErr = errors.New(localize.Text("组网访问设置保存失败"))
 		}
 	}
 	var actionErr error
@@ -253,8 +275,8 @@ func (c *Controller) perform(ctx context.Context, action string) error {
 	case "connect":
 		auth, actionErr = c.backend.Connect(ctx)
 	case "allow":
-		actionErr = c.backend.SetIncoming(ctx, true)
-	case "block":
+		actionErr = c.enableIncoming(ctx)
+	case "block", "protect":
 		actionErr = c.backend.SetIncoming(ctx, false)
 	case "disconnect":
 		actionErr = c.backend.Disconnect(ctx)
@@ -265,14 +287,30 @@ func (c *Controller) perform(ctx context.Context, action string) error {
 			case "services", "open":
 				actionErr = p.SetServices(ctx, value)
 				if actionErr == nil && kind == "open" {
-					actionErr = c.backend.SetIncoming(ctx, true)
+					actionErr = c.enableIncoming(ctx)
 				}
 			case "deny", "trust":
 				actionErr = p.SetDeviceBlocked(ctx, value, kind == "deny")
 			}
 		}
 	}
+	actionErr = errors.Join(persistErr, actionErr)
+	if actionErr != nil {
+		c.mu.Lock()
+		c.restoreIncoming = false
+		c.mu.Unlock()
+	}
 	s, err := c.backend.Read(ctx)
+	if actionErr == nil && err == nil && s.Running && s.ShieldsKnown {
+		c.mu.Lock()
+		restore := c.restoreIncoming && c.allowIncoming
+		c.restoreIncoming = false
+		c.mu.Unlock()
+		if restore && s.ShieldsUp {
+			actionErr = c.backend.SetIncoming(ctx, true)
+			s, err = c.backend.Read(ctx)
+		}
+	}
 	if ctx.Err() != nil {
 		if actionErr != nil {
 			return actionErr
@@ -336,6 +374,29 @@ func (c *Controller) perform(ctx context.Context, action string) error {
 		}
 	}
 	return actionErr
+}
+
+// Save only a confirmed, current grant. If persistence fails, close the gate
+// again so the switch never claims a remembered choice that was not saved.
+func (c *Controller) enableIncoming(ctx context.Context) error {
+	if err := c.backend.SetIncoming(ctx, true); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	err := ctx.Err()
+	if err == nil {
+		c.allowIncoming = true
+		err = c.saveLocked()
+	}
+	if err != nil {
+		c.allowIncoming = false
+	}
+	c.mu.Unlock()
+	if err != nil {
+		_ = c.backend.SetIncoming(ctx, false)
+		return errors.New(localize.Text("组网访问设置保存失败"))
+	}
+	return nil
 }
 
 // Shutdown closes the owned node as well as protecting active local services.

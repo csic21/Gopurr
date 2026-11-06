@@ -271,7 +271,7 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 						if auto != snap.AutoConnect {
 							a.meshClient.SetAutoConnect(auto)
 						}
-						ui.Text(c, tr("自动连接只恢复网络，不会自动开放本机服务；授权失效时仍需重新登录。")).FillWidth().FontSize(11).TextColor(pal.Muted)
+						ui.Text(c, tr("自动连接成功后恢复已保存的本机访问设置；授权失效时仍需重新登录。")).FillWidth().FontSize(11).TextColor(pal.Muted)
 					})
 				})
 				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {

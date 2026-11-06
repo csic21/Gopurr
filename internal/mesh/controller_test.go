@@ -211,7 +211,7 @@ func TestInitialPartialStatusStillShowsInstalledClient(t *testing.T) {
 	_ = c.Shutdown()
 }
 
-func TestOptInStartupReconnectNeverRestoresOpenAccess(t *testing.T) {
+func TestOptInStartupReconnectDoesNotInferUnrememberedAccess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mesh.json")
 	b := &fakeBackend{status: Status{Installed: true, Official: true, ShieldsKnown: true, ShieldsUp: true}}
 	c := New(b, path, nil)
