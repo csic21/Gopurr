@@ -215,14 +215,15 @@ func (s snifferDraft) settings() (*patch.SnifferSettings, error) {
 func (a *App) saveDNSSettings() {
 	a.dnsError, a.dnsStatus = "", ""
 	next := a.ov
-	next.DNS = a.dnsDraft.settings()
-	applied, err := a.commitExtensionOverrides(next)
-	if err != nil {
-		a.dnsError = err.Error()
-		return
-	}
-	a.resetDNSDraft()
-	a.dnsStatus = extensionSavedStatus(applied)
+	next.DNS, next.DNSEnable = a.dnsDraft.settings(), nil
+	a.requestOverrideChange("", next, patch.ProfileOverrides{}, func(applied bool, err error) {
+		if err != nil {
+			a.dnsError = err.Error()
+			return
+		}
+		a.resetDNSDraft()
+		a.dnsStatus = extensionSavedStatus(applied)
+	})
 }
 
 func (a *App) saveSnifferSettings() {
@@ -233,14 +234,15 @@ func (a *App) saveSnifferSettings() {
 		return
 	}
 	next := a.ov
-	next.Sniffer = s
-	applied, err := a.commitExtensionOverrides(next)
-	if err != nil {
-		a.snifferError = err.Error()
-		return
-	}
-	a.resetSnifferDraft()
-	a.snifferStatus = extensionSavedStatus(applied)
+	next.Sniffer, next.SnifferEnable = s, nil
+	a.requestOverrideChange("", next, patch.ProfileOverrides{}, func(applied bool, err error) {
+		if err != nil {
+			a.snifferError = err.Error()
+			return
+		}
+		a.resetSnifferDraft()
+		a.snifferStatus = extensionSavedStatus(applied)
+	})
 }
 
 func (a *App) featureSettingsPage(c *ui.Context, dns bool) {
@@ -250,8 +252,15 @@ func (a *App) featureSettingsPage(c *ui.Context, dns bool) {
 	if !dns && (!a.snifferReady || (a.snifferDraft.Source == 0 && a.snifferDraft == a.snifferBase)) {
 		a.resetSnifferDraft()
 	}
-	ui.Scroll(c).Key(fmt.Sprintf("feature-%t", dns)).FillWidth().Grow(1).MinHeight(0).Children(func() {
+	quick := a.ov.SnifferEnable
+	if dns {
+		quick = a.ov.DNSEnable
+	}
+	ui.Scroll(c).Disabled(busyNetwork(a)).Key(fmt.Sprintf("feature-%t", dns)).FillWidth().Grow(1).MinHeight(0).Children(func() {
 		ui.Column(c).FillWidth().Gap(16).Padding(0, 0, 8, 0).Children(func() {
+			if quick != nil {
+				featureQuickPolicy(c, quick, busyNetwork(a), func() { a.requestFeaturePolicy("", dns, nil) })
+			}
 			if dns {
 				a.dnsSettingsFields(c)
 			} else {
@@ -277,7 +286,7 @@ func (a *App) featureSettingsPage(c *ui.Context, dns bool) {
 			a.snifferError, a.snifferStatus = "", ""
 		}
 		reset()
-	}, save)
+	}, save, busyNetwork(a))
 }
 
 func featureSource(c *ui.Context, name string, source *int, enabled *bool, hint string) {
@@ -380,78 +389,80 @@ func featureNote(c *ui.Context, text string) {
 	ui.Text(c, text).FillWidth().FontSize(11).TextColor(paletteFor(c).Faint)
 }
 
+// Quick controls change only enable. nil restores inheritance without erasing
+// advanced settings; DNS is scoped to the current subscription, sniffing global.
 func (a *App) toggleNetworkFeature(isDNS, enabled bool) {
-	// A click must use the latest subscription even within the display cache interval.
-	a.featureCacheAt = time.Time{}
-	d, s, err := a.effectiveFeatures()
-	if err != nil {
-		a.notice = tr("配置读取失败：") + err.Error()
-		return
-	}
-	next := a.ov
-	if isDNS {
-		d.Enable = enabled
-		next.DNS = &d
-	} else {
-		if next.Sniffer != nil {
-			s = *next.Sniffer
-		}
-		s.Enable = enabled
-		next.Sniffer = &s
-	}
-	var applied bool
-	if isDNS && a.store != nil && a.store.ActiveID() != "" {
-		id := a.store.ActiveID()
-		local := a.profileOverrides(id)
-		local.DNS = &d
-		applied, err = a.commitProfileOverrides(id, local)
-		if a.extensionReady && a.extensionDraftKey == id && a.profileDNSDraft == a.profileDNSBase {
-			a.resetProfileDNSDraft()
-		}
-	} else {
-		applied, err = a.commitExtensionOverrides(next)
-	}
-	if err != nil {
-		a.notice = err.Error()
-		return
-	}
-	a.notice = extensionSavedStatus(applied)
-	if a.dnsDraft == a.dnsBase {
-		a.dnsReady = false
-	}
-	if a.snifferDraft == a.snifferBase {
-		a.snifferReady = false
-	}
+	a.requestNetworkFeature(isDNS, &enabled)
 }
 
-// These rows complete the overview's shared network control group. Settings
-// remain available even while following the subscription.
+func (a *App) requestNetworkFeature(isDNS bool, enabled *bool) {
+	id := ""
+	if isDNS && a.store != nil {
+		id = a.store.ActiveID()
+	}
+	a.requestFeaturePolicy(id, isDNS, enabled)
+}
+
+func (a *App) requestFeaturePolicy(id string, isDNS bool, enabled *bool) {
+	next := a.ov
+	local := patch.ProfileOverrides{}
+	if id != "" {
+		local = a.profileOverrides(id)
+		local.DNSEnable = enabled
+	} else if isDNS {
+		next.DNSEnable = enabled
+	} else {
+		next.SnifferEnable = enabled
+	}
+	a.requestOverrideChange(id, next, local, func(applied bool, err error) {
+		if err != nil {
+			a.notice = err.Error()
+			return
+		}
+		a.successNotice(extensionSavedStatus(applied))
+		if a.dnsDraft == a.dnsBase {
+			a.dnsReady = false
+		}
+		if a.snifferDraft == a.snifferBase {
+			a.snifferReady = false
+		}
+		if id != "" && a.extensionDraftKey == id && a.profileDNSDraft == a.profileDNSBase {
+			a.resetProfileDNSDraft()
+		}
+	})
+}
+
+func featurePolicyLabel(enabled *bool) string {
+	if enabled == nil {
+		return tr("跟随配置")
+	}
+	if *enabled {
+		return tr("始终开启")
+	}
+	return tr("保持关闭")
+}
+
 func (a *App) overviewFeatures(c *ui.Context) {
 	dns, sniffer, err, ready := a.overviewFeatureSettings()
-	customDNS := a.ov.DNS != nil
-	if a.store != nil {
-		customDNS = customDNS || a.profileOverrides(a.store.ActiveID()).DNS != nil
+	dnsPolicy, dnsScope := a.ov.DNSEnable, tr("全局")
+	if a.store != nil && a.store.ActiveID() != "" {
+		dnsPolicy, dnsScope = a.profileOverrides(a.store.ActiveID()).DNSEnable, tr("当前订阅")
 	}
 	ui.Column(c).FillWidth().Children(func() {
 		for i, feature := range []struct {
-			name            string
-			enabled, custom bool
-			tab             int
+			name    string
+			enabled bool
+			policy  *bool
+			scope   string
+			tab     int
 		}{
-			{"DNS", dns.Enable, customDNS, 4}, {tr("域名嗅探"), sniffer.Enable, a.ov.Sniffer != nil, 5},
+			{tr("内置 DNS"), dns.Enable, dnsPolicy, dnsScope, 4},
+			{tr("域名嗅探"), sniffer.Enable, a.ov.SnifferEnable, tr("全局"), 5},
 		} {
 			if i > 0 {
 				hairline(c)
 			}
-			status := tr("已关闭")
-			if feature.enabled {
-				status = tr("已开启")
-			}
-			if feature.custom {
-				status += tr(" · 自定义")
-			} else {
-				status += tr(" · 跟随配置")
-			}
+			status := featureEnabledLabel(feature.enabled) + " · " + feature.scope
 			if err != nil {
 				status = tr("配置读取失败，请检查设置")
 			}
@@ -463,9 +474,9 @@ func (a *App) overviewFeatures(c *ui.Context) {
 				color = paletteFor(c).Danger
 			}
 			overviewControlRow(c, feature.name, status, color, func() {
-				softButton(c, feature.name+tr(" 设置")).OnClick(func() {
-					if feature.tab == 4 && a.store != nil {
-						if p, err := a.store.Get(a.store.ActiveID()); err == nil && p.Overrides != nil && p.Overrides.DNS != nil {
+				softButton(c, tr("设置")).Disabled(busyNetwork(a)).Label(feature.name + tr(" 设置")).OnClick(func() {
+					if feature.tab == 4 && a.store != nil && a.store.ActiveID() != "" {
+						if p, err := a.store.Get(a.store.ActiveID()); err == nil {
 							a.openProfileOverrides(p)
 							a.extensionTab = 4
 							return
@@ -473,12 +484,25 @@ func (a *App) overviewFeatures(c *ui.Context) {
 					}
 					a.page, a.settingsTab = "settings", feature.tab
 				})
-				enabled := feature.enabled
-				softSwitch(c, &enabled).Disabled(err != nil || !ready).Label(tr("概览") + feature.name + tr("开关")).
-					Tooltip(tr("切换后使用自定义设置；可在设置中恢复跟随配置")).OnChange(func() {
-					a.toggleNetworkFeature(feature.tab == 4, enabled)
+				policy := featurePolicyLabel(feature.policy)
+				ui.Select(c, &policy, []string{tr("跟随配置"), tr("始终开启"), tr("保持关闭")}).Width(128).
+					Disabled(err != nil || !ready || busyNetwork(a)).Label(tr("概览") + feature.name + tr("开关")).
+					Tooltip(tr("只覆盖是否启用，其他参数继续跟随配置；选择跟随配置可移除快捷覆盖")).OnChange(func() {
+					var enabled *bool
+					if policy != tr("跟随配置") {
+						value := policy == tr("始终开启")
+						enabled = &value
+					}
+					a.requestNetworkFeature(feature.tab == 4, enabled)
 				})
 			})
 		}
+	})
+}
+
+func featureQuickPolicy(c *ui.Context, policy *bool, busy bool, clear func()) {
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
+		ui.Text(c, fmt.Sprintf(tr("概览快捷控制：%s；保存本页时清除此覆盖。"), featurePolicyLabel(policy))).Grow(1).MinWidth(0).FontSize(11).TextColor(paletteFor(c).Muted)
+		softButton(c, tr("清除快捷覆盖")).Disabled(busy).OnClick(clear)
 	})
 }

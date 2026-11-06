@@ -121,6 +121,7 @@ func TestApplicationRulePickerInteraction(t *testing.T) {
 	}
 	click("添加到草稿")
 	click("保存应用分流")
+	waitProxyChange(t, a)
 	if len(a.ov.AppRules) != 1 || a.ov.AppRules[0].Target != "Work" {
 		t.Fatal("picker workflow did not persist the application policy")
 	}
@@ -138,6 +139,7 @@ func TestApplicationRulePickerInteraction(t *testing.T) {
 	click("放弃修改")
 	click("移除应用分流 Browser")
 	click("保存应用分流")
+	waitProxyChange(t, a)
 	if len(a.ov.AppRules) != 0 {
 		t.Fatal("removing a policy did not persist")
 	}

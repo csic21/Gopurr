@@ -103,12 +103,12 @@ func (a *App) saveConnectionRule() {
 		a.extensionDrafts[key] = draft
 	}
 	a.showConnRule = false
-	a.notice = tr("规则已保存，新连接将使用新规则。")
+	a.successNotice(tr("规则已保存，新连接将使用新规则。"))
 	if a.connRuleDisconnect && a.connRuleConnection.ID != "" && a.k != nil {
 		if err := a.k.CloseConnection(a.connRuleConnection.ID); err != nil {
 			a.connError = tr("规则已保存，断开原连接失败，请手动重试。")
 		} else {
-			a.notice = tr("规则已保存，原连接已断开；应用重新连接后可查看命中结果。")
+			a.successNotice(tr("规则已保存，原连接已断开；应用重新连接后可查看命中结果。"))
 			a.requestConnections()
 		}
 	}

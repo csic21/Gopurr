@@ -248,11 +248,11 @@ func TestPrefsReconcileCombinesChanges(t *testing.T) {
 	called := 0
 	a.SetPrefsHook(func(Prefs) { called++ })
 	called = 0
-	a.lightOn, a.lightDelayIdx, a.autoIdx, a.restoreProxyOn = true, 2, 1, true
+	a.lightOn, a.lightDelayIdx, a.autoIdx, a.proxyStartupIdx = true, 2, 1, 1
 	before := time.Now()
 	a.reconcileSettings()
 	p := a.Prefs()
-	if !p.LightMode || p.LightDelay != 300 || p.AutoUpdateHours != 6 || !p.RestoreSystemProxy || p.LastAutoUpdate.Before(before) {
+	if !p.LightMode || p.LightDelay != 300 || p.AutoUpdateHours != 6 || p.SystemProxyStartup != proxyStartupOn || p.RestoreSystemProxy || p.LastAutoUpdate.Before(before) {
 		t.Fatalf("simultaneous edits lost: %+v", p)
 	}
 	if called != 1 {
@@ -282,10 +282,10 @@ func TestPrefsReconcilePreservesBackgroundUpdates(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	a.lightOn, a.restoreProxyOn = true, true
+	a.lightOn, a.proxyStartupIdx = true, 1
 	a.reconcileSettings()
 	got := a.Prefs()
-	if !got.LastAutoUpdate.Equal(updated) || got.TestURL != "https://example.com/check" || got.TestConcurrency != 3 || got.AutoUpdateHours != 1 || got.LightDelay != 120 || !got.LightMode || !got.RestoreSystemProxy {
+	if !got.LastAutoUpdate.Equal(updated) || got.TestURL != "https://example.com/check" || got.TestConcurrency != 3 || got.AutoUpdateHours != 1 || got.LightDelay != 120 || !got.LightMode || got.SystemProxyStartup != proxyStartupOn || got.RestoreSystemProxy {
 		t.Fatalf("UI overwrote background/custom values: %+v", got)
 	}
 }
@@ -293,9 +293,9 @@ func TestPrefsReconcilePreservesBackgroundUpdates(t *testing.T) {
 func TestPrefsReconcileShowsSaveError(t *testing.T) {
 	a := &App{prefs: defaultPrefs(), prefsPath: t.TempDir(), ov: patch.Default()}
 	a.initSettings()
-	a.lightOn, a.restoreProxyOn = true, true
+	a.lightOn, a.proxyStartupIdx = true, 1
 	a.reconcileSettings()
-	if a.generalSettingsError == "" || a.notice == "" || a.lightOn || a.restoreProxyOn || a.Prefs() != defaultPrefs() {
+	if a.generalSettingsError == "" || a.notice == "" || a.lightOn || a.proxyStartupIdx != 0 || a.Prefs() != defaultPrefs() {
 		t.Fatalf("failed save not reflected: error=%q prefs=%+v", a.generalSettingsError, a.Prefs())
 	}
 }
@@ -663,7 +663,7 @@ func TestPrefsSettingsTabsPreserveDraftsAt840Width(t *testing.T) {
 		label string
 		shown string
 	}{
-		{"常规", "内核自动运行"},
+		{"常规", "系统代理启动策略"},
 		{"网络", "保存网络设置"},
 		{"延迟测试", "保存测试设置"},
 		{"维护", "查看运行配置…"},

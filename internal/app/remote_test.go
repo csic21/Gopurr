@@ -188,3 +188,23 @@ func TestRemoteSettingsDialogInteraction(t *testing.T) {
 		t.Fatal("remote settings dialog did not close")
 	}
 }
+
+func TestRemoteDefaultScopeAndUnsavedState(t *testing.T) {
+	a := &App{remotePath: filepath.Join(t.TempDir(), "remote.json")}
+	a.loadRemoteSettings()
+	if a.remoteEnabled || remoteBindValue(a.remoteBindIdx) != "127.0.0.1" {
+		t.Fatal("fresh remote settings expose interfaces")
+	}
+	a.remoteEnabled = true
+	if !strings.Contains(a.remoteSummary(), "默认关闭") {
+		t.Fatal("unsaved draft reported as running")
+	}
+	cfg := remote.Config{Enabled: true, Bind: "0.0.0.0", Port: 7899, Token: "persisted-token-1234"}
+	if err := cfg.Save(a.remotePath); err != nil {
+		t.Fatal(err)
+	}
+	a.loadRemoteSettings()
+	if !a.remoteEnabled || remoteBindValue(a.remoteBindIdx) != "0.0.0.0" {
+		t.Fatal("migration changed explicit listener scope")
+	}
+}

@@ -127,6 +127,33 @@ func applyNetworkFeatures(doc map[string]any, ov Overrides) error {
 		delete(current, "sniffing")
 		delete(current, "port-whitelist")
 	}
+	// Quick controls own only enable. Missing runtime defaults are filled here,
+	// never copied into saved overrides, so future subscription changes survive.
+	if ov.DNSEnable != nil {
+		current := configSection(doc, "dns")
+		current["enable"] = *ov.DNSEnable
+		if *ov.DNSEnable {
+			d := DefaultDNSSettings()
+			for key, value := range map[string]any{"nameserver": d.Nameserver, "default-nameserver": d.DefaultNameserver, "enhanced-mode": d.EnhancedMode} {
+				if _, exists := current[key]; !exists {
+					current[key] = value
+				}
+			}
+		}
+	}
+	if ov.SnifferEnable != nil {
+		current := configSection(doc, "sniffer")
+		current["enable"] = *ov.SnifferEnable
+		if *ov.SnifferEnable {
+			if _, exists := current["sniff"]; !exists {
+				if _, legacy := current["sniffing"]; !legacy {
+					d := DefaultSnifferSettings()
+					current["sniff"] = map[string]any{"HTTP": map[string]any{"ports": d.HTTPPorts}, "TLS": map[string]any{"ports": d.TLSPorts}, "QUIC": map[string]any{"ports": d.QUICPorts}}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

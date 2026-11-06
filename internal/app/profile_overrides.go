@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"gopurr/internal/patch"
@@ -28,48 +27,10 @@ func (a *App) scopedSavedStatus(applied bool) string {
 }
 
 func (a *App) commitProfileOverrides(id string, next patch.ProfileOverrides) (bool, error) {
-	if a.store == nil || id == "" {
+	if id == "" {
 		return false, errors.New(tr("请先选择订阅"))
 	}
-	if !a.beginProfileWork() {
-		return false, errors.New(tr("订阅正在更新，请稍后重试"))
-	}
-	defer a.endProfileWork()
-	raw, err := a.store.Content(id)
-	if err != nil {
-		return false, err
-	}
-	global := a.runtimeOverrides()
-	if a.store.ActiveID() != id {
-		global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
-	}
-	candidate, err := patch.ApplyLayers(raw, global, next)
-	if err != nil {
-		return false, fmt.Errorf(tr("订阅配置验证失败：%w"), err)
-	}
-	running := a.store.ActiveID() == id && a.k != nil && a.k.RunningForChange()
-	var previous []byte
-	if running {
-		previous, err = a.lastAcceptedConfig()
-		if err != nil {
-			return false, err
-		}
-		if err := a.k.Start(candidate); err != nil {
-			return false, errors.Join(fmt.Errorf(tr("内核未接受订阅覆写：%w"), err), a.k.Start(previous))
-		}
-	}
-	if err := a.store.SetOverrides(id, next); err != nil {
-		if running {
-			err = errors.Join(err, a.k.Start(previous))
-		}
-		return false, fmt.Errorf(tr("保存失败，已保留原配置：%w"), err)
-	}
-	a.featureCacheAt = time.Time{}
-	if running {
-		a.cancelDelayTest()
-		a.proxyGroup = ""
-	}
-	return running, nil
+	return a.commitOverrideChange(id, a.ov, next)
 }
 
 func (a *App) openProfileOverrides(p profile.Profile) {
@@ -97,7 +58,7 @@ func (a *App) extensionScopeControls(c *ui.Context) {
 		}
 	}
 	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-		softSegmented(c, &a.extensionScope, tr("全局"), tr("按订阅")).Disabled(len(items) == 0).Label(tr("覆写作用范围"))
+		softSegmented(c, &a.extensionScope, tr("全局"), tr("按订阅")).Disabled(len(items) == 0 || busyNetwork(a)).Label(tr("覆写作用范围"))
 		if a.extensionScope == 1 && len(items) > 0 {
 			labels := make([]string, len(items))
 			selected := ""
@@ -107,7 +68,7 @@ func (a *App) extensionScopeControls(c *ui.Context) {
 					selected = labels[i]
 				}
 			}
-			ui.Select(c, &selected, labels).Grow(1).MinWidth(0).Label(tr("选择覆写订阅")).OnChange(func() {
+			ui.Select(c, &selected, labels).Disabled(busyNetwork(a)).Grow(1).MinWidth(0).Label(tr("选择覆写订阅")).OnChange(func() {
 				for i, label := range labels {
 					if selected == label {
 						a.extensionProfileID = items[i].ID
@@ -148,7 +109,7 @@ func (a *App) previewExtensionConfig() {
 		var err error
 		raw, err = a.store.Content(id)
 		if err != nil {
-			a.notice = err.Error()
+			a.errorNotice(err.Error())
 			return
 		}
 	}
@@ -187,8 +148,12 @@ func (a *App) resetProfileDNSDraft() {
 }
 
 func (a *App) profileDNSEditor(c *ui.Context) {
-	ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
+	quick := a.profileOverrides(a.extensionProfileID).DNSEnable
+	ui.Scroll(c).Disabled(busyNetwork(a)).FillWidth().Grow(1).MinHeight(0).Children(func() {
 		ui.Column(c).FillWidth().Gap(16).Children(func() {
+			if quick != nil {
+				featureQuickPolicy(c, quick, busyNetwork(a), func() { a.requestFeaturePolicy(a.extensionProfileID, true, nil) })
+			}
 			a.dnsFields(c, &a.profileDNSDraft, tr("仅对所选订阅生效。跟随配置时沿用原配置、全局 DNS 和订阅 YAML；自定义 DNS 最后覆盖这些字段。"))
 		})
 	})
@@ -198,13 +163,15 @@ func (a *App) profileDNSEditor(c *ui.Context) {
 		a.profileDNSError, a.profileDNSStatus = "", ""
 	}, func() {
 		local := a.profileOverrides(a.extensionProfileID)
-		local.DNS = a.profileDNSDraft.settings()
-		applied, err := a.commitProfileOverrides(a.extensionProfileID, local)
-		if err != nil {
-			a.profileDNSError = err.Error()
-			return
-		}
-		a.profileDNSBase = a.profileDNSDraft
-		a.profileDNSError, a.profileDNSStatus = "", a.scopedSavedStatus(applied)
-	})
+		local.DNS, local.DNSEnable = a.profileDNSDraft.settings(), nil
+		draft := a.profileDNSDraft
+		a.requestOverrideChange(a.extensionProfileID, a.ov, local, func(applied bool, err error) {
+			if err != nil {
+				a.profileDNSError = err.Error()
+				return
+			}
+			a.profileDNSBase = draft
+			a.profileDNSError, a.profileDNSStatus = "", a.scopedSavedStatus(applied)
+		})
+	}, busyNetwork(a))
 }

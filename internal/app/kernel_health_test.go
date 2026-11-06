@@ -106,7 +106,7 @@ func TestKernelSuspendKeepsRestorePreference(t *testing.T) {
 	if calls.restore != 1 || a.sysApplied || a.sysOn {
 		t.Fatalf("proxy not handed back: restore=%d applied=%v on=%v", calls.restore, a.sysApplied, a.sysOn)
 	}
-	if !a.Prefs().RestoreSystemProxy || !a.restoreProxyOn {
+	if !a.Prefs().RestoreSystemProxy {
 		t.Fatal("watchdog suspension persisted RestoreSystemProxy=false")
 	}
 	if !a.proxySuspendedByHealth.Load() {
@@ -248,23 +248,20 @@ func TestKernelResumeDoesNotPersistPreference(t *testing.T) {
 	}
 }
 
-func TestSettingsRestoreOffCancelsPendingResume(t *testing.T) {
+func TestStartupPolicyDoesNotCancelCurrentHealthRecovery(t *testing.T) {
 	a, calls := healthTestApp(t, nil)
-	a.reconcileSettings() // the settings page has seen the current prefs
+	a.reconcileSettings()
 	a.suspendProxyForKernelFailure(false)
 	waitProxyChange(t, a)
-	a.restoreProxyOn = false
+	a.proxyStartupIdx = 2
 	a.reconcileSettings()
-	if a.proxySuspendedByHealth.Load() || a.Prefs().RestoreSystemProxy {
-		t.Fatalf("settings off: suspended=%v pref=%v", a.proxySuspendedByHealth.Load(), a.Prefs().RestoreSystemProxy)
-	}
-	if a.isKernelSuspendNotice(a.notice) {
-		t.Fatalf("stale suspend banner %q", a.notice)
+	if !a.proxySuspendedByHealth.Load() || !a.Prefs().RestoreSystemProxy || a.Prefs().systemProxyOnStartup() {
+		t.Fatal("next-launch policy changed current recovery or failed to save")
 	}
 	a.resumeProxyAfterKernelRecovery()
 	waitProxyChange(t, a)
-	if calls.enable != 0 || a.sysApplied {
-		t.Fatal("canceled resume still re-enabled the proxy")
+	if calls.enable != 1 || !a.sysApplied {
+		t.Fatal("next-launch policy prevented current-session recovery")
 	}
 }
 

@@ -198,7 +198,7 @@ func (a *App) suspendProxyForKernelFailure(exited bool) {
 		if err != nil {
 			a.sysOn = a.sysApplied
 			a.setSysErr(err.Error())
-			a.notice = tr("内核无响应，系统代理恢复失败，请重试: ") + err.Error()
+			a.errorNotice(tr("内核无响应，系统代理恢复失败，请重试: ") + err.Error())
 			a.invalidate()
 			return
 		}
@@ -256,7 +256,7 @@ func (a *App) resumeProxyAfterKernelRecovery() {
 			a.setSysErr("")
 			a.notice = tr("系统代理设置已变化，已取消自动恢复")
 		} else if err != nil {
-			a.notice = tr("内核已恢复，但重新开启系统代理失败: ") + err.Error()
+			a.errorNotice(tr("内核已恢复，但重新开启系统代理失败: ") + err.Error())
 		} else if suspendedNotice {
 			a.notice = ""
 		}

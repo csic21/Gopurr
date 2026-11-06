@@ -54,19 +54,19 @@ func (a *App) openProfileProxyEditor(id string) {
 	}
 	p, err := a.store.Get(id)
 	if err != nil {
-		a.notice = err.Error()
+		a.errorNotice(err.Error())
 		return
 	}
 	local := a.profileOverrides(id)
 	edits := patch.CloneProxyEdits(local.ProxyEdits)
 	raw, err := a.proxyEditorBaseConfig(id)
 	if err != nil {
-		a.notice = err.Error()
+		a.errorNotice(err.Error())
 		return
 	}
 	nodes, groups, err := patch.ReadProxyEditor(raw)
 	if err != nil {
-		a.notice = err.Error()
+		a.errorNotice(err.Error())
 		return
 	}
 	a.proxyEditorState = proxyEditorState{showProxyEditor: true, proxyEditorID: id, proxyEditorTitle: p.Name, proxyEditorRaw: string(raw), proxyEditorNodes: map[string]*proxyNodeForm{}, proxyEditorGroups: map[string]*proxyGroupForm{}, proxyEditorBaseNodes: map[string]patch.ProxyNode{}, proxyEditorBaseGroups: map[string]patch.ProxyGroup{}}
@@ -271,7 +271,7 @@ func (a *App) saveProxyEditor() {
 	}
 	a.showProxyEditor = false
 	a.proxyEditorError = ""
-	a.notice = tr("节点与策略组修改已保存")
+	a.successNotice(tr("节点与策略组修改已保存"))
 }
 
 func (a *App) proxyEditorTarget(name string) string {
@@ -424,7 +424,7 @@ func (a *App) proxyEditorDialog(c *ui.Context) {
 					if busyNetwork(a) {
 						label = tr("正在应用…")
 					}
-					softPrimaryButton(c, label).Disabled(busyNetwork(a)).OnClick(a.saveProxyEditor)
+					softPrimaryButton(c, label).Disabled(busyNetwork(a)).OnClick(a.requestSaveProxyEditor)
 				})
 			})
 		})

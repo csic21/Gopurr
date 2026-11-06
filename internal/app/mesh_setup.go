@@ -227,7 +227,7 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 											a.meshClient.Do("disconnect")
 										})
 									}
-									softButton(c, label).Disabled(snap.Busy).OnClick(func() {
+									softPrimaryButton(c, label).Disabled(snap.Busy).OnClick(func() {
 										if snap.Status.AuthURL != "" && snap.Managed && snap.Status.ShieldsKnown && snap.Status.ShieldsUp {
 											a.openMeshAuth(c, snap.Status.AuthURL)
 										} else {
@@ -276,7 +276,11 @@ func (a *App) meshGuideDialog(c *ui.Context, snap mesh.Snapshot) {
 				})
 				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 					softButton(c, tr("稍后设置")).OnClick(func() { a.meshGuide = false })
-					softPrimaryButton(c, tr("完成设置")).Disabled(!snap.Status.Running).OnClick(func() { a.meshGuide = false })
+					if snap.Status.Running {
+						softPrimaryButton(c, tr("完成设置")).OnClick(func() { a.meshGuide = false })
+					} else {
+						softButton(c, tr("完成设置")).Disabled(true)
+					}
 				})
 			})
 		})

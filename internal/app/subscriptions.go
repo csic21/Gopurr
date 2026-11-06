@@ -184,7 +184,7 @@ func (a *App) subRow(c *ui.Context, item profile.Profile, active, busy bool) {
 					updated = tr("更新于 ") + item.Updated.Format("01-02 15:04")
 				}
 				ui.Text(c, updated).FontSize(11).TextColor(pal.Muted)
-				ui.Text(c, subscriptionUpdateLabel(item)).FontSize(11).TextColor(pal.Faint)
+				ui.Text(c, subscriptionUpdateLabel(item, a.Prefs().AutoUpdateHours)).FontSize(11).TextColor(pal.Faint)
 			})
 			label := tr("更新")
 			if item.IsFile() {
@@ -205,6 +205,7 @@ func (a *App) subRow(c *ui.Context, item profile.Profile, active, busy bool) {
 				}
 			})
 			softButton(c, tr("覆写…")).Disabled(busy).Label(tr("覆写订阅 ") + item.Name).OnClick(func() { a.openProfileOverrides(item) })
+			ui.Box(c).Width(1).Height(18).Background(pal.Border).MarginX(4)
 			deleteHint := tr("删除此配置")
 			if active {
 				deleteHint = tr("请先启用其他配置，再删除当前订阅")

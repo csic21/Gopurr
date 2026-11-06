@@ -282,9 +282,11 @@ func newMainWindow(a *app.App) *mygo.Window {
 		if a.ShuttingDown() {
 			return
 		}
-		w.Hide()
-		applyDockVisibility(a.Prefs(), false)
-		scheduleRelease(a)
+		a.RequestWindowClose(func() {
+			w.Hide()
+			applyDockVisibility(a.Prefs(), false)
+			scheduleRelease(a)
+		})
 	})
 	return w
 }

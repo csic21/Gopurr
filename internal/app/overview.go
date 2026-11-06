@@ -256,7 +256,7 @@ func (a *App) overviewRoute(c *ui.Context, groups []core.Group, group core.Group
 				label = tr("查看节点")
 			}
 			softPrimaryButton(c, label).OnClick(func() {
-				a.overviewQuery, a.showOverviewNodes = "", true
+				a.overviewQuery, a.showOverviewNodes, a.proxySelectionError = "", true, ""
 			})
 		} else if a.modeToken == "direct" || !running {
 			softButton(c, tr("查看代理")).OnClick(func() { a.page = "proxies" })
@@ -331,7 +331,7 @@ func (a *App) overviewNetworkControls(c *ui.Context) {
 		case !root || svcErr != "":
 			softButton(c, tr("修复服务…")).Disabled(busyNetwork(a)).OnClick(func() { a.confirmInstall = true })
 		default:
-			softButton(c, tr("重启服务")).Disabled(busyNetwork(a)).OnClick(a.restartService)
+			softButton(c, tr("详情")).OnClick(func() { a.showNetworkDetails = true })
 		}
 		softSwitch(c, &a.tunOn).Disabled((!root && !a.tunOn) || busyNetwork(a)).Label(tr("TUN 模式"))
 		if a.tunOn != a.ov.TunEnable {
@@ -373,8 +373,8 @@ func (a *App) overviewNodePicker(c *ui.Context, compact bool) {
 			if !manualGroup(group) {
 				ui.Text(c, tr("此组由内核自动调度，勾选表示当前出口。")).FontSize(11).TextColor(pal.Muted)
 			}
-			if a.notice != "" {
-				settingsFeedback(c, a.notice, true)
+			if a.proxySelectionError != "" {
+				settingsFeedback(c, a.proxySelectionError, true)
 			}
 			members := filterMembers(group.Members, a.overviewQuery)
 			identity := group.Name + "\x00" + a.overviewQuery

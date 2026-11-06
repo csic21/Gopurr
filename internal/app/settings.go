@@ -22,7 +22,7 @@ type settingsState struct {
 	appearanceIdx   int
 	languageIdx     int
 	dockIdx         int
-	restoreProxyOn  bool
+	proxyStartupIdx int
 	autoLaunchOn    bool
 	silentStartOn   bool
 	closeOnSwitchOn bool
@@ -65,7 +65,7 @@ func (a *App) syncGeneralSettings(p Prefs) {
 	a.lightOn = p.LightMode
 	a.lightDelayIdx = delayIndexOf(p.LightDelay)
 	a.autoIdx = autoUpdateIndex(p.AutoUpdateHours)
-	a.restoreProxyOn = p.RestoreSystemProxy
+	a.proxyStartupIdx = proxyStartupIndex(p.SystemProxyStartup)
 	a.autoLaunchOn, a.silentStartOn, a.closeOnSwitchOn = p.AutoLaunch, p.SilentStart, p.CloseOnSwitch
 }
 
@@ -130,8 +130,14 @@ func (a *App) settingsPage(c *ui.Context) {
 						softSwitch(c, &a.silentStartOn).Label(tr("静默启动开关"))
 					})
 					hairline(c)
-					settingsRow(c, tr("启动时自动开启系统代理"), tr("与概览开关同步：退出后下次启动自动恢复系统代理"), func() {
-						softSwitch(c, &a.restoreProxyOn).Label(tr("启动时自动开启系统代理开关"))
+					settingsRow(c, tr("启动时系统代理"), tr("仅影响下次启动；概览开关只改变当前状态"), nil)
+					ui.Row(c).FillWidth().Padding(0, 16, 14).Children(func() {
+						softSegmented(c, &a.proxyStartupIdx, tr("恢复上次状态"), tr("始终开启"), tr("保持关闭")).Label(tr("系统代理启动策略"))
+					})
+				})
+				settingsGroup(c, tr("连接行为 · 即时保存"), func() {
+					settingsRow(c, tr("切换节点时断开原连接"), tr("立即保存；只断开经过该策略组的连接"), func() {
+						softSwitch(c, &a.closeOnSwitchOn).Label(tr("切换节点时断开原连接开关"))
 					})
 				})
 				settingsGroup(c, tr("快捷操作"), func() {
@@ -163,7 +169,7 @@ func (a *App) settingsPage(c *ui.Context) {
 				settingsGroup(c, tr("网络接入"), func() {
 					settingsRow(c, tr("远程 Web 控制台"), a.remoteSummary(), func() {
 						label := tr("配置…")
-						if a.remoteEnabled {
+						if a.remoteConfigSnapshot().Enabled {
 							label = tr("管理…")
 						}
 						softButton(c, label).OnClick(func() {
@@ -193,11 +199,6 @@ func (a *App) settingsPage(c *ui.Context) {
 					settingsRow(c, tr("TUN 协议栈"), tr("推荐 mixed；启用 TUN 时使用此设置"), func() {
 						ui.Select(c, &a.tunStackPick, settingsOptions(settingsTunStacks, a.tunStackPick)).
 							Width(140).Label(tr("TUN 协议栈")).Disabled(busyNetwork(a))
-					})
-				})
-				settingsGroup(c, tr("连接行为 · 即时保存"), func() {
-					settingsRow(c, tr("切换节点时断开原连接"), tr("立即保存；只断开经过该策略组的连接"), func() {
-						softSwitch(c, &a.closeOnSwitchOn).Label(tr("切换节点时断开原连接开关"))
 					})
 				})
 			}
@@ -259,7 +260,7 @@ func (a *App) settingsPage(c *ui.Context) {
 		} else if a.networkStatus != "" && !a.networkSettingsDirty() {
 			settingsFeedback(c, a.networkStatus, false)
 		}
-		settingsSaveBar(c, tr("网络设置"), tr("保存后应用到当前内核"), a.networkSettingsDirty(), tr("保存网络设置"), a.requestNetworkSettings, busyNetwork(a))
+		settingsSaveBar(c, tr("网络设置"), tr("保存后应用到当前内核"), a.networkSettingsDirty(), tr("保存网络设置"), func() { a.resetNetworkDraft(); a.networkError, a.networkStatus = "", "" }, a.requestNetworkSettings, busyNetwork(a))
 	}
 	if a.settingsTab == 2 {
 		if a.testSettingsError != "" {
@@ -267,14 +268,14 @@ func (a *App) settingsPage(c *ui.Context) {
 		} else if a.testSettingsStatus != "" && !a.testSettingsDirty() {
 			settingsFeedback(c, a.testSettingsStatus, false)
 		}
-		settingsSaveBar(c, tr("测试设置"), tr("用于下次节点延迟测试"), a.testSettingsDirty(), tr("保存测试设置"), a.saveTestSettings)
+		settingsSaveBar(c, tr("测试设置"), tr("用于下次节点延迟测试"), a.testSettingsDirty(), tr("保存测试设置"), func() { a.resetTestSettingsDraft(a.Prefs()); a.testSettingsError, a.testSettingsStatus = "", "" }, a.saveTestSettings)
 	}
 	a.remoteSettingsModal(c)
 	a.remoteSettingsDialogs(c)
 	a.rawConfigModal(c)
 }
 
-func settingsSaveBar(c *ui.Context, title, hint string, dirty bool, label string, save func(), disabled ...bool) {
+func settingsSaveBar(c *ui.Context, title, hint string, dirty bool, label string, reset, save func(), disabled ...bool) {
 	pal := paletteFor(c)
 	ui.Row(c).FillWidth().Padding(12, 16).Radius(10).Background(pal.Surface).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
@@ -284,7 +285,12 @@ func settingsSaveBar(c *ui.Context, title, hint string, dirty bool, label string
 			ui.Text(c, title).FontSize(12).FontWeight(500).TextColor(pal.Text)
 			ui.Text(c, hint).FontSize(11).TextColor(pal.Muted)
 		})
-		softPrimaryButton(c, label).Disabled(!dirty || (len(disabled) != 0 && disabled[0])).OnClick(save)
+		busy := len(disabled) != 0 && disabled[0]
+		softButton(c, tr("放弃修改")).Disabled(!dirty || busy).OnClick(reset)
+		if busy {
+			label = tr("正在应用…")
+		}
+		softPrimaryButton(c, label).Disabled(!dirty || busy).OnClick(save)
 	})
 }
 
@@ -300,7 +306,7 @@ func (a *App) reconcileSettings() {
 	lightChanged := a.lightOn != last.LightMode
 	delayChanged := a.lightDelayIdx != delayIndexOf(last.LightDelay)
 	autoChanged := a.autoIdx != autoUpdateIndex(last.AutoUpdateHours)
-	restoreChanged := a.restoreProxyOn != last.RestoreSystemProxy
+	restoreChanged := a.proxyStartupIdx != proxyStartupIndex(last.SystemProxyStartup)
 	startupChanged := a.autoLaunchOn != last.AutoLaunch
 	silentChanged := a.silentStartOn != last.SilentStart
 	cleanupChanged := a.closeOnSwitchOn != last.CloseOnSwitch
@@ -338,16 +344,14 @@ func (a *App) reconcileSettings() {
 				p.AutoUpdateHours = hours
 			}
 			if restoreChanged {
-				p.RestoreSystemProxy = a.restoreProxyOn
+				p.SystemProxyStartup = proxyStartupValue(a.proxyStartupIdx)
 			}
 		})
 		a.generalSettingsError = ""
 		if err != nil {
 			a.generalSettingsError = tr("设置保存失败：") + err.Error()
 			a.notice = a.generalSettingsError
-		} else if restoreChanged && !a.restoreProxyOn {
-			// Turning the preference off also drops a pending watchdog resume.
-			a.cancelHealthResume()
+
 		}
 	}
 	a.syncGeneralSettings(a.Prefs())
@@ -409,7 +413,7 @@ func (a *App) saveTestSettings() {
 	}
 	a.resetTestSettingsDraft(a.Prefs())
 	a.testSettingsStatus = tr("测试设置已保存，下次测速生效")
-	a.notice = a.testSettingsStatus
+	a.successNotice(a.testSettingsStatus)
 }
 
 func (a *App) reloadSettingsKernel() {
@@ -422,7 +426,7 @@ func (a *App) reloadSettingsKernel() {
 	}
 	a.startKernelAsync(func(ok bool) {
 		if ok {
-			a.notice = tr("内核已重载")
+			a.successNotice(tr("内核已重载"))
 		}
 	})
 }

@@ -61,6 +61,7 @@ var navItems = []navItem{
 // App is the whole UI state. Every field is read on the UI goroutine and
 // written on it or under mu by the sampler.
 type App struct {
+	windowClose         windowCloseState
 	shutdown            shutdownState
 	shutdownPending     atomic.Bool
 	softwareUpdates     *update.Controller
@@ -93,6 +94,7 @@ type App struct {
 	cfgPath    string
 	cfgText    string
 	notice     string
+	feedback   feedbackState
 
 	// async-written state, guarded by bmu
 	bmu     sync.Mutex
@@ -349,7 +351,7 @@ func (a *App) saveOverrides() {
 		return
 	}
 	if err := a.saveOverridesAtomic(); err != nil {
-		a.notice = tr("设置已应用，但保存失败: ") + err.Error()
+		a.errorNotice(tr("设置已应用，但保存失败: ") + err.Error())
 	}
 }
 
@@ -411,6 +413,7 @@ func (a *App) View(c *ui.Context) {
 	a.StartBackground()
 
 	a.windowChrome(c)
+	a.feedbackDialog(c)
 	if a.shutdownPending.Load() || a.shutdown.err != "" {
 		a.shutdownModal(c)
 	} else {
@@ -420,6 +423,7 @@ func (a *App) View(c *ui.Context) {
 		a.aggregationDialog(c)
 		a.proxyEditorDialog(c)
 		a.overrideLibraryDialog(c)
+		a.windowCloseDialog(c)
 	}
 }
 
@@ -615,7 +619,7 @@ func (a *App) sidebar(c *ui.Context, progress float32, moving bool) {
 }
 
 func (a *App) main(c *ui.Context) {
-	pal := paletteFor(c)
+	a.updateFeedback(c)
 	paddingY := float32(20)
 	if _, height := c.Size(); height < 660 {
 		paddingY = 16
@@ -628,12 +632,7 @@ func (a *App) main(c *ui.Context) {
 			ui.Column(c).FillWidth().Grow(1).MinHeight(0).Gap(12).Key(a.page).
 				Transition(pageMotion()).
 				Children(func() {
-					if a.notice != "" {
-						ui.Row(c).FillWidth().Padding(12).Gap(12).AlignItems(ui.Center).Radius(10).Background(pal.Hover).Children(func() {
-							ui.Text(c, a.notice).Grow(1).MinWidth(0).FontSize(11).TextColor(pal.Text).ContentTransition(contentMotion())
-							softButton(c, tr("关闭提示")).OnClick(func() { a.notice = "" })
-						})
-					}
+
 					a.pageBody(c)
 				})
 		})
@@ -668,12 +667,37 @@ func (a *App) pageBody(c *ui.Context) {
 }
 
 func (a *App) pageHeader(c *ui.Context, title, subtitle string, trailing func()) {
+	a.updateFeedback(c)
 	pal := paletteFor(c)
+	color := pal.Faint
+	if a.notice != "" {
+		subtitle = a.notice
+		color = pal.Muted
+		if a.feedback.kind == noticeSuccess {
+			color = pal.Success
+		}
+		if a.feedback.kind == noticeError {
+			color = pal.Danger
+		}
+	}
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
-			ui.Text(c, title).FontSize(22).FontWeight(650).TextColor(pal.Text)
+			ui.Row(c).FillWidth().Height(28).AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.Text(c, title).FontSize(22).FontWeight(650).TextColor(pal.Text)
+				if a.notice != "" {
+					ui.Spacer(c)
+					if a.feedback.kind == noticeSuccess {
+						softButton(c, tr("关闭提示")).OnClick(func() { a.notice = "" })
+					} else {
+						softButton(c, tr("提示详情")).OnClick(func() { a.feedback.showDetails = true })
+					}
+				}
+			})
 			if subtitle != "" {
-				ui.Text(c, subtitle).FillWidth().SingleLine().Ellipsis("…").Tooltip(subtitle).FontSize(12).TextColor(pal.Faint)
+				line := ui.Text(c, subtitle).FillWidth().SingleLine().Ellipsis("…").Tooltip(subtitle).FontSize(12).TextColor(color)
+				if a.notice != "" {
+					line.Role(ui.RoleStatus)
+				}
 			}
 		})
 		if trailing != nil {
@@ -799,7 +823,7 @@ func (a *App) revealDataDir() {
 		command = "xdg-open"
 	}
 	if err := exec.Command(command, a.dir).Start(); err != nil {
-		a.notice = tr("打开文件夹失败: ") + err.Error()
+		a.errorNotice(tr("打开文件夹失败: ") + err.Error())
 	}
 }
 
@@ -867,7 +891,7 @@ func (a *App) rawConfigModal(c *ui.Context) {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				softButton(c, tr("复制")).OnClick(func() {
 					a.services().WriteClipboard(a.rawDraft)
-					a.notice = tr("配置已复制")
+					a.successNotice(tr("配置已复制"))
 				})
 				ui.Spacer(c)
 				softButton(c, tr("关闭")).OnClick(func() { a.showRaw = false })
@@ -889,7 +913,7 @@ func (a *App) Reload() { a.restart() }
 func (a *App) UseMode(token string) {
 	if a.k.RunningForChange() {
 		if err := a.k.SetMode(token); err != nil {
-			a.notice = tr("切换模式失败: ") + err.Error()
+			a.errorNotice(tr("切换模式失败: ") + err.Error())
 			a.modePick = labelFor(a.modeToken)
 			a.modeIdx = modeIndex(a.modeToken)
 			return
@@ -914,7 +938,7 @@ func (a *App) toggle() {
 		// when the stop itself fails (for example a system-owned daemon).
 		stop := func(err error) {
 			if err != nil {
-				a.notice = tr("系统代理恢复失败，内核保持运行: ") + err.Error()
+				a.errorNotice(tr("系统代理恢复失败，内核保持运行: ") + err.Error())
 				return
 			}
 			a.cancelHealthResume()
@@ -924,9 +948,9 @@ func (a *App) toggle() {
 			go func() {
 				err := a.k.Stop()
 				runOnMain(func() {
-					a.notice = tr("内核已停止。")
+					a.successNotice(tr("内核已停止。"))
 					if err != nil {
-						a.notice = tr("停止失败: ") + err.Error()
+						a.errorNotice(tr("停止失败: ") + err.Error())
 					}
 					a.bmu.Lock()
 					a.kernelBusy = false
@@ -972,8 +996,10 @@ func (a *App) finishKernelBoot() {
 	// A proxy that already points at this kernel keeps working across
 	// restarts; re-applying it would only ask for the administrator
 	// password again on every launch.
-	if !a.sysApplied && a.Prefs().RestoreSystemProxy {
-		a.setSystemProxy(true)
+	if a.Prefs().SystemProxyStartup == proxyStartupOff && a.sysApplied {
+		a.requestSystemProxy(false, false, false, nil)
+	} else if !a.sysApplied && a.Prefs().systemProxyOnStartup() {
+		a.requestSystemProxy(true, false, true, nil)
 	}
 }
 
@@ -1065,11 +1091,11 @@ func (a *App) startKernel() bool {
 	}
 	raw, err := a.configBytes()
 	if err != nil {
-		a.notice = tr("配置无法使用: ") + err.Error()
+		a.errorNotice(tr("配置无法使用: ") + err.Error())
 		return false
 	}
 	if err := a.k.Start(raw); err != nil {
-		a.notice = tr("启动失败: ") + err.Error()
+		a.errorNotice(tr("启动失败: ") + err.Error())
 		return false
 	}
 	a.cancelDelayTest()
@@ -1204,15 +1230,14 @@ func ownsProxy(st sysproxy.State, port int) bool {
 	return st.OwnedBy(port)
 }
 
-// persistRestoreSystemProxy keeps the settings toggle and prefs.json in sync
-// with the overview/tray system-proxy switch.
+// persistRestoreSystemProxy remembers explicit live changes without editing
+// the independent startup policy. Shutdown cleanup never changes this value.
 func (a *App) persistRestoreSystemProxy(on bool) {
-	a.restoreProxyOn = on
 	if a.Prefs().RestoreSystemProxy == on {
 		return
 	}
 	if err := a.changePrefs(func(p *Prefs) { p.RestoreSystemProxy = on }); err != nil && a.notice == "" {
-		a.notice = tr("系统代理偏好保存失败: ") + err.Error()
+		a.errorNotice(tr("系统代理偏好保存失败: ") + err.Error())
 	}
 }
 
@@ -1451,7 +1476,7 @@ func (a *App) useSubscription(id string) {
 		return
 	}
 	a.proxyGroup = ""
-	a.notice = tr("订阅已启用")
+	a.successNotice(tr("订阅已启用"))
 }
 
 func (a *App) removeSubscription(id string) {
@@ -1468,7 +1493,7 @@ func (a *App) removeSubscription(id string) {
 		return
 	}
 	a.setSubErr("")
-	a.notice = tr("订阅已删除")
+	a.successNotice(tr("订阅已删除"))
 }
 
 // ---------- helpers ----------
@@ -1714,7 +1739,7 @@ func (a *App) maybeAutoUpdate() {
 		}
 	}
 	if updated > 0 {
-		a.notice = fmt.Sprintf(tr("已自动更新 %d 个订阅"), updated)
+		a.successNotice(fmt.Sprintf(tr("已自动更新 %d 个订阅"), updated))
 	}
 	a.invalidate()
 }

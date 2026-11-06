@@ -229,8 +229,9 @@ func TestOverviewDNSChangesOnlyActiveSubscriptionAndKeepsServers(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.toggleNetworkFeature(true, false)
+	waitProxyChange(t, a)
 	saved := a.profileOverrides(p.ID)
-	if a.notice == "" || saved.DNS == nil || saved.DNS.Enable || saved.DNS.Nameserver[0] != "119.29.29.29" || !a.ov.DNS.Enable {
+	if a.notice == "" || saved.DNS == nil || saved.DNSEnable == nil || *saved.DNSEnable || saved.DNS.Nameserver[0] != "119.29.29.29" || !a.ov.DNS.Enable {
 		t.Fatal("overview toggle changed global DNS or discarded profile servers")
 	}
 }

@@ -18,6 +18,8 @@ type aggregationSourceDraft struct {
 
 type aggregationState struct {
 	showAggregation                        bool
+	aggregationDiscard                     bool
+	aggregationSaved                       string
 	aggregationID                          string
 	aggregationName                        string
 	aggregationSources                     []aggregationSourceDraft
@@ -66,6 +68,8 @@ func (a *App) openAggregationEditor(id string) {
 			a.aggregationSources = append(a.aggregationSources, aggregationSourceDraft{ID: p.ID, Name: p.Name})
 		}
 	}
+	a.aggregationDiscard = false
+	a.aggregationSaved = a.aggregationFingerprint()
 	a.showAggregation = true
 }
 
@@ -90,50 +94,67 @@ func (a *App) previewAggregation() {
 	a.aggregationPreview = strings.Join(stats.Names, "\n")
 }
 
-func (a *App) saveAggregation() {
-	if a.store == nil || !a.beginProfileWork() {
+func (a *App) saveAggregation()        { a.saveAggregationWithDispatch(false) }
+func (a *App) requestSaveAggregation() { a.saveAggregationWithDispatch(true) }
+
+func (a *App) saveAggregationWithDispatch(async bool) {
+	if a.store == nil || !a.beginOverrideChange() {
 		a.aggregationError = tr("订阅正在更新，请稍后重试")
 		return
 	}
-	defer a.endProfileWork()
-	active := a.aggregationID != "" && a.store.ActiveID() == a.aggregationID
-	running := active && a.k != nil && a.k.RunningForChange()
-	var previous []byte
-	var err error
-	if running {
-		previous, err = a.configBytes()
-		if err != nil {
-			a.aggregationError = err.Error()
-			return
-		}
-	}
-	attempted := false
-	_, stats, err := a.store.SaveAggregate(a.aggregationID, a.aggregationName, a.aggregationSpec(), func(raw []byte) error {
-		candidate, err := patch.ApplyLayers(raw, a.runtimeOverrides(), a.profileOverrides(a.aggregationID))
-		if err != nil {
-			return err
-		}
-		if running {
-			attempted = true
-			return a.k.Start(candidate)
-		}
-		return nil
-	})
-	if err != nil {
-		if attempted {
-			err = errors.Join(err, a.k.Start(previous))
-		}
+	id, name, spec := a.aggregationID, a.aggregationName, a.aggregationSpec()
+	store, core := a.store, a.k
+	active := id != "" && store.ActiveID() == id
+	global, local := a.runtimeOverrides(), a.profileOverrides(id)
+	// Snapshot rollback input before a worker can publish the new aggregate.
+	previous, err := a.lastAcceptedConfig()
+	if err != nil && active {
+		a.endOverrideChange()
 		a.aggregationError = err.Error()
 		return
 	}
-	a.aggregationStats, a.aggregationError, a.showAggregation = stats, "", false
-	a.featureCacheAt = time.Time{}
-	if active {
-		a.cancelDelayTest()
-		a.proxyGroup = ""
+	a.aggregationError = ""
+	work := func() (profile.AggregateStats, error) {
+		running := active && core != nil && core.RunningForChange()
+		attempted := false
+		_, stats, err := store.SaveAggregate(id, name, spec, func(raw []byte) error {
+			candidate, err := patch.ApplyLayers(raw, global, local)
+			if err != nil {
+				return err
+			}
+			if running {
+				attempted = true
+				return core.Start(candidate)
+			}
+			return nil
+		})
+		if err != nil && attempted {
+			err = errors.Join(err, core.Start(previous))
+		}
+		return stats, err
 	}
-	a.notice = fmt.Sprintf(tr("聚合已保存，共 %d 个节点；来源配置保持不变"), stats.Output)
-	a.invalidate()
+	complete := func(stats profile.AggregateStats, err error) {
+		if err != nil {
+			a.aggregationError = err.Error()
+		} else {
+			a.aggregationStats, a.aggregationError, a.showAggregation = stats, "", false
+			a.featureCacheAt = time.Time{}
+			if active {
+				a.cancelDelayTest()
+				a.proxyGroup = ""
+			}
+			a.successNotice(fmt.Sprintf(tr("聚合已保存，共 %d 个节点；来源配置保持不变"), stats.Output))
+		}
+		a.endOverrideChange()
+		a.invalidate()
+	}
+	if async {
+		a.invalidate()
+		go func() { stats, err := work(); runOnMain(func() { complete(stats, err) }) }()
+	} else {
+		stats, err := work()
+		complete(stats, err)
+	}
 }
 
 func (a *App) moveAggregationSource(index, delta int) {
@@ -155,8 +176,8 @@ func (a *App) aggregationDialog(c *ui.Context) {
 	ui.Overlay(c, func() {
 		back := ui.Box(c.Key("aggregation-editor")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Modal()
 		modalBackdrop(back)
-		if !busy && back.OverlayShortcut(0, ui.KeyEscape) {
-			a.showAggregation = false
+		if !busy && !a.aggregationDiscard && back.OverlayShortcut(0, ui.KeyEscape) {
+			a.requestCloseAggregation()
 		}
 		back.Children(func() {
 			panel := ui.Column(c).Width(min(float32(680), width-64)).MaxHeight(height-64).Padding(20).Gap(12).Radius(14).Background(pal.Surface).Border(1, pal.Border).Role(ui.RoleDialog).Label(tr("聚合订阅"))
@@ -199,12 +220,19 @@ func (a *App) aggregationDialog(c *ui.Context) {
 				ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 					softButton(c, tr("预览聚合")).Disabled(busy).OnClick(func() { a.previewAggregation(); a.aggregationTab = 2 })
 					ui.Spacer(c)
-					softButton(c, tr("取消")).Disabled(busy).OnClick(func() { a.showAggregation = false })
-					softPrimaryButton(c, tr("保存聚合")).Disabled(busy).OnClick(a.saveAggregation)
+					softButton(c, tr("取消")).Disabled(busy).OnClick(a.requestCloseAggregation)
+					label := tr("保存聚合")
+					if busy {
+						label = tr("正在应用…")
+					}
+					softPrimaryButton(c, label).Disabled(busy).OnClick(a.requestSaveAggregation)
 				})
 			})
 		})
 	})
+	if confirmDiscardDraft(c, &a.aggregationDiscard) {
+		a.showAggregation = false
+	}
 }
 
 func (a *App) aggregationSourceFields(c *ui.Context, busy bool) {

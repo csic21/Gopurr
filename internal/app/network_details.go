@@ -80,13 +80,16 @@ func (a *App) networkDetails(c *ui.Context) {
 					})
 				})
 			})
-			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
-				if installed, _, _ := a.svcState(); installed {
+			if installed, _, _ := a.svcState(); installed {
+				ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 					if a.mgr.ServiceNeedsUpdate() || a.mgr.ServiceVersionSkew() {
 						softButton(c, tr("更新服务…")).Disabled(busyNetwork(a)).OnClick(func() { a.showNetworkDetails = false; a.confirmInstall = true })
 					}
+					softButton(c, tr("重启服务")).Disabled(busyNetwork(a)).OnClick(a.restartService)
 					softButton(c, tr("卸载服务")).Disabled(busyNetwork(a)).OnClick(func() { a.showNetworkDetails = false; a.confirmUninstall = true })
-				}
+				})
+			}
+			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
 				softButton(c, tr("重新检测")).Disabled(busyNetwork(a)).OnClick(a.refreshNetworkState)
 				softPrimaryButton(c, tr("关闭")).OnClick(func() { a.showNetworkDetails = false })
 			})

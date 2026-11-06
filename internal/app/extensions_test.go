@@ -250,7 +250,7 @@ func TestExtensionRunningSaveTransaction(t *testing.T) {
 				t.Fatal("failed transaction changed the persisted overrides")
 			}
 			if outcome == "rollback rejected" {
-				if len(reloads) != 2 || !strings.Contains(a.mergeYAMLError, "旧配置重新载入也失败") {
+				if len(reloads) != 2 || !strings.Contains(a.mergeYAMLError, "恢复原配置失败") {
 					t.Fatalf("rollback failure was hidden: %s", a.mergeYAMLError)
 				}
 			} else if !bytes.Equal(readExtensionFile(t, mgr.ConfigPath()), runtimeBefore) {

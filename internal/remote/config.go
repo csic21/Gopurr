@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	// DefaultBind listens on every interface so a router port forward or the
-	// built-in mesh's 127.0.0.1 port forward can both reach the console.
-	DefaultBind = "0.0.0.0"
+	// DefaultBind limits new installations to this device. The built-in
+	// mesh can forward localhost; LAN access requires an explicit selection.
+	DefaultBind = "127.0.0.1"
 	DefaultPort = 7899
 	TokenBytes  = 32
 )

@@ -4,7 +4,7 @@ import "github.com/egoist/mygo/ui"
 
 func (a *App) toggleSidebar() {
 	if err := a.changePrefs(func(p *Prefs) { p.SidebarCollapsed = !p.SidebarCollapsed }); err != nil {
-		a.notice = err.Error()
+		a.errorNotice(err.Error())
 	}
 }
 

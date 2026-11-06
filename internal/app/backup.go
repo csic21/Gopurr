@@ -81,6 +81,7 @@ func (a *App) prepareRestore(s *backup.Snapshot) (Prefs, patch.Overrides, int, e
 	}
 	// System key bindings belong to this machine, just like login registration.
 	prefs.Shortcuts = a.Prefs().Shortcuts
+	prefs.CloseToTrayAcknowledged = a.Prefs().CloseToTrayAcknowledged
 	if err := validatePrefs(prefs); err != nil {
 		return fail(err)
 	}

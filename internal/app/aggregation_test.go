@@ -105,7 +105,22 @@ func TestAggregationEditorSourceOrderAndSmallWindow(t *testing.T) {
 	if err := tr.Click("取消"); err != nil {
 		t.Fatal(err)
 	}
+	if !a.showAggregation || !a.aggregationDiscard {
+		t.Fatal("dirty cancel lost the draft")
+	}
+	tr.Frame()
+	if err := tr.Click("继续编辑"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.showAggregation || a.aggregationDiscard {
+		t.Fatal("keep editing did not restore editor")
+	}
+	a.requestCloseAggregation()
+	tr.Frame()
+	if err := tr.Click("放弃修改"); err != nil {
+		t.Fatal(err)
+	}
 	if a.showAggregation {
-		t.Fatal("cancel did not close")
+		t.Fatal("confirmed discard did not close")
 	}
 }

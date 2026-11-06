@@ -18,11 +18,12 @@ import (
 // live beside the profiles, but in their own file: a kernel config and a UI
 // preference are different things and should not share a schema.
 type Prefs struct {
-	Shortcuts       shortcuts.Config `json:"shortcuts"`
-	AutoLaunch      bool             `json:"autoLaunch"`
-	SilentStart     bool             `json:"silentStart"`
-	CloseOnSwitch   bool             `json:"closeOnSwitch"`
-	CheckAppUpdates bool             `json:"checkAppUpdates"`
+	CloseToTrayAcknowledged bool             `json:"closeToTrayAcknowledged"`
+	Shortcuts               shortcuts.Config `json:"shortcuts"`
+	AutoLaunch              bool             `json:"autoLaunch"`
+	SilentStart             bool             `json:"silentStart"`
+	CloseOnSwitch           bool             `json:"closeOnSwitch"`
+	CheckAppUpdates         bool             `json:"checkAppUpdates"`
 	// Appearance controls both the native window and its content.
 	Appearance string `json:"appearance"`
 	// SidebarCollapsed moves the same destinations into the window toolbar.
@@ -41,10 +42,11 @@ type Prefs struct {
 	AutoUpdateHours int `json:"autoUpdateHours"`
 	// LastAutoUpdate is when the last automatic refresh finished.
 	LastAutoUpdate time.Time `json:"lastAutoUpdate"`
-	// RestoreSystemProxy enables the system proxy after the kernel is ready.
-	// Overview/tray toggles persist this so the next launch matches the last
-	// session; exit still restores any foreign OS proxy first.
+	// RestoreSystemProxy remembers the last explicit proxy state. Keep its JSON
+	// name so existing installations migrate without changing their behavior.
 	RestoreSystemProxy bool `json:"restoreSystemProxy"`
+	// SystemProxyStartup is independent of the live overview/tray switch.
+	SystemProxyStartup string `json:"systemProxyStartup"`
 	// Test settings apply to manual node latency tests.
 	TestURL         string `json:"testURL"`
 	TestTimeoutMS   int    `json:"testTimeoutMS"`
@@ -53,15 +55,16 @@ type Prefs struct {
 
 func defaultPrefs() Prefs {
 	return Prefs{
-		CheckAppUpdates: true,
-		CloseOnSwitch:   true,
-		Appearance:      AppearanceSystem,
-		Language:        LanguageSystem,
-		DockVisibility:  DockShown,
-		LightDelay:      60,
-		TestURL:         "https://www.gstatic.com/generate_204",
-		TestTimeoutMS:   6000,
-		TestConcurrency: 8,
+		CheckAppUpdates:    true,
+		CloseOnSwitch:      true,
+		SystemProxyStartup: proxyStartupLast,
+		Appearance:         AppearanceSystem,
+		Language:           LanguageSystem,
+		DockVisibility:     DockShown,
+		LightDelay:         60,
+		TestURL:            "https://www.gstatic.com/generate_204",
+		TestTimeoutMS:      6000,
+		TestConcurrency:    8,
 	}
 }
 
@@ -80,6 +83,7 @@ func (a *App) loadPrefs() {
 	if json.Unmarshal(b, &p) != nil {
 		return
 	}
+	p.SystemProxyStartup = normalizedProxyStartup(p.SystemProxyStartup)
 	if !validAppearance(p.Appearance) {
 		p.Appearance = AppearanceSystem
 	}
@@ -181,6 +185,7 @@ func (a *App) changePrefs(edit func(*Prefs)) error {
 // literals. The settings form validates explicit inputs before this step.
 func normalizePrefs(p Prefs) Prefs {
 	d := defaultPrefs()
+	p.SystemProxyStartup = normalizedProxyStartup(p.SystemProxyStartup)
 	if p.Language == "" {
 		p.Language = d.Language
 	}

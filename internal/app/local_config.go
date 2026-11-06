@@ -28,7 +28,7 @@ func (a *App) saveLocalConfig() {
 		return
 	}
 	a.rawError, a.showRaw = "", false
-	a.notice = tr("本地配置已保存")
+	a.successNotice(tr("本地配置已保存"))
 	if running {
 		a.notice += tr("并应用")
 	}

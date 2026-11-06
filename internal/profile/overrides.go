@@ -25,6 +25,10 @@ func cloneProfile(p Profile) Profile {
 		local.ExtraRules = slices.Clone(local.ExtraRules)
 		local.TemplateIDs = slices.Clone(local.TemplateIDs)
 		local.ProxyEdits = patch.CloneProxyEdits(local.ProxyEdits)
+		if local.DNSEnable != nil {
+			enabled := *local.DNSEnable
+			local.DNSEnable = &enabled
+		}
 		if local.DNS != nil {
 			dns := *local.DNS
 			dns.Nameserver = slices.Clone(dns.Nameserver)

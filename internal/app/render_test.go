@@ -96,6 +96,43 @@ func TestRenderPages(t *testing.T) {
 		setup func()
 	}
 	shots := []shot{
+		{"remote-default", func() { a.page, a.settingsTab, a.remoteShow = "settings", 1, true }},
+		{"remote-enable-draft", func() { a.page, a.settingsTab, a.remoteShow, a.remoteEnabled = "settings", 1, true, true }},
+
+		{"overview-service-details", func() {
+			a.page, a.showNetworkDetails, a.svcInstalled = "overview", true, true
+			status, _ := json.Marshal(core.DaemonStatus{UID: 0, PID: os.Getpid(), Version: "0.6.1", ControllerVersion: core.ControllerVersion, SecurityVersion: core.SecurityVersion})
+			if err := os.WriteFile(filepath.Join(a.dir, "core.json"), status, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+
+		{"subs-feedback-error", func() { a.page = "subs"; a.errorNotice(text("网络操作进行中，请稍后重试")) }},
+		{"proxies-feedback-error", func() { a.page = "proxies"; a.errorNotice(text("网络操作进行中，请稍后重试")) }},
+		{"mesh-feedback-error", func() { fixtureMesh(a); a.errorNotice(text("网络操作进行中，请稍后重试")) }},
+		{"feedback-details", func() {
+			a.page = "overview"
+			a.errorNotice(strings.Repeat(text("配置校验失败：请检查规则与代理组名称后重新保存，原有运行配置已保留。"), 4))
+			a.feedback.showDetails = true
+		}},
+
+		{"overview-notice", func() { a.page = "overview"; a.successNotice(text("订阅已启用")) }},
+		{"overview-feature-policy", func() { a.page = "overview"; enabled := true; a.ov.SnifferEnable = &enabled }},
+		{"overview-picker-notice", func() { a.page, a.showOverviewNodes = "overview", true; a.successNotice(text("订阅已启用")) }},
+		{"window-close-hint", func() { a.page = "overview"; a.windowClose.show = true }},
+		{"proxy-editor-discard", func() {
+			fixtureProxyEditor(t, a)
+			a.proxyEditorNodes["香港 01"].Name = "未保存的节点名称"
+			a.requestCloseProxyEditor()
+		}},
+		{"aggregation-discard", func() { fixtureAggregation(t, a, 0); a.requestCloseAggregation() }},
+		{"settings-dns-busy", func() {
+			a.page, a.settingsTab = "settings", 4
+			a.resetDNSDraft()
+			a.dnsDraft.Source = 1
+			a.sysBusy = true
+		}},
+
 		{"aggregation-sources", func() { fixtureAggregation(t, a, 0) }},
 		{"aggregation-filters", func() { fixtureAggregation(t, a, 1) }},
 		{"aggregation-preview", func() { fixtureAggregation(t, a, 2); a.previewAggregation() }},
@@ -228,7 +265,7 @@ func TestRenderPages(t *testing.T) {
 		{"overview-picker-empty", func() { a.page, a.showOverviewNodes, a.overviewQuery = "overview", true, "no-matching-node" }},
 		{"overview-picker-error", func() {
 			a.page, a.showOverviewNodes = "overview", true
-			a.notice = "切换节点失败：内核暂时无法响应，请稍后重试。"
+			a.proxySelectionError = "切换节点失败：内核暂时无法响应，请稍后重试。"
 		}},
 		{"overview-features", func() { a.page = "overview" }},
 		{"overview-proxy-error", func() {
@@ -476,7 +513,7 @@ func TestRenderPages(t *testing.T) {
 			}
 			a.settingsReady = false
 		}},
-		{"settings-cleanup", func() { a.page = "settings"; a.settingsTab = 1 }},
+		{"settings-cleanup", func() { a.page = "settings"; a.settingsTab = 0 }},
 
 		{"rules", func() { a.page = "rules" }},
 		{"rules-no-results", func() { a.page, a.ruleQuery = "rules", "no-matching-rule" }},
@@ -661,8 +698,17 @@ func TestRenderPages(t *testing.T) {
 					t.Fatal(err)
 				}
 				for _, shot := range shots {
-					if only := os.Getenv("GOPURR_RENDER_ONLY"); only != "" && !strings.HasPrefix(shot.name, only) {
-						continue
+					if only := os.Getenv("GOPURR_RENDER_ONLY"); only != "" {
+						selected := false
+						for _, prefix := range strings.Split(only, ",") {
+							if prefix = strings.TrimSpace(prefix); prefix != "" && strings.HasPrefix(shot.name, prefix) {
+								selected = true
+								break
+							}
+						}
+						if !selected {
+							continue
+						}
 					}
 					// Every fixture is checked at both sizes; legacy compact entries are
 					// covered by the matching full-size fixture below.
@@ -674,10 +720,16 @@ func TestRenderPages(t *testing.T) {
 						a.shutdown = shutdownState{}
 						a.shortcutState = shortcutState{}
 						a.aggregationState, a.proxyEditorState, a.overrideLibraryState = aggregationState{}, proxyEditorState{}, overrideLibraryState{}
+						a.windowClose, a.feedback, a.proxySelectionError = windowCloseState{}, feedbackState{}, ""
+						a.remoteShow, a.remoteBusy = false, false
+						a.remoteError, a.remoteStatus = "", ""
+						a.loadRemoteSettings()
+						a.ov.DNSEnable, a.ov.SnifferEnable = nil, nil
 						a.ov.Library, a.ov.TemplateIDs = nil, nil
 						a.shutdownPending.Store(false)
 						a.bmu.Lock()
 						a.testing = ""
+						a.sysBusy, a.subBusy, a.kernelBusy, a.svcBusy, a.tunChanging = false, false, false, false, false
 						a.bmu.Unlock()
 						a.confirmInstall, a.confirmUninstall, a.showDeleteSub, a.showRaw = false, false, false, false
 						a.rawPreview, a.showConnRule = false, false
@@ -844,8 +896,8 @@ func TestRenderPages(t *testing.T) {
 								}
 							}
 						}
-						if shot.name == "overview" || shot.name == "overview-live" || shot.name == "overview-proxy-error" {
-							controls := []string{"系统代理开关", "TUN 模式", "概览DNS开关", "概览域名嗅探开关", "DNS 设置", "域名嗅探 设置"}
+						if shot.name == "overview" || shot.name == "overview-live" || shot.name == "overview-proxy-error" || shot.name == "overview-notice" || shot.name == "overview-feature-policy" {
+							controls := []string{"系统代理开关", "TUN 模式", "概览内置 DNS开关", "概览域名嗅探开关", "内置 DNS 设置", "域名嗅探 设置"}
 							for _, label := range controls {
 								r, ok := tr.Find(text(label))
 								if !ok || r.Y < 38 || r.Y+r.H > float32(height-24) || r.X+r.W > float32(width-24) {
@@ -869,7 +921,9 @@ func TestRenderPages(t *testing.T) {
 						case "subscription-edit":
 							tr.Scroll(float32(width/2), float32(height/2), 0, 1000)
 						case "settings-cleanup":
-							tr.Scroll(700, 420, 0, 1000)
+							tr.Scroll(700, 420, 0, 480)
+						case "settings-startup":
+							tr.Scroll(700, 420, 0, 240)
 						case "overview-features":
 							tr.Scroll(700, 420, 0, 1000)
 						case "settings-dns-lists", "settings-sniffer-lists":

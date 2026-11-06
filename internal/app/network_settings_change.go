@@ -120,7 +120,7 @@ func (a *App) commitNetworkSettings(w networkSettingsChange, r networkSettingsRe
 	if !r.running {
 		a.networkStatus = tr("网络设置已保存，内核就绪后生效")
 	}
-	a.notice = a.networkStatus
+	a.successNotice(a.networkStatus)
 	return true
 }
 

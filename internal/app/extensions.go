@@ -177,7 +177,7 @@ func (a *App) appendExtraRule() {
 
 func (a *App) extraRulesEditor(c *ui.Context) {
 	pal := paletteFor(c)
-	ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
+	ui.Scroll(c).Disabled(busyNetwork(a)).FillWidth().Grow(1).MinHeight(0).Children(func() {
 		ui.Column(c).FillWidth().Gap(12).Children(func() {
 			card(c).Children(func() {
 				ui.Text(c, tr("优先匹配你的规则")).FontSize(13).Bold().TextColor(pal.Text)
@@ -248,7 +248,7 @@ func (a *App) extraRulesEditor(c *ui.Context) {
 	extensionSaveBar(c, a.extraRulesDraft != a.extraRulesSaved, tr("保存额外规则"), func() {
 		a.extraRulesDraft = a.extraRulesSaved
 		a.extraRulesError, a.extraRulesStatus = "", ""
-	}, func() { _ = a.saveExtraRulesDraft() })
+	}, func() { a.requestExtensionDraft(false) }, busyNetwork(a))
 }
 
 func extraRulePlaceholder(kind string) string {
@@ -268,7 +268,7 @@ func extraRulePlaceholder(kind string) string {
 
 func (a *App) mergeYAMLEditor(c *ui.Context) {
 	pal := paletteFor(c)
-	ui.Scroll(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
+	ui.Scroll(c).Disabled(busyNetwork(a)).FillWidth().Grow(1).MinHeight(0).Children(func() {
 		ui.Column(c).FillWidth().Gap(12).Children(func() {
 			card(c).Children(func() {
 				ui.Text(c, tr("持久化覆写配置")).FontSize(13).Bold().TextColor(pal.Text)
@@ -319,7 +319,7 @@ func (a *App) mergeYAMLEditor(c *ui.Context) {
 	extensionSaveBar(c, a.mergeYAMLDraft != a.mergeYAMLSaved, tr("保存 YAML 覆写"), func() {
 		a.mergeYAMLDraft = a.mergeYAMLSaved
 		a.mergeYAMLError, a.mergeYAMLStatus = "", ""
-	}, func() { _ = a.saveMergeYAMLDraft() })
+	}, func() { a.requestExtensionDraft(true) }, busyNetwork(a))
 }
 
 func extensionError(c *ui.Context, message string) {
@@ -336,8 +336,12 @@ func extensionFeedback(c *ui.Context, errText, status string) {
 	}
 }
 
-func extensionSaveBar(c *ui.Context, dirty bool, label string, reset, save func()) {
+func extensionSaveBar(c *ui.Context, dirty bool, label string, reset, save func(), disabled ...bool) {
 	pal := paletteFor(c)
+	busy := len(disabled) > 0 && disabled[0]
+	if busy {
+		label = tr("正在应用…")
+	}
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 		state, color := tr("已与本地保存同步"), pal.Muted
 		if dirty {
@@ -345,8 +349,8 @@ func extensionSaveBar(c *ui.Context, dirty bool, label string, reset, save func(
 		}
 		ui.Text(c, state).FontSize(11.5).TextColor(color)
 		ui.Spacer(c)
-		softButton(c, tr("放弃修改")).Disabled(!dirty).OnClick(reset)
-		softPrimaryButton(c, label).Disabled(!dirty).OnClick(save)
+		softButton(c, tr("放弃修改")).Disabled(!dirty || busy).OnClick(reset)
+		softPrimaryButton(c, label).Disabled(!dirty || busy).OnClick(save)
 	})
 }
 
@@ -398,30 +402,8 @@ func (a *App) saveMergeYAMLDraft() error {
 // place. A running kernel must accept them before they can be persisted. If the
 // atomic write fails, restore both the in-memory overrides and the old runtime.
 // Neither draft nor the previously saved file is changed on any failure.
-func (a *App) commitExtensionOverrides(next patch.Overrides) (applied bool, err error) {
-	if !a.beginProfileWork() {
-		return false, errors.New(tr("订阅正在更新，请稍后重试"))
-	}
-	defer a.endProfileWork()
-	previous := a.ov
-	a.ov = next
-	if _, err := a.configBytes(); err != nil {
-		a.ov = previous
-		return false, fmt.Errorf(tr("配置验证失败：%w"), err)
-	}
-	running := a.k != nil && a.k.RunningForChange()
-	if running && !a.startKernel() {
-		a.ov = previous
-		return false, fmt.Errorf(tr("内核未接受配置，未保存：%s"), a.notice)
-	}
-	if err := a.saveOverridesAtomic(); err != nil {
-		a.ov = previous
-		if running && !a.startKernel() {
-			return false, fmt.Errorf(tr("保存失败：%w；旧配置重新载入也失败：%s"), err, a.notice)
-		}
-		return false, fmt.Errorf(tr("保存失败，已保留原配置：%w"), err)
-	}
-	return running, nil
+func (a *App) commitExtensionOverrides(next patch.Overrides) (bool, error) {
+	return a.commitOverrideChange("", next, patch.ProfileOverrides{})
 }
 
 func extensionSavedStatus(applied bool) string {

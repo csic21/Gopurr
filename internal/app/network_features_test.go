@@ -24,10 +24,12 @@ func TestFeatureSettingsSaveAndFollow(t *testing.T) {
 	a.snifferDraft.SkipDomain = "+.push.apple.com"
 	pendingSniff := a.snifferDraft
 	a.saveDNSSettings()
+	waitProxyChange(t, a)
 	if a.dnsError != "" || a.ov.DNS == nil || !a.ov.DNS.Enable || a.snifferDraft != pendingSniff || a.ov.Sniffer != nil {
 		t.Fatalf("DNS save applied another draft: %q %+v", a.dnsError, a.ov)
 	}
 	a.saveSnifferSettings()
+	waitProxyChange(t, a)
 	if a.snifferError != "" || a.ov.Sniffer == nil || !a.ov.Sniffer.Enable {
 		t.Fatalf("sniffer save: %s", a.snifferError)
 	}
@@ -47,11 +49,13 @@ func TestFeatureSettingsSaveAndFollow(t *testing.T) {
 	}
 	a.dnsDraft.Source = 0
 	a.saveDNSSettings()
+	waitProxyChange(t, a)
 	if a.ov.DNS != nil || a.ov.Sniffer == nil || a.ov.MergeYAML == "" || len(a.ov.ExtraRules) == 0 {
 		t.Fatal("following DNS cleared unrelated overrides")
 	}
 	a.snifferDraft.Source = 0
 	a.saveSnifferSettings()
+	waitProxyChange(t, a)
 	if a.ov.Sniffer != nil || a.dnsError != "" || a.snifferError != "" {
 		t.Fatal("cannot return to following the profile")
 	}
@@ -64,12 +68,14 @@ func TestFeatureSettingsValidationKeepsDraftAndFile(t *testing.T) {
 	a.dnsDraft.Bootstrap = "https://bootstrap.example.com/dns-query"
 	before := readExtensionFile(t, a.ovPath)
 	a.saveDNSSettings()
+	waitProxyChange(t, a)
 	if a.dnsError == "" || a.ov.DNS != nil || a.dnsDraft == a.dnsBase || !bytes.Equal(before, readExtensionFile(t, a.ovPath)) {
 		t.Fatal("invalid DNS saved or draft discarded")
 	}
 	a.resetSnifferDraft()
 	a.snifferDraft.Source, a.snifferDraft.Enable, a.snifferDraft.QUIC = 1, true, "65536"
 	a.saveSnifferSettings()
+	waitProxyChange(t, a)
 	if a.snifferError == "" || a.ov.Sniffer != nil || !bytes.Equal(before, readExtensionFile(t, a.ovPath)) {
 		t.Fatal("invalid sniff ports saved")
 	}
@@ -77,6 +83,7 @@ func TestFeatureSettingsValidationKeepsDraftAndFile(t *testing.T) {
 	a.resetDNSDraft()
 	a.dnsDraft.Source, a.dnsDraft.Enable = 1, false
 	a.saveDNSSettings()
+	waitProxyChange(t, a)
 	if !strings.Contains(a.dnsError, "TUN") || a.ov.DNS != nil {
 		t.Fatal("disabled DNS accepted while TUN is enabled")
 	}
@@ -94,6 +101,7 @@ func TestFeatureSettingsRunningTransaction(t *testing.T) {
 				a.ovPath = t.TempDir()
 			}
 			a.saveSnifferSettings()
+			waitProxyChange(t, a)
 			requests := reloads()
 			if failure == "none" {
 				if a.snifferError != "" || a.ov.Sniffer == nil || len(requests) != 1 || !strings.Contains(a.snifferStatus, "重新载入") {
@@ -131,6 +139,7 @@ func TestFeatureSettingsControlsAtBothSizes(t *testing.T) {
 			if err := tr.Click(label); err != nil {
 				t.Fatal(err)
 			}
+			waitProxyChange(t, a)
 			tr.Frame()
 		}
 		visible := func(label string) {
@@ -180,25 +189,34 @@ func TestOverviewFeatureSwitchUsesEffectiveProfile(t *testing.T) {
 	a := extensionTestApp(t)
 	a.cfgText = "dns: {enable: true, nameserver: [9.9.9.9]}\nsniffer: {enable: false}\nrules: [\"MATCH,DIRECT\"]\n"
 	a.effectiveFeatures()
-	tr := ui.NewTester(a.overviewFeatures, 588, 240)
-	if err := tr.Click("概览域名嗅探开关"); err != nil {
+	view := ui.NewTester(a.overviewFeatures, 588, 240)
+	if err := view.Click("概览域名嗅探开关"); err != nil {
 		t.Fatal(err)
 	}
-	tr.Frame()
-	if a.ov.Sniffer == nil || !a.ov.Sniffer.Enable || a.ov.DNS != nil {
-		t.Fatal("overview switch failed or changed DNS source")
-	}
-	if err := tr.Click("概览DNS开关"); err != nil {
+	if err := view.Click("始终开启"); err != nil {
 		t.Fatal(err)
 	}
-	tr.Frame()
-	if a.ov.DNS == nil || a.ov.DNS.Enable || !reflect.DeepEqual(a.ov.DNS.Nameserver, []string{"9.9.9.9"}) {
-		t.Fatal("overview DNS switch discarded profile settings")
+	waitProxyChange(t, a)
+	if a.ov.Sniffer != nil || a.ov.SnifferEnable == nil || !*a.ov.SnifferEnable || a.ov.DNS != nil {
+		t.Fatal("quick control pinned settings")
 	}
-	if err := tr.Click("DNS 设置"); err != nil {
+	a.toggleNetworkFeature(true, false)
+	waitProxyChange(t, a)
+	dns, _, err := a.effectiveFeatures()
+	if err != nil || a.ov.DNS != nil || dns.Enable || !reflect.DeepEqual(dns.Nameserver, []string{"9.9.9.9"}) {
+		t.Fatal("quick DNS control changed inherited parameters")
+	}
+	a.requestNetworkFeature(true, nil)
+	waitProxyChange(t, a)
+	dns, _, err = a.effectiveFeatures()
+	if err != nil || !dns.Enable || a.ov.DNSEnable != nil {
+		t.Fatal("follow did not restore inherited state")
+	}
+	view.Frame()
+	if err := view.Click("内置 DNS 设置"); err != nil {
 		t.Fatal(err)
 	}
 	if a.page != "settings" || a.settingsTab != 4 {
-		t.Fatal("overview settings entry did not navigate")
+		t.Fatal("settings entry did not navigate")
 	}
 }

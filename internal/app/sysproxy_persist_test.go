@@ -18,8 +18,8 @@ func TestPersistRestoreSystemProxyWritesPrefs(t *testing.T) {
 		t.Fatal("default RestoreSystemProxy should be false")
 	}
 	a.persistRestoreSystemProxy(true)
-	if !a.Prefs().RestoreSystemProxy || !a.restoreProxyOn {
-		t.Fatalf("persist true failed: prefs=%v ui=%v", a.Prefs().RestoreSystemProxy, a.restoreProxyOn)
+	if !a.Prefs().RestoreSystemProxy || a.Prefs().SystemProxyStartup != proxyStartupLast {
+		t.Fatalf("persist true failed: prefs=%v ui=%v", a.Prefs().RestoreSystemProxy, a.Prefs().SystemProxyStartup)
 	}
 	raw, err := os.ReadFile(a.prefsPath)
 	if err != nil {
@@ -30,8 +30,8 @@ func TestPersistRestoreSystemProxyWritesPrefs(t *testing.T) {
 		t.Fatalf("prefs.json missing restoreSystemProxy: %s err=%v", raw, err)
 	}
 	a.persistRestoreSystemProxy(false)
-	if a.Prefs().RestoreSystemProxy || a.restoreProxyOn {
-		t.Fatalf("persist false failed: prefs=%v ui=%v", a.Prefs().RestoreSystemProxy, a.restoreProxyOn)
+	if a.Prefs().RestoreSystemProxy || a.Prefs().SystemProxyStartup != proxyStartupLast {
+		t.Fatalf("persist false failed: prefs=%v ui=%v", a.Prefs().RestoreSystemProxy, a.Prefs().SystemProxyStartup)
 	}
 }
 
@@ -46,13 +46,13 @@ func TestSetSystemProxyPersistsRestorePreference(t *testing.T) {
 	}
 	a.setSystemProxy(true)
 	waitProxyChange(t, a)
-	if !a.sysApplied || !a.Prefs().RestoreSystemProxy || !a.restoreProxyOn {
-		t.Fatalf("enable did not persist restore pref: applied=%v prefs=%v ui=%v", a.sysApplied, a.Prefs().RestoreSystemProxy, a.restoreProxyOn)
+	if !a.sysApplied || !a.Prefs().RestoreSystemProxy || a.Prefs().SystemProxyStartup != proxyStartupLast {
+		t.Fatalf("enable did not persist restore pref: applied=%v prefs=%v ui=%v", a.sysApplied, a.Prefs().RestoreSystemProxy, a.Prefs().SystemProxyStartup)
 	}
 	a.setSystemProxy(false)
 	waitProxyChange(t, a)
-	if a.sysApplied || a.Prefs().RestoreSystemProxy || a.restoreProxyOn {
-		t.Fatalf("disable did not clear restore pref: applied=%v prefs=%v ui=%v", a.sysApplied, a.Prefs().RestoreSystemProxy, a.restoreProxyOn)
+	if a.sysApplied || a.Prefs().RestoreSystemProxy || a.Prefs().SystemProxyStartup != proxyStartupLast {
+		t.Fatalf("disable did not clear restore pref: applied=%v prefs=%v ui=%v", a.sysApplied, a.Prefs().RestoreSystemProxy, a.Prefs().SystemProxyStartup)
 	}
 }
 

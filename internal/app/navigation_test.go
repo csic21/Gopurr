@@ -75,7 +75,7 @@ func TestNavigationLayouts(t *testing.T) {
 				if middle.X != start.X {
 					t.Fatal("right-aligned controls drifted during sidebar motion")
 				}
-				for _, label := range []string{"系统代理开关", "TUN 模式", "概览DNS开关", "概览域名嗅探开关"} {
+				for _, label := range []string{"系统代理开关", "TUN 模式", "概览内置 DNS开关", "概览域名嗅探开关"} {
 					r := find(label)
 					if r.X < 20 || r.Y < 38 || r.X+r.W > float32(size[0]) || r.Y+r.H > float32(size[1]) {
 						t.Fatalf("overview control %q clipped: %+v", label, r)

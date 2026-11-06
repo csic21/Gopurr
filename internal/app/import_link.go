@@ -10,7 +10,7 @@ func (a *App) OpenSubscriptionURL(raw string) {
 	}
 	link, err := profile.ParseImportLink(raw)
 	if err != nil {
-		a.notice = err.Error()
+		a.errorNotice(err.Error())
 		a.invalidate()
 		return
 	}

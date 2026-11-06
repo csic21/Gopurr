@@ -173,3 +173,55 @@ func TestNetworkFeatureDefaultsMatchKernelAndLegacyPorts(t *testing.T) {
 		t.Fatalf("legacy ports lost: %+v %v", s, err)
 	}
 }
+
+func TestQuickFeaturePolicyKeepsInheritedParametersLive(t *testing.T) {
+	on, off := true, false
+	ov := Default()
+	ov.SnifferEnable = &on
+	local := ProfileOverrides{DNSEnable: &off, MergeYAML: "sniffer:\n  enable: false\n"}
+	for _, server := range []string{"8.8.8.8", "1.1.1.1"} {
+		source := strings.ReplaceAll(networkProfile, "8.8.8.8", server)
+		raw, err := ApplyLayers([]byte(source), ov, local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dns, sniff, err := FeatureSettings(raw)
+		if err != nil || dns.Enable || !sniff.Enable || !reflect.DeepEqual(dns.Nameserver, []string{server}) {
+			t.Fatalf("quick policy pinned parameters or lost enable precedence: %s %v", raw, err)
+		}
+		if !strings.Contains(string(raw), "nameserver-policy") {
+			t.Fatal("unexposed DNS parameters lost")
+		}
+	}
+	local.DNSEnable, ov.SnifferEnable = nil, nil
+	raw, err := ApplyLayers([]byte(networkProfile), ov, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dns, sniff, _ := FeatureSettings(raw)
+	if !dns.Enable || sniff.Enable {
+		t.Fatal("follow did not restore layered source values")
+	}
+	ov.TunEnable, local.DNSEnable = true, &off
+	if _, err := ApplyLayers([]byte(networkProfile), ov, local); err == nil {
+		t.Fatal("quick policy bypassed TUN DNS requirement")
+	}
+}
+
+func TestQuickFeaturePolicySuppliesDefaultsWithoutPersistingThem(t *testing.T) {
+	on := true
+	ov := Default()
+	ov.DNSEnable, ov.SnifferEnable = &on, &on
+	raw, err := Apply([]byte("proxies: []\nrules: [MATCH,DIRECT]\n"), ov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dns, sniff, err := FeatureSettings(raw)
+	if err != nil || !dns.Enable || !sniff.Enable || len(dns.Nameserver) == 0 || len(sniff.TLSPorts) == 0 {
+		t.Fatalf("quick enable missing runtime defaults: %s %v", raw, err)
+	}
+	saved, _ := json.Marshal(ov)
+	if strings.Contains(string(saved), "nameserver") || ov.DNS != nil || ov.Sniffer != nil {
+		t.Fatal("runtime defaults leaked into saved overrides")
+	}
+}

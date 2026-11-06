@@ -15,12 +15,13 @@ import (
 )
 
 type proxyState struct {
-	modeIdx       int
-	proxyGroup    string
-	proxySort     string
-	proxyOnlyLive bool
-	nodeList      ui.ListState
-	listIdentity  string
+	modeIdx             int
+	proxySelectionError string
+	proxyGroup          string
+	proxySort           string
+	proxyOnlyLive       bool
+	nodeList            ui.ListState
+	listIdentity        string
 
 	// Measurement state is protected by App.bmu.
 	testCancel                            context.CancelFunc
@@ -375,7 +376,8 @@ func (a *App) nodeRowAction(c *ui.Context, group core.Group, member string, sele
 // Window and tray callbacks dispatch the same work without blocking painting.
 func (a *App) selectProxy(group, member string) bool {
 	if err := a.webSelect(group, member); err != nil {
-		a.notice = tr("切换节点失败: ") + err.Error()
+		a.proxySelectionError = tr("切换节点失败: ") + err.Error()
+		a.errorNotice(a.proxySelectionError)
 		a.invalidate()
 		return false
 	}
@@ -383,6 +385,7 @@ func (a *App) selectProxy(group, member string) bool {
 }
 
 func (a *App) requestProxySelection(group, member string, after func(bool)) {
+	a.proxySelectionError = ""
 	a.bmu.Lock()
 	if a.shutdownPending.Load() {
 		a.bmu.Unlock()
@@ -390,7 +393,8 @@ func (a *App) requestProxySelection(group, member string, after func(bool)) {
 	}
 	if a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging || a.subBusy {
 		a.bmu.Unlock()
-		a.notice = tr("网络操作进行中，请稍后重试")
+		a.proxySelectionError = tr("网络操作进行中，请稍后重试")
+		a.errorNotice(a.proxySelectionError)
 		if after != nil {
 			after(false)
 		}
@@ -408,7 +412,8 @@ func (a *App) requestProxySelection(group, member string, after func(bool)) {
 		err := a.webSelect(group, member)
 		runOnMain(func() {
 			if err != nil {
-				a.notice = tr("切换节点失败: ") + err.Error()
+				a.proxySelectionError = tr("切换节点失败: ") + err.Error()
+				a.errorNotice(a.proxySelectionError)
 			}
 			if after != nil && !a.ShuttingDown() {
 				after(err == nil)

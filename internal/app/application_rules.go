@@ -277,7 +277,7 @@ func (a *App) applicationRulesPage(c *ui.Context) {
 	ui.Text(c, tr("应用分流优先于额外规则与订阅规则，订阅更新后仍会保留。")).FillWidth().FontSize(11.5).TextColor(pal.Muted)
 	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 		searchRow(c, &a.appRulesQuery, tr("搜索已添加的应用…")).Grow(1).MinWidth(0).Label(tr("搜索应用分流"))
-		softButton(c, tr("添加应用…")).OnClick(a.openApplicationPicker)
+		softButton(c, tr("添加应用…")).Disabled(busyNetwork(a)).OnClick(a.openApplicationPicker)
 	})
 	var shown []int
 	query := strings.ToLower(strings.TrimSpace(a.appRulesQuery))
@@ -319,8 +319,8 @@ func (a *App) applicationRulesPage(c *ui.Context) {
 					}
 					ui.Text(c, scope).FontSize(11).TextColor(pal.Faint)
 				})
-				softButton(c, tr("编辑")).Label(tr("编辑应用分流 ") + route.Application.Name).OnClick(func() { a.openApplicationEditor(route.Application) })
-				softButton(c, tr("移除")).Label(tr("移除应用分流 ") + route.Application.Name).OnClick(func() {
+				softButton(c, tr("编辑")).Disabled(busyNetwork(a)).Label(tr("编辑应用分流 ") + route.Application.Name).OnClick(func() { a.openApplicationEditor(route.Application) })
+				softButton(c, tr("移除")).Disabled(busyNetwork(a)).Label(tr("移除应用分流 ") + route.Application.Name).OnClick(func() {
 					a.appRulesDraft = append(a.appRulesDraft[:index:index], a.appRulesDraft[index+1:]...)
 					a.appRulesError, a.appRulesStatus = "", ""
 				})
@@ -337,7 +337,7 @@ func (a *App) applicationRulesPage(c *ui.Context) {
 	extensionSaveBar(c, !slices.Equal(a.appRulesDraft, a.ov.AppRules), tr("保存应用分流"), func() {
 		a.appRulesDraft = slices.Clone(a.ov.AppRules)
 		a.appRulesError, a.appRulesStatus = "", ""
-	}, func() { _ = a.saveApplicationRules() })
+	}, a.requestSaveApplicationRules, busyNetwork(a))
 	a.applicationPicker(c)
 	a.applicationRuleEditor(c)
 }
@@ -450,5 +450,18 @@ func (a *App) applicationRuleEditor(c *ui.Context) {
 				softPrimaryButton(c, label).Disabled(a.appEditKind == 2 && !validGroup).OnClick(a.stageApplicationRule)
 			})
 		})
+	})
+}
+
+func (a *App) requestSaveApplicationRules() {
+	next := a.ov
+	next.AppRules = slices.Clone(a.appRulesDraft)
+	a.appRulesError, a.appRulesStatus = "", ""
+	a.requestOverrideChange("", next, patch.ProfileOverrides{}, func(applied bool, err error) {
+		if err != nil {
+			a.appRulesError = err.Error()
+			return
+		}
+		a.appRulesStatus = extensionSavedStatus(applied)
 	})
 }

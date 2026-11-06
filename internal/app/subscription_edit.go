@@ -64,9 +64,9 @@ func (a *App) saveSubscriptionEditor() {
 		return
 	}
 	a.showEditSub = false
-	a.notice = tr("订阅设置已保存；地址或 UA 更改后，点击“更新”获取新配置。")
+	a.successNotice(tr("订阅设置已保存；地址或 UA 更改后，点击“更新”获取新配置。"))
 	if p.IsFile() {
-		a.notice = tr("本地配置名称已保存")
+		a.successNotice(tr("本地配置名称已保存"))
 	}
 }
 func (a *App) subscriptionEditor(c *ui.Context) {
@@ -108,7 +108,7 @@ func (a *App) subscriptionEditor(c *ui.Context) {
 		})
 	})
 }
-func subscriptionUpdateLabel(p profile.Profile) string {
+func subscriptionUpdateLabel(p profile.Profile, globalHours ...int) string {
 	if p.IsAggregate() {
 		return tr("来源更新后自动重新聚合")
 	}
@@ -116,7 +116,14 @@ func subscriptionUpdateLabel(p profile.Profile) string {
 		return tr("手动读取")
 	}
 	if p.UpdateHours == nil {
-		return tr("更新跟随全局")
+		hours := 0
+		if len(globalHours) > 0 {
+			hours = globalHours[0]
+		}
+		if hours == 0 {
+			return tr("跟随全局 · 自动更新已关闭")
+		}
+		return fmt.Sprintf(tr("跟随全局 · 每 %d 小时更新"), hours)
 	}
 	if *p.UpdateHours == 0 {
 		return tr("手动更新")

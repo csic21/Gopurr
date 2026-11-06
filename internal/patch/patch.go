@@ -42,8 +42,10 @@ type Overrides struct {
 
 	// nil follows the subscription and YAML overrides; a non-nil value owns
 	// only the fields exposed by the corresponding settings page.
-	DNS     *DNSSettings     `json:"dns,omitempty"`
-	Sniffer *SnifferSettings `json:"sniffer,omitempty"`
+	DNSEnable     *bool            `json:"dnsEnable,omitempty"`
+	SnifferEnable *bool            `json:"snifferEnable,omitempty"`
+	DNS           *DNSSettings     `json:"dns,omitempty"`
+	Sniffer       *SnifferSettings `json:"sniffer,omitempty"`
 }
 
 // ProfileOverrides belongs to one subscription. Listener settings stay owned
@@ -51,6 +53,7 @@ type Overrides struct {
 type ProfileOverrides struct {
 	ExtraRules  []string     `json:"extraRules,omitempty"`
 	MergeYAML   string       `json:"mergeYaml,omitempty"`
+	DNSEnable   *bool        `json:"dnsEnable,omitempty"`
 	DNS         *DNSSettings `json:"dns,omitempty"`
 	TemplateIDs []string     `json:"templateIds,omitempty"`
 	ProxyEdits  *ProxyEdits  `json:"proxyEdits,omitempty"`
@@ -112,6 +115,13 @@ func ApplyLayers(raw []byte, ov Overrides, local ProfileOverrides) ([]byte, erro
 	rulesReplaced = rulesReplaced || localRules || localTemplateRules
 	if err := applyNetworkFeatures(doc, Overrides{DNS: local.DNS}); err != nil {
 		return nil, fmt.Errorf(localize.Text("订阅 DNS：%w"), err)
+	}
+	dnsEnable := ov.DNSEnable
+	if local.DNSEnable != nil {
+		dnsEnable = local.DNSEnable
+	}
+	if err := applyNetworkFeatures(doc, Overrides{DNSEnable: dnsEnable, SnifferEnable: ov.SnifferEnable}); err != nil {
+		return nil, err
 	}
 	if err := applyProxyEdits(doc, local.ProxyEdits); err != nil {
 		return nil, err

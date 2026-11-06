@@ -373,7 +373,7 @@ func (a *App) remoteSummary() string {
 	if a.remoteError != "" {
 		return a.remoteError
 	}
-	if !a.remoteEnabled {
+	if !a.remoteConfigSnapshot().Enabled {
 		return tr("默认关闭；通过浏览器远程查看与调整")
 	}
 	port := a.remoteBase.Port
@@ -397,7 +397,7 @@ func (a *App) remoteSettingsPanel(c *ui.Context) {
 		})
 		if a.remoteEnabled {
 			hairline(c)
-			settingsRow(c, tr("监听地址"), tr("所有网卡允许组网、局域网和公网端口映射；仅本机最安全"), func() {
+			settingsRow(c, tr("监听地址"), tr("默认仅本机；局域网访问需选择所有网卡，组网可转发本机端口"), func() {
 				softSegmented(c, &a.remoteBindIdx, tr("所有网卡"), tr("仅本机")).
 					Label(tr("远程访问监听地址")).Disabled(a.remoteBusy)
 			})
@@ -497,6 +497,9 @@ func (a *App) remoteSettingsModal(c *ui.Context) {
 	scrollHeight := height - 230
 	if scrollHeight < 180 {
 		scrollHeight = 180
+	}
+	if !a.remoteEnabled {
+		scrollHeight = 72
 	}
 	softModal(c, "remote-settings", &a.remoteShow, func() {
 		ui.Column(c).Width(min(float32(600), width-32)).MaxHeight(height - 32).Padding(16).Gap(10).Children(func() {
