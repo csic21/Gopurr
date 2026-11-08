@@ -52,3 +52,8 @@ Native window navigation is verified through Windows UI Automation before every 
 Complete macOS/Windows/Android CI, including NSH type checking, must pass before merge; the current results are linked from [PR #1 checks](https://github.com/csic21/Gopurr/pull/1/checks). The official Release workflow builds the default Windows package and invokes this acceptance workflow at the exact release tag. Publication depends on Windows NSH acceptance, desktop signed-update verification, macOS migration and both signed Android APK jobs. Both Windows manifest aliases must be identical. Existing public release assets remain immutable.
 
 The user authorized source push and [PR #1](https://github.com/csic21/Gopurr/pull/1). No acceptance command publishes a release or changes the production feed.
+
+
+## Unix relaunch regression caught before publication
+
+The first v0.6.25 Release was blocked by its macOS subsequent-update gate: the new bundle installed, but no new frontend started. The Windows startup diagnostic pipe had also been applied on Unix. Once the frontend exited, a backend log to fd 2 raised SIGPIPE before it could mark the staged update for relaunch. Unix command setup now retains its original inherited stderr; Windows retains its required startup capture. A real three-process regression test fails with the old setup and passes with the inherited descriptor. The failed v0.6.25 tag is preserved; the fix ships as v0.6.26 after all release gates pass.
