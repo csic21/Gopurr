@@ -1,6 +1,6 @@
 # Windows NSH migration acceptance
 
-Status: implemented on `codex/windows-nsh`; **not accepted or selected as the production default**. A macOS test result cannot establish Windows runtime compatibility.
+Status: the actual NSH Windows frontend and Go DLL compile, and Windows C ABI tests pass (run 42476721715). Installer/runtime/update acceptance remains in progress on `codex/windows-nsh`; **not accepted or selected as the production default**. A macOS test result cannot establish Windows runtime compatibility.
 
 The Win32 frontend (`native/windows`) embeds NSH 0.4.0 at the exact upstream commit `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`. It runs the shared `native/ui/Desktop.tsx` eight-page desktop and calls the existing Go desktop backend through `GopurrBridge.dll`. The host, bridge and backend ship together in the same installation directory so that the existing updater replaces the entire payload.
 

@@ -8,16 +8,16 @@ if (-not $Installer) { $Installer = "dist/native-windows-amd64/gopurr-setup-$($c
 $work = Join-Path $env:TEMP ('gp-install-' + [Guid]::NewGuid().ToString('N'))
 $install = Join-Path $work 'application'
 $fixtureAppData = Join-Path $work 'appdata'
-$home = Join-Path $fixtureAppData 'Gopurr'
+$fixtureHome = Join-Path $fixtureAppData 'Gopurr'
 $session = Join-Path $work 'session.json'
 $previousAppData = $env:APPDATA
 $previousSessionOutput = $env:GOPURR_NATIVE_SESSION_OUTPUT
 $started = $null
 try {
-    New-Item $home -ItemType Directory -Force | Out-Null
+    New-Item $fixtureHome -ItemType Directory -Force | Out-Null
     $oldProfile = "mode: rule`nrules: [MATCH,DIRECT]`n"
-    [IO.File]::WriteAllText((Join-Path $home 'local.yaml'), $oldProfile)
-    [IO.File]::WriteAllText((Join-Path $home 'prefs.json'), '{"appearance":"dark","language":"en","systemProxyStartup":"off","restoreSystemProxy":false,"checkAppUpdates":false,"autoUpdateHours":0}')
+    [IO.File]::WriteAllText((Join-Path $fixtureHome 'local.yaml'), $oldProfile)
+    [IO.File]::WriteAllText((Join-Path $fixtureHome 'prefs.json'), '{"appearance":"dark","language":"en","systemProxyStartup":"off","restoreSystemProxy":false,"checkAppUpdates":false,"autoUpdateHours":0}')
     $env:APPDATA = $fixtureAppData
     $env:GOPURR_NATIVE_SESSION_OUTPUT = $session
     $process = Start-Process ([IO.Path]::GetFullPath($Installer)) -ArgumentList @('/S', "/D=$install") -PassThru -Wait
@@ -35,15 +35,15 @@ try {
     $deadline = (Get-Date).AddSeconds(50)
     while (-not (Test-Path $session) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
     if (-not (Test-Path $session)) { throw 'Installed NSH host did not start its backend' }
-    if (-not (Test-Path (Join-Path $home 'migration-nsh-v1/manifest.json'))) { throw 'Installed NSH host did not snapshot old data' }
+    if (-not (Test-Path (Join-Path $fixtureHome 'migration-nsh-v1/manifest.json'))) { throw 'Installed NSH host did not snapshot old data' }
     # The uninstaller must request the actual frontend/backend graceful quit.
     $process = Start-Process (Join-Path $install 'Uninstall.exe') -ArgumentList '/S' -PassThru -Wait
     if ($process.ExitCode -ne 0) { throw "Uninstaller failed: $($process.ExitCode)" }
     $deadline = (Get-Date).AddSeconds(30)
     while ((Test-Path $install) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
     if (Test-Path $install) { throw 'Application files survived uninstall' }
-    if ([IO.File]::ReadAllText((Join-Path $home 'local.yaml')) -ne $oldProfile) { throw 'Uninstall changed old user data' }
-    if ([IO.File]::ReadAllText((Join-Path $home 'migration-nsh-v1/local.yaml')) -ne $oldProfile) { throw 'Uninstall changed the migration snapshot' }
+    if ([IO.File]::ReadAllText((Join-Path $fixtureHome 'local.yaml')) -ne $oldProfile) { throw 'Uninstall changed old user data' }
+    if ([IO.File]::ReadAllText((Join-Path $fixtureHome 'migration-nsh-v1/local.yaml')) -ne $oldProfile) { throw 'Uninstall changed the migration snapshot' }
     if (Test-Path 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/io.github.gopurr.app') { throw 'Uninstall registry entry survived' }
     Write-Host 'NSH per-user installer, protocol handlers, migration startup, graceful uninstall and retained old data passed.'
 } finally {

@@ -19,9 +19,11 @@ if (-not $compiler) {
     Expand-Archive "$cache/nsis-3.13.zip" $cache -Force
     $compiler = (Get-ChildItem $cache -Filter makensis.exe -Recurse | Select-Object -First 1).FullName
 }
-$installer = "$outPath/gopurr-setup-$($config.version)-amd64.exe"
+$installer = Join-Path $outPath "gopurr-setup-$($config.version)-amd64.exe"
+$checkScript = [IO.Path]::GetFullPath((Join-Path $root 'native/windows/check-installer-processes.ps1'))
+$installerScript = [IO.Path]::GetFullPath((Join-Path $root 'native/windows/installer.nsi'))
 if (Test-Path $installer) { throw "Refusing to overwrite installer: $installer" }
-& $compiler /V2 "/DPAYLOAD=$appPath" "/DOUTPUT=$installer" "/DVERSION=$($config.version)" "/DCHECK_SCRIPT=$root/native/windows/check-installer-processes.ps1" "$root/native/windows/installer.nsi"
+& $compiler /V2 "/DPAYLOAD=$appPath" "/DOUTPUT=$installer" "/DVERSION=$($config.version)" "/DCHECK_SCRIPT=$checkScript" $installerScript
 if ($LASTEXITCODE) { throw 'Build NSH Windows installer failed' }
 if ($Release) {
     if (-not $env:MYGO_UPDATER_PRIVATE_KEY) { throw 'Signing requires MYGO_UPDATER_PRIVATE_KEY' }
