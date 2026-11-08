@@ -1,3 +1,6 @@
+//go:build !windows
+
+// These macOS bundle fixtures require POSIX executable permissions.
 package main
 
 import (

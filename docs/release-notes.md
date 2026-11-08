@@ -1,4 +1,4 @@
-Gopurr 0.6.21 首次提供 Android 正式签名 APK，并整理桌面与手机的共享业务层。
+Gopurr 0.6.22 首次提供 Android 正式签名 APK，并整理桌面与手机的共享业务层。
 
 - Android 支持 Android 9 及以上的 arm64-v8a、x86_64 设备，提供连接、节点、订阅和设置四个入口，通过系统 VPN 授权、前台服务和 TUN 接入设备流量。
 - 支持订阅链接、本地文件及粘贴 YAML 导入，配置启用、来源编辑、更新与删除，规则／全局／直连模式、节点选择、测速、流量和诊断日志；可选择全部应用、仅选中应用或排除选中应用进入 VPN。
@@ -9,10 +9,10 @@ Gopurr 0.6.21 首次提供 Android 正式签名 APK，并整理桌面与手机�
 
 下载：
 
-- Android ARM64 手机／平板：gopurr-0.6.21-android-arm64-v8a.apk。
-- Android x86_64 设备／模拟器：gopurr-0.6.21-android-x86_64.apk。
-- macOS Apple Silicon：gopurr-0.6.21-arm64.dmg。
-- Windows 10/11 x64：gopurr-setup-0.6.21-amd64.exe。
+- Android ARM64 手机／平板：gopurr-0.6.22-android-arm64-v8a.apk。
+- Android x86_64 设备／模拟器：gopurr-0.6.22-android-x86_64.apk。
+- macOS Apple Silicon：gopurr-0.6.22-arm64.dmg。
+- Windows 10/11 x64：gopurr-setup-0.6.22-amd64.exe。
 
 Android 使用独立应用数据目录。已有开发包与正式包签名不同，首次安装正式包前需卸载开发包，卸载会删除其应用数据；后续正式 APK 使用相同证书，可覆盖升级。首次连接需同意系统 VPN 授权，暂不支持 Always-on VPN 或开机自动连接；长时间后台运行、Wi-Fi／蜂窝切换及厂商电池策略仍需真机验收。iOS VPN 与 NSH 桌面正式安装包不包含在本次发布中。
 

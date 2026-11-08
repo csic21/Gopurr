@@ -23,7 +23,7 @@ Gopurr 是基于 [mihomo](https://github.com/MetaCubeX/mihomo) 的原生桌面�
 
 安装与系统验证提示见 [发布说明](docs/release-notes.md)。
 
-Android 从 v0.6.21 起提供独立原生客户端，使用系统 VPN 授权接入设备流量。已有开发包与正式包签名不同，首次安装正式包前需卸载开发包（会删除开发包的数据）；后续正式版本可覆盖升级。构建与签名配置见 [Android 发布说明](native/RELEASING.md#android-apk-releases)。
+Android 从 v0.6.22 起提供独立原生客户端，使用系统 VPN 授权接入设备流量。已有开发包与正式包签名不同，首次安装正式包前需卸载开发包（会删除开发包的数据）；后续正式版本可覆盖升级。构建与签名配置见 [Android 发布说明](native/RELEASING.md#android-apk-releases)。
 
 ## 开始使用
 

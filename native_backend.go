@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -31,6 +32,9 @@ import (
 // and core process, while the only window is the NSH frontend. No legacy window
 // or editor is constructed in this mode.
 func runNativeBackend(args []string) error {
+	if runtime.GOOS != "darwin" {
+		return errors.New("NSH desktop backend currently requires macOS")
+	}
 	fs := flag.NewFlagSet("native-backend", flag.ContinueOnError)
 	home := fs.String("home", "", "private application directory")
 	socket := fs.String("socket", "", "private native socket")

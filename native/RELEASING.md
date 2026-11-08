@@ -11,7 +11,7 @@ or dispatching Release with a tag, builds both signed release APKs:
 - `gopurr-X.Y.Z-android-x86_64.apk` for x86_64 devices/emulators.
 
 The tag must contain the Android sources and match `mygo.json`. Android APK
-releases start at v0.6.21; v0.6.20 and earlier contain desktop packages only.
+releases start at v0.6.22; v0.6.20 and earlier contain desktop packages only.
 The APKs target Android 9/API 28 and later. Release waits for Android, macOS
 and Windows to succeed, requires both APKs, and includes them in `SHA256SUMS`
 before publishing. Already-public releases retain their assets.

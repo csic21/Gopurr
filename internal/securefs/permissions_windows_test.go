@@ -57,6 +57,28 @@ func TestWindowsPrivateDACL(t *testing.T) {
 	}
 }
 
+func TestWindowsPrivateFileRejectsHardLinksWithoutChangingTargetDACL(t *testing.T) {
+	dir := t.TempDir()
+	target, link := filepath.Join(dir, "original"), filepath.Join(dir, "linked")
+	if err := os.WriteFile(target, []byte("private fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(target, link); err != nil {
+		t.Fatal(err)
+	}
+	before, err := windows.GetNamedSecurityInfo(target, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := PrivateFile(link); err == nil {
+		t.Fatal("hard-linked private file was accepted")
+	}
+	after, err := windows.GetNamedSecurityInfo(target, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil || before.String() != after.String() {
+		t.Fatalf("hard-linked target DACL changed: %v", err)
+	}
+}
+
 func TestWindowsServiceDirectoryOnlyAdministratorsAndSystem(t *testing.T) {
 	if !windows.GetCurrentProcessToken().IsElevated() {
 		t.Skip("requires the elevated Windows CI runner")

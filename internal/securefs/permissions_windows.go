@@ -70,6 +70,11 @@ func restrict(path string, directory bool) error {
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || (info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0) != directory {
 		return fmt.Errorf(localize.Text("拒绝链接或非预期的文件类型: %s"), path)
 	}
+	// A DACL change on a hard link also changes the other names' target.
+	// Refuse shared file identities before reading or tightening permissions.
+	if !directory && info.NumberOfLinks != 1 {
+		return fmt.Errorf(localize.Text("拒绝访问硬链接文件: %s"), path)
+	}
 	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
 	if err != nil {
 		return err

@@ -69,6 +69,9 @@ func TestTunnelPlanRejectsStaleProfileAndModeBeforeAttachment(t *testing.T) {
 }
 
 func TestTunnelPlanIsTheSourceOfParsedCoreConfiguration(t *testing.T) {
+	// Mihomo otherwise drops IPv6 TUN addresses when the host has no global
+	// IPv6 interface. This fixture checks the plan, not the runner's network.
+	t.Setenv("SKIP_SYSTEM_IPV6_CHECK", "true")
 	scope, err := normalizeScope(AppScope{Mode: "include", Packages: []string{"com.example.browser", "com.example.browser", "org.example.chat"}})
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +92,7 @@ func TestTunnelPlanIsTheSourceOfParsedCoreConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	tun := parsed.General.Tun
-	if tun.MTU != uint32(plan.MTU) || tun.Inet4Address[0].String() != plan.Addresses[0] || tun.Inet6Address[0].String() != plan.Addresses[1] || tun.FileDescriptor != 37 || tun.AutoRoute || tun.AutoDetectInterface {
+	if len(tun.Inet4Address) != 1 || len(tun.Inet6Address) != 1 || tun.MTU != uint32(plan.MTU) || tun.Inet4Address[0].String() != plan.Addresses[0] || tun.Inet6Address[0].String() != plan.Addresses[1] || tun.FileDescriptor != 37 || tun.AutoRoute || tun.AutoDetectInterface {
 		t.Fatalf("host plan and actual core diverged: %+v / %+v", plan, tun)
 	}
 	copy := clonePlan(plan)
