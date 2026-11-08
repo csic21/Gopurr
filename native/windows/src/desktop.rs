@@ -1,0 +1,525 @@
+use libloading::Library;
+use nsh_engine::{HostChannel, Policy, parse_capabilities};
+use nsh_platform_windows::{App, AppOptions, AppView, AssetBase, Bundle};
+use serde_json::{Value, json};
+use std::{
+    ffi::{CStr, CString, c_char},
+    path::{Path, PathBuf},
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
+};
+use windows::{
+    Win32::{
+        Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+        System::{
+            Ole::{OleInitialize, OleUninitialize},
+            Threading::{OpenProcess, SYNCHRONIZE, WaitForSingleObject},
+        },
+        UI::{
+            HiDpi::{
+                AdjustWindowRectExForDpi, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+                GetDpiForWindow, SetProcessDpiAwarenessContext,
+            },
+            Shell::{
+                DefSubclassProc, RemoveWindowSubclass, SetCurrentProcessExplicitAppUserModelID,
+                SetWindowSubclass,
+            },
+            WindowsAndMessaging::*,
+        },
+    },
+    core::{HSTRING, PCWSTR},
+};
+
+const EVENT: u32 = WM_APP + 0x47;
+const TIMER: usize = 0x4750;
+const CHANNELS: &[&str] = &[
+    "desktop.dispatch",
+    "desktop.file.open",
+    "desktop.file.save",
+    "desktop.clipboard.write",
+    "desktop.openURL",
+    "desktop.reveal",
+    "desktop.window.close",
+    "desktop.window.dirty",
+];
+type Open = unsafe extern "C" fn(*const c_char) -> *mut c_char;
+type Call = unsafe extern "C" fn(u64, *const c_char) -> *mut c_char;
+type Free = unsafe extern "C" fn(*mut c_char);
+
+struct Bridge {
+    call: Call,
+    free: Free,
+    handle: u64,
+}
+impl Bridge {
+    unsafe fn open(root: &Path, home: &Path) -> Result<(Arc<Self>, Value), String> {
+        // The Go runtime owns live threads until process exit. Keep its DLL
+        // mapped for the entire process; unloading it is never safe.
+        let library = Box::leak(Box::new(
+            unsafe { Library::new(root.join("GopurrBridge.dll")) }.map_err(|e| e.to_string())?,
+        ));
+        let open: Open =
+            *unsafe { library.get(b"GopurrDesktopOpen\0") }.map_err(|e| e.to_string())?;
+        let call: Call =
+            *unsafe { library.get(b"GopurrDesktopCall\0") }.map_err(|e| e.to_string())?;
+        let free: Free = *unsafe { library.get(b"GopurrFree\0") }.map_err(|e| e.to_string())?;
+        let options = CString::new(json!({"home":home,"executable":root.join("gopurr-desktop.exe"),"frontend":root.join("Gopurr.exe"),"productionHome":true}).to_string()).unwrap();
+        let value = unsafe { take_json(open(options.as_ptr()), free) }?;
+        if let Some(error) = value.get("error") {
+            return Err(error["code"].as_str().unwrap_or("open_failed").to_owned()
+                + ": "
+                + error["message"]
+                    .as_str()
+                    .unwrap_or("Desktop backend unavailable"));
+        }
+        let handle = value["handle"]
+            .as_u64()
+            .ok_or("Missing desktop bridge handle")?;
+        Ok((Arc::new(Self { call, free, handle }), value))
+    }
+    fn request(&self, method: &str, params: Value) -> Result<Value, String> {
+        let request = CString::new(json!({"method":method,"params":params}).to_string())
+            .map_err(|e| e.to_string())?;
+        unsafe { take_json((self.call)(self.handle, request.as_ptr()), self.free) }
+    }
+    fn result(&self, method: &str, params: Value) -> Result<Value, String> {
+        let reply = self.request(method, params)?;
+        if let Some(error) = reply.get("error") {
+            return Err(error["message"]
+                .as_str()
+                .unwrap_or("Desktop operation failed")
+                .into());
+        }
+        Ok(reply["result"].clone())
+    }
+    fn visible(self: &Arc<Self>, visible: bool) {
+        let bridge = self.clone();
+        thread::spawn(move || {
+            let _ = bridge.result("host.visible", json!({"visible":visible}));
+        });
+    }
+}
+unsafe fn take_json(ptr: *mut c_char, free: Free) -> Result<Value, String> {
+    if ptr.is_null() {
+        return Err("Empty desktop bridge response".into());
+    }
+    let result = serde_json::from_slice(unsafe { CStr::from_ptr(ptr) }.to_bytes())
+        .map_err(|e| e.to_string());
+    unsafe { free(ptr) };
+    result
+}
+
+struct Window {
+    view: Rc<AppView>,
+    channel: HostChannel,
+    bridge: Arc<Bridge>,
+    bundle: Bundle,
+    prefs: Value,
+    page: String,
+    visible: bool,
+    loaded: bool,
+    dirty: bool,
+    hidden_at: Instant,
+    running: Arc<AtomicBool>,
+}
+impl Window {
+    fn hide(&mut self) {
+        unsafe {
+            let _ = ShowWindow(self.view.hwnd(), SW_HIDE);
+        }
+        self.visible = false;
+        self.hidden_at = Instant::now();
+        self.bridge.visible(false);
+    }
+    fn show(&mut self) {
+        if !self.loaded {
+            params(&self.channel, &self.page);
+            self.view.load(App::Js(self.bundle.clone()));
+            self.loaded = true;
+        }
+        self.visible = true;
+        self.bridge.visible(true);
+        unsafe {
+            let _ = ShowWindow(self.view.hwnd(), SW_RESTORE);
+            let _ = SetForegroundWindow(self.view.hwnd());
+        }
+    }
+    fn event(&mut self, event: Value) {
+        match event["kind"].as_str().unwrap_or("") {
+            "quit" => {
+                self.running.store(false, Ordering::Release);
+                // Only the backend initiates process exit, after restoring the
+                // proxy/core state. It waits for us before restarting updates.
+                unsafe {
+                    let _ = DestroyWindow(self.view.hwnd());
+                }
+                return;
+            }
+            "show" => {
+                if let Some(page) = event["value"]["page"].as_str() {
+                    self.page = page.into();
+                }
+                self.show();
+            }
+            "prefs" => self.prefs = event["value"].clone(),
+            "snapshot" => {
+                self.prefs = event["value"]["prefs"].clone();
+                if let Some(page) = event["value"]["page"].as_str() {
+                    self.page = page.into();
+                }
+                return;
+            }
+            "hide" => {
+                self.hide();
+                return;
+            }
+            "dirty" => {
+                self.dirty = event["value"].as_bool().unwrap_or(true);
+                return;
+            }
+            _ => (),
+        }
+        let _ = self.channel.send("desktop.event", event);
+    }
+}
+fn params(channel: &HostChannel, page: &str) {
+    channel.set_params(json!({"desktop":true,"nativeHost":true,"platform":"windows","nativeTitlebarInset":0,"nativeTitlebarHeight":38,"page":page}).as_object().unwrap().clone());
+}
+fn post(hwnd: usize, value: Value) {
+    let ptr = Box::into_raw(Box::new(value));
+    if unsafe {
+        PostMessageW(
+            Some(HWND(hwnd as _)),
+            EVENT,
+            WPARAM(0),
+            LPARAM(ptr as isize),
+        )
+    }
+    .is_err()
+    {
+        unsafe {
+            drop(Box::from_raw(ptr));
+        }
+    }
+}
+unsafe extern "system" fn subclass(
+    hwnd: HWND,
+    message: u32,
+    w: WPARAM,
+    l: LPARAM,
+    _: usize,
+    data: usize,
+) -> LRESULT {
+    let state = unsafe { &mut *(data as *mut Window) };
+    match message {
+        EVENT => {
+            let event = unsafe { Box::from_raw(l.0 as *mut Value) };
+            state.event(*event);
+            return LRESULT(0);
+        }
+        WM_CLOSE => {
+            if state.prefs["closeToTrayAcknowledged"].as_bool() == Some(true) {
+                state.hide();
+            } else {
+                let _ = state
+                    .channel
+                    .send("desktop.event", json!({"kind":"closeRequested"}));
+            }
+            return LRESULT(0);
+        }
+        WM_GETMINMAXINFO => {
+            let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 840 * dpi as i32 / 96,
+                bottom: 560 * dpi as i32 / 96,
+            };
+            unsafe {
+                let _ = AdjustWindowRectExForDpi(
+                    &mut rect,
+                    WINDOW_STYLE(GetWindowLongW(hwnd, GWL_STYLE) as u32),
+                    false,
+                    WINDOW_EX_STYLE(GetWindowLongW(hwnd, GWL_EXSTYLE) as u32),
+                    dpi,
+                );
+            }
+            let info = unsafe { &mut *(l.0 as *mut MINMAXINFO) };
+            info.ptMinTrackSize.x = rect.right - rect.left;
+            info.ptMinTrackSize.y = rect.bottom - rect.top;
+            return LRESULT(0);
+        }
+        WM_TIMER if w.0 == TIMER => {
+            if !state.visible
+                && state.loaded
+                && !state.dirty
+                && state.prefs["lightMode"].as_bool() == Some(true)
+                && state.hidden_at.elapsed().as_secs()
+                    >= state.prefs["lightDelaySeconds"]
+                        .as_u64()
+                        .unwrap_or(60)
+                        .max(1)
+            {
+                state.view.stop();
+                state.loaded = false;
+            }
+            return LRESULT(0);
+        }
+        WM_NCDESTROY => unsafe {
+            let _ = RemoveWindowSubclass(hwnd, Some(subclass), 1);
+        },
+        _ => (),
+    }
+    unsafe { DefSubclassProc(hwnd, message, w, l) }
+}
+fn argument(args: &[String], name: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == name)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+}
+fn wait_for_process(pid: u32) -> Result<(), String> {
+    unsafe {
+        match OpenProcess(SYNCHRONIZE, false, pid) {
+            Ok(handle) => {
+                let result = WaitForSingleObject(handle, 30000);
+                let _ = windows::Win32::Foundation::CloseHandle(handle);
+                if result.0 != 0 {
+                    return Err("Previous desktop backend did not exit".into());
+                }
+            }
+            Err(error) if error.code().0 as u32 == 0x80070057 => (), // already exited
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Ok(())
+}
+
+pub fn run() -> Result<(), String> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() == 2 && args[1] == "--version" {
+        println!("Gopurr {} (NSH Windows)", env!("GOPURR_VERSION"));
+        return Ok(());
+    }
+    if let Some(pid) = argument(&args, "--wait-for-process") {
+        wait_for_process(pid.parse().map_err(|_| "Invalid previous process")?)?;
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let root = exe.parent().ok_or("Missing installation directory")?;
+    // Old shortcuts, registered service commands and core child commands all
+    // continue to enter through Gopurr.exe. Forward only actual helper modes.
+    if args.get(1).is_some_and(|arg| {
+        arg == "--core" || arg.starts_with("--service-") || arg.starts_with("--sysproxy-")
+    }) {
+        use std::os::windows::process::CommandExt;
+        let status = std::process::Command::new(root.join("gopurr-desktop.exe"))
+            .args(&args[1..])
+            .creation_flags(0x08000000)
+            .status()
+            .map_err(|e| e.to_string())?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    let home = argument(&args, "--gopurr-home")
+        .or_else(|| std::env::var("GOPURR_NATIVE_HOME").ok())
+        .or_else(|| std::env::var("GOPURR_HOME").ok())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()).join("Gopurr")
+        });
+    if !home.is_absolute() {
+        return Err("An absolute desktop data directory is required".into());
+    }
+    let (bridge, session) = match unsafe { Bridge::open(root, &home) } {
+        Ok(value) => value,
+        Err(error) if error.starts_with("already_running:") => {
+            use std::os::windows::process::CommandExt;
+            // The existing mygo singleton routes activation and protocol URLs
+            // to the running backend. It never constructs a legacy window.
+            let _ = std::process::Command::new(root.join("gopurr-desktop.exe"))
+                .arg("--native-activate")
+                .args(&args[1..])
+                .env_remove("GOPURR_HOME")
+                .creation_flags(0x08000000)
+                .status();
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+    if let Ok(path) = std::env::var("GOPURR_NATIVE_SESSION_OUTPUT") {
+        std::fs::write(path, session.to_string()).map_err(|e| e.to_string())?;
+    }
+    let page = argument(&args, "--gopurr-page").unwrap_or_else(|| "overview".into());
+    let snapshot = bridge.result("desktop.snapshot", json!({"page":page}))?;
+    let prefs = snapshot["prefs"].clone();
+    let channel = HostChannel::new();
+    params(&channel, &page);
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        OleInitialize(None).map_err(|e| e.to_string())?;
+        SetCurrentProcessExplicitAppUserModelID(&HSTRING::from("io.github.gopurr.app"))
+            .map_err(|e| e.to_string())?;
+    }
+    let bundle_path = root.join("nsh/bundle.nshc");
+    let mut bundle = unsafe { Bundle::read_trusted(&bundle_path) }.map_err(|e| e.to_string())?;
+    let granted = parse_capabilities(&json!({"host":CHANNELS}).to_string())?;
+    let declared = bundle.policy.declared.clone();
+    bundle = bundle.with_policy(Policy {
+        declared,
+        granted: Some(granted),
+        ..Default::default()
+    });
+    let width = argument(&args, "--gopurr-width")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1060)
+        .max(840);
+    let height = argument(&args, "--gopurr-height")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(720)
+        .max(560);
+    let view = AppView::new(
+        None,
+        AppOptions {
+            app_id: "io.github.gopurr.app".into(),
+            title: "Gopurr".into(),
+            size: (width, height),
+            host: channel.clone(),
+            asset_base: Some(AssetBase::Directory(root.join("nsh"))),
+            data_dir: Some(home.join("nsh")),
+            ..Default::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let hwnd = view.hwnd().0 as usize;
+    for &name in CHANNELS {
+        let bridge = bridge.clone();
+        channel.handle(name, move |call| {
+            let data = call.data().clone();
+            let bridge = bridge.clone();
+            if name == "desktop.window.close" {
+                post(hwnd, json!({"kind":"hide"}));
+                call.resolve(json!({"ok":true}));
+                return;
+            }
+            if name == "desktop.window.dirty" {
+                if let Some(dirty) = data["dirty"].as_bool() {
+                    post(hwnd, json!({"kind":"dirty","value":dirty}));
+                    call.resolve(json!({"ok":true}));
+                } else {
+                    call.reject("A draft state is required");
+                }
+                return;
+            }
+            thread::spawn(move || {
+                let result = if name == "desktop.dispatch" {
+                    let method = data["method"].as_str().unwrap_or("");
+                    bridge
+                        .request(method, data["params"].clone())
+                        .inspect(|reply| {
+                            if method == "desktop.snapshot" && reply.get("error").is_none() {
+                                post(hwnd, json!({"kind":"snapshot","value":reply["result"]}));
+                            }
+                        })
+                } else {
+                    bridge.result(&name.replacen("desktop.", "host.", 1), data)
+                };
+                call.reply(result);
+            });
+        });
+    }
+    let running = Arc::new(AtomicBool::new(true));
+    let mut state = Box::new(Window {
+        view: view.clone(),
+        channel: channel.clone(),
+        bridge: bridge.clone(),
+        bundle: bundle.clone(),
+        prefs,
+        page,
+        visible: true,
+        loaded: true,
+        dirty: false,
+        hidden_at: Instant::now(),
+        running: running.clone(),
+    });
+    unsafe {
+        if !SetWindowSubclass(
+            view.hwnd(),
+            Some(subclass),
+            1,
+            (&mut *state as *mut Window) as usize,
+        )
+        .as_bool()
+        {
+            return Err("Cannot install desktop window lifecycle".into());
+        }
+        SetTimer(Some(view.hwnd()), TIMER, 500, None);
+        let icon = LoadImageW(
+            None,
+            PCWSTR(HSTRING::from(root.join("Gopurr.ico").to_string_lossy().as_ref()).as_ptr()),
+            IMAGE_ICON,
+            0,
+            0,
+            LR_LOADFROMFILE | LR_DEFAULTSIZE,
+        );
+        if let Ok(icon) = icon {
+            SendMessageW(
+                view.hwnd(),
+                WM_SETICON,
+                WPARAM(ICON_BIG as usize),
+                LPARAM(icon.0 as isize),
+            );
+        }
+    }
+    view.load(App::Js(bundle));
+    if state.prefs["silentStart"].as_bool() == Some(true) {
+        state.hide();
+    } else {
+        view.show();
+        bridge.visible(true);
+    }
+    let polling = bridge.clone();
+    let alive = running.clone();
+    thread::spawn(move || {
+        let mut after = 0;
+        while alive.load(Ordering::Acquire) {
+            match polling.result("host.events", json!({"after":after})) {
+                Ok(events) => {
+                    for event in events.as_array().into_iter().flatten() {
+                        after = after.max(event["id"].as_u64().unwrap_or(0));
+                        post(hwnd, event.clone());
+                    }
+                }
+                Err(error) => {
+                    post(hwnd, json!({"kind":"error","value":error}));
+                }
+            }
+            thread::sleep(Duration::from_millis(400));
+        }
+    });
+    for url in args
+        .iter()
+        .skip(1)
+        .filter(|arg| arg.starts_with("gopurr://") || arg.starts_with("clash://"))
+    {
+        let _ = bridge.result("host.importURL", json!({"url":url}));
+    }
+    unsafe {
+        let mut message = MSG::default();
+        while GetMessageW(&mut message, None, 0, 0).0 > 0 {
+            let _ = TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    running.store(false, Ordering::Release);
+    view.stop();
+    drop(state);
+    drop(view);
+    unsafe {
+        OleUninitialize();
+    }
+    Ok(())
+}

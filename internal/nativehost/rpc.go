@@ -225,7 +225,7 @@ func privateParent(path string) error {
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+	if !info.IsDir() || privateAccess(filepath.Dir(path)) != nil {
 		return errors.New("native session directory must be private (0700)")
 	}
 	return nil
@@ -241,7 +241,7 @@ func ReadToken(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() < 32 || info.Size() > 4096 {
+	if !info.Mode().IsRegular() || privateAccess(path) != nil || info.Size() < 32 || info.Size() > 4096 {
 		return "", errors.New("invalid private native session credential")
 	}
 	raw, err := os.ReadFile(path)

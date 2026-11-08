@@ -32,8 +32,8 @@ import (
 // and core process, while the only window is the NSH frontend. No legacy window
 // or editor is constructed in this mode.
 func runNativeBackend(args []string) error {
-	if runtime.GOOS != "darwin" {
-		return errors.New("NSH desktop backend currently requires macOS")
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		return errors.New("NSH desktop backend requires macOS or Windows")
 	}
 	fs := flag.NewFlagSet("native-backend", flag.ContinueOnError)
 	home := fs.String("home", "", "private application directory")
@@ -101,7 +101,6 @@ func runNativeBackend(args []string) error {
 	update.ConfigureHTTPClient(a.UpdateProxyURL)
 	events := &nativehost.Events{}
 	show := func() { a.SetWindowVisible(true); events.Add("show", map[string]any{"page": a.NativePage()}) }
-	mygo.App.OnSecondInstance(func([]string, string) { show() })
 	mygo.App.SetMenu(a.ApplicationMenu(show))
 	mygo.App.OnLocaleChanged(func(string) { mygo.App.SetMenu(a.ApplicationMenu(show)) })
 	importURL := func(raw string) error {
@@ -114,6 +113,21 @@ func runNativeBackend(args []string) error {
 		show()
 		return nil
 	}
+	mygo.App.OnSecondInstance(func(args []string, _ string) {
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "gopurr://") || strings.HasPrefix(arg, "clash://") {
+				if err := importURL(arg); err != nil {
+					events.Add("error", err.Error())
+				}
+			}
+		}
+		for _, arg := range args {
+			if arg == "--autostart" {
+				return
+			}
+		}
+		show()
+	})
 	mygo.App.OnOpenURL(func(raw string) {
 		mygo.App.WhenReady(func() {
 			if err := importURL(raw); err != nil {
@@ -152,7 +166,7 @@ func runNativeBackend(args []string) error {
 				mygo.RunOnMain(func() {
 					finalQuitRequested = true
 					if relaunch {
-						mygo.App.Relaunch()
+						nativeRelaunch(*frontend, *home)
 					} else {
 						mygo.App.Quit()
 					}
@@ -433,16 +447,4 @@ func prepareNativeHome(home string) error {
 		return securefs.WriteFile(path, body, 0600)
 	}
 	return errors.New("could not reserve a private desktop proxy port")
-}
-
-func nativeParentAlive(pid int) bool {
-	if pid <= 1 || os.Getppid() != pid {
-		return false
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = process.Signal(syscall.Signal(0))
-	return err == nil || errors.Is(err, syscall.EPERM)
 }

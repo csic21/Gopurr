@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"gopurr/internal/nativehost"
+	"gopurr/internal/securefs"
 )
 
 type desktopProcess struct {
@@ -66,6 +67,10 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		if err != nil {
 			return failure("open_failed", err.Error())
 		}
+		if err = securefs.PrivateDir(dir); err != nil {
+			os.RemoveAll(dir)
+			return failure("open_failed", err.Error())
+		}
 		cleanup := true
 		defer func() {
 			if cleanup {
@@ -89,6 +94,7 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		configureDesktopCommand(cmd)
 		if err = cmd.Start(); err != nil {
 			return failure("open_failed", err.Error())
 		}
@@ -136,7 +142,7 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		desktops.items[id] = p
 		desktops.Unlock()
 		cleanup = false
-		b, _ := json.Marshal(map[string]uint64{"handle": id})
+		b, _ := json.Marshal(map[string]any{"handle": id, "socket": socket, "tokenFile": tokenFile, "backendPID": cmd.Process.Pid})
 		return b
 	})
 }

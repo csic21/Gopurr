@@ -91,6 +91,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "--native-activate" {
+		mygo.App.SetName("Gopurr")
+		// A second NSH host only forwards activation/URL arguments through
+		// the established singleton. It must never open the old UI.
+		mygo.App.RequestSingleInstanceLock()
+		return
+	}
 
 	mygo.App.SetName("Gopurr")
 	if os.Getenv("GOPURR_HOME") == "" && !mygo.App.RequestSingleInstanceLock() {
