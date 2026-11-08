@@ -1,6 +1,6 @@
 # NSH 原生客户端
 
-这是 Gopurr 的 NSH 原生客户端。macOS 正式构建与发布入口使用八页 NSH 桌面，手机继续 Android 优先，Windows 保留原桌面。NSH 固定为 **0.4.0 / e626a8d**，SDK 下载到仓库内 `.cache/nsh` 并验证 SHA-256，不全局安装工具。macOS 的迁移设计和已运行验证见 [迁移验收记录](MACOS_MIGRATION.md)。
+这是 Gopurr 的 NSH 原生客户端。macOS 与 Windows 正式构建和发布入口使用八页 NSH 桌面，手机继续 Android 优先。NSH 固定为 **0.4.0 / e626a8d**，SDK 下载到仓库内 `.cache/nsh` 并验证 SHA-256，不全局安装工具。迁移设计和已运行验证见 [macOS 验收记录](MACOS_MIGRATION.md) 与 [Windows 验收记录](WINDOWS_MIGRATION.md)。
 
 ## 结构
 
@@ -132,3 +132,17 @@ Android 手机界面优先使用独立宿主方法 `android.connect` / `android.
 桌面八页明暗截图覆盖 1060×720、840×560，主要编辑器、错误状态和动画定格也有实际 AppKit 截图；脚本为 `desktop-render.steps.js`、`desktop-editors.steps.js`、`desktop-dialogs.steps.js`。手机四页明暗截图覆盖 1060×720、840×560、390×844。它们位于 `native/ui/screenshots/`；生成流程见 `native/ui/render.steps.js`。截图需结合 NSH 交互测试与实际 Android 宿主验证。
 
 `go test -race` 仍能报告 mihomo 上游日志级别全局变量的竞争：配置应用写入 `log.level`，同时旧代理的 GC finalizer 读取它。引擎已在加载前停止旧连接，消除了此前入站 ACL 的重载竞争；剩余日志问题及上游位置记录在 `sdk/engine/README.md`。功能测试通过不代表竞争检查已全部通过。
+
+## Windows 正式桌面
+
+Windows 10 1809 及以上 x64 使用 `Gopurr.exe` NSH 宿主、`GopurrBridge.dll` 与 `gopurr-desktop.exe` 后台。正式构建默认选择 NSH，并在发布前验收生产更新签名、实际宿主连续升级、旧数据、安装/卸载、核心流量、Wintun 和系统服务。
+
+原 `%APPDATA%\Gopurr` 数据原位保留，首次接管保存私有 `migration-nsh-v1` 快照。`update-windows-amd64.json` 与 `update-native-windows-amd64.json` 指向同一签名整包；包内同时提供新卸载器。现有正式版可直接应用内更新，程序身份、安装路径、协议和快捷方式沿用原值。
+
+```powershell
+go run ./scripts/release -platform windows/amd64
+# 正式签名由 MYGO_UPDATER_PRIVATE_KEY 显式提供：
+go run ./scripts/release -platform windows/amd64 -release
+```
+
+单独构建宿主可运行 `scripts/build-native-windows.ps1`，随后用 `scripts/package-native-windows.ps1` 生成完整安装与更新负载。`-native-windows=false` 只保留本地旧桌面对照构建，正式发布拒绝选择旧桌面。

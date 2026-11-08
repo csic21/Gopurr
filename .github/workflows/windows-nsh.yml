@@ -1,6 +1,14 @@
 name: Windows NSH acceptance
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        default: ''
+    secrets:
+      MYGO_UPDATER_PRIVATE_KEY:
+        required: true
   pull_request:
     paths:
       - 'native/**'
@@ -27,6 +35,8 @@ jobs:
       LIBCLANG_PATH: C:/Program Files/LLVM/bin
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version-file: go.mod
@@ -54,9 +64,11 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: go test -v . ./internal/nativehost -timeout=5m
-      - name: Build actual NSH Windows application
+      - name: Build the default production Windows package
         shell: pwsh
-        run: ./scripts/build-native-windows.ps1
+        run: |
+          go run ./scripts/release -platform windows/amd64 -out bin/native
+          if ($LASTEXITCODE) { throw 'Default Windows release builder failed' }
       - name: Verify the actual Windows C ABI
         shell: pwsh
         run: |
@@ -65,12 +77,11 @@ jobs:
           if (-not $env:CC) { $env:CC = (Get-Command gcc -ErrorAction Stop).Source }
           go test -v ./cmd/gopurr-bridge -timeout=5m
           if ($LASTEXITCODE) { throw 'Windows C ABI tests failed' }
-      - name: Build compatible per-user installer
-        shell: pwsh
-        run: ./scripts/package-native-windows.ps1
       - name: Verify installed migration, protocols and graceful uninstall
         shell: pwsh
-        run: ./scripts/test-native-windows-installer.ps1
+        run: |
+          $config = Get-Content mygo.json -Raw | ConvertFrom-Json
+          ./scripts/test-native-windows-installer.ps1 -Installer "dist/windows-amd64/gopurr-setup-$($config.version)-amd64.exe"
       - name: Verify real core, Wintun, service and proxy recovery
         env:
           CGO_ENABLED: '0'
@@ -115,6 +126,7 @@ jobs:
           path: |
             bin/native/windows-amd64
             dist/native-windows-amd64
+            dist/windows-amd64
           retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

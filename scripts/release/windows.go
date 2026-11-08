@@ -10,8 +10,8 @@ import (
 	"runtime"
 )
 
-// Opt-in until the actual Windows UI, migration and signed update acceptance
-// workflow has passed. A normal release cannot select an unvalidated host.
+// The default Windows release path, accepted with the real Win32 host, old-data
+// migration, production-key verification and two successive update installs.
 func buildNativeWindows(config map[string]any, version, output string, release bool, env []string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("NSH Windows packaging requires a Windows x64 builder")

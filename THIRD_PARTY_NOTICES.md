@@ -14,12 +14,11 @@ The complete source and build instructions are at https://github.com/csic21/Gopu
 - mygo: https://github.com/egoist/mygo — MIT; its native runtime bundles the
   libraries and licenses supplied by the framework.
 - Native Shell (NSH): https://github.com/longbridge/nsh — Apache-2.0; the macOS desktop,
-  Windows migration candidate and mobile clients embed the NSH v0.4.0 runtime
+  Windows desktop and mobile clients embed the NSH v0.4.0 runtime
   (commit e626a8d). See
   licenses/nsh-apache-2.0.txt, copied from the verified SDK's LICENSE-APACHE.
   The Windows NSH package additionally includes locked Rust dependency license
-  texts under licenses/rust/. Windows production retains mygo until migration
-  acceptance passes.
+  texts under licenses/rust/.
 - Lucide icons: https://lucide.dev — ISC; see internal/app/icons/LICENSE.
 - Remote web frontend: React and React DOM (MIT), Vite and @vitejs/plugin-react
   (MIT), TypeScript (Apache-2.0), and Lucide React (ISC). Exact versions are
