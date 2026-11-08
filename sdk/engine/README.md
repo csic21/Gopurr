@@ -28,6 +28,7 @@ either `result` or `error: {code, message}`. Fields use lower camel case.
 | Method | Parameters | Result |
 | --- | --- | --- |
 | `engine.status` | none | Status, capabilities and real traffic counters |
+| `engine.traffic` | none | `{up, down, upTotal, downTotal, at}`; lightweight counters without connection enumeration or memory sampling |
 | `engine.start` | none | Start selected profile; idempotent if already running |
 | `engine.stop` | none | Disconnect and release owned listeners |
 | `engine.mode` | `{mode: "rule" \| "global" \| "direct"}` | Status |
@@ -39,7 +40,7 @@ either `result` or `error: {code, message}`. Fields use lower camel case.
 | `profiles.update` | `{id, name?, url?}` | Saved source metadata; does not download |
 | `profiles.refresh` | `{id}` | Download and validate, then atomically save |
 | `profiles.delete` | `{id}` | Delete a stopped or inactive profile |
-| `proxies.groups` | none | `{groups}` in configuration order |
+| `proxies.groups` | none | `{groups, preview?, incomplete?}` in configuration order; stopped engines return saved-node previews |
 | `proxies.select` | `{group, member}` | `{ok: true}` |
 | `proxies.delay` | `{name, url?}` | `{name, delay}` in milliseconds |
 | `logs.list` | none | `{logs}`; latest 300 entries |
@@ -48,6 +49,16 @@ Imports are bounded to 16 MiB. HTTP downloads and delay tests observe their
 context. Summaries expose source hostnames, never source URLs, subscription
 tokens, passwords or YAML. Local documents retain a portable cached source,
 not the native file picker's temporary path.
+
+Disconnected group reads compose the saved profile and inspect local YAML only;
+they never instantiate adapters, start the core, refresh providers or run health
+checks. They include inline payloads and regular provider cache files inside the
+kernel data directory, strip credentials and omit latency. `preview=true` marks
+this static view; `incomplete=true` identifies missing/unreadable caches or
+dynamic provider-name expressions that require the live core. Manual selectors
+show a still-valid saved choice, otherwise their first visible member; automatic
+groups do not claim a current exit. Selecting and testing still require a running
+core. Stopped mobile pages do not periodically reparse this preview.
 
 New mutations return `{profile?, saved, applied, reconnectRequired, status}`.
 The original `profiles.import` direct summary response stays compatible. Editing

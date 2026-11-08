@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "device": {
+    "reportedName": "OPPO Find X9s Pro",
+    "model": "PME110",
+    "android": "17",
+    "systemVersion": "V17.0.0"
+  },
+  "appVersion": "0.6.22 development",
+  "apkSHA256FromBuildRecord": "96b132687bad5a68048f8aaae81654a999d4dda356eeb036b7a4787c61cc77ae",
+  "scenario": "User-enabled VPN connected, screen off, unplugged, live traffic notification preference enabled",
+  "startedAt": "2026-11-08T12:37:05.000150+08:00",
+  "finishedAt": "2026-11-08T13:07:06.698314+08:00",
+  "sampling": "start, midpoint and end; ADB transports disconnected between samples",
+  "samples": [
+    {
+      "label": "start",
+      "observedAt": "2026-11-08T12:37:05.000150+08:00",
+      "battery": {
+        "levelPercent": 100,
+        "chargeCounterMicroAh": 6599000,
+        "temperatureC": 31.5,
+        "charging": false
+      },
+      "wakefulness": "Dozing",
+      "vpnForegroundService": true,
+      "tunFdCount": 2,
+      "threads": 72,
+      "adbDetachedAfterSample": true,
+      "gopurrCpuSecondsSinceStart": 0.0,
+      "pssKiB": 133560,
+      "rssKiB": 230376,
+      "renderedFrames": 377
+    },
+    {
+      "label": "midpoint",
+      "observedAt": "2026-11-08T12:52:05.853199+08:00",
+      "battery": {
+        "levelPercent": 100,
+        "chargeCounterMicroAh": 6588000,
+        "temperatureC": 27.9,
+        "charging": false
+      },
+      "wakefulness": "Dozing",
+      "vpnForegroundService": true,
+      "tunFdCount": 2,
+      "threads": 72,
+      "adbDetachedAfterSample": true,
+      "gopurrCpuSecondsSinceStart": 1.05
+    },
+    {
+      "label": "end",
+      "observedAt": "2026-11-08T13:07:06.698314+08:00",
+      "battery": {
+        "levelPercent": 100,
+        "chargeCounterMicroAh": 6580000,
+        "temperatureC": 26.6,
+        "charging": false
+      },
+      "wakefulness": "Dozing",
+      "vpnForegroundService": true,
+      "tunFdCount": 2,
+      "threads": 72,
+      "adbDetachedAfterSample": true,
+      "gopurrCpuSecondsSinceStart": 2.15,
+      "pssKiB": 139580,
+      "rssKiB": 230680,
+      "renderedFrames": 377
+    }
+  ],
+  "result": {
+    "elapsedSeconds": 1801.7,
+    "wholeDevicePercentPointDrop": 0,
+    "wholeDeviceChargeCounterDropMicroAh": 19000,
+    "wholeDeviceChargeCounterDropMah": 19.0,
+    "sameGopurrProcess": true,
+    "conditionsValidAtSamplePoints": true,
+    "continuousScreenStateVerified": false,
+    "dedicatedGopurrEnergyMeasured": false,
+    "gopurrCpuSeconds": 2.15,
+    "gopurrCpuPercentOneCore": 0.1193,
+    "gopurrNewRenderedFrames": 0
+  },
+  "limits": [
+    "Whole-device discharge, not energy exclusively attributable to Gopurr.",
+    "Wireless debugging remains enabled; ADB transports are disconnected between samples.",
+    "Single 30-minute observation with normal background services and current user profile.",
+    "Full-charge fuel-gauge relaxation and integer battery percentages limit precision.",
+    "Only the sample-point conditions were verified; screen state and connectivity were not continuously probed.",
+    "No matched VPN-off baseline was measured; incremental Gopurr energy cannot be separated.",
+    "CPU accounting includes endpoint diagnostic work; memory is a process snapshot.",
+    "Battery temperature fell after charging; this is not a workload thermal benchmark."
+  ],
+  "endState": {
+    "vpn": "left connected as started by the user",
+    "adbTransport": "disconnected"
+  },
+  "references": [
+    "https://developer.android.com/reference/android/os/BatteryManager#BATTERY_PROPERTY_CHARGE_COUNTER",
+    "https://source.android.com/docs/core/power/device"
+  ]
+}

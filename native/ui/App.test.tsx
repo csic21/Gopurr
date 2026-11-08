@@ -3,7 +3,7 @@ import { fixtureTransport } from "./src/fixture";
 
 function host(empty = false) {
   const dispatch = fixtureTransport(empty);
-  return { handlers: { "engine.dispatch": async (data: unknown) => {
+  return { handlers: { "android.notifications": { granted: false, enabled: false, canRequest: true, traffic: true }, "engine.dispatch": async (data: unknown) => {
     const request = data as { method: string; params: Record<string, unknown> };
     return { result: await dispatch(request.method, request.params) };
   } } };
@@ -110,6 +110,55 @@ test("latency testing does not switch a node; selection is explicit", async () =
   await app.waitFor("text:No matching nodes");
   await app.press("text:Reset filter");
   await app.waitFor("id:node-DIRECT");
+});
+
+test("saved nodes remain searchable after disconnect without starting or testing", async () => {
+  const app = await open("./App.tsx", { host: host(), locale: "en-US", clock: {} });
+  await app.waitFor("text:Local proxy running");
+  await app.press("id:toggle-engine");
+  await app.waitFor("text:Disconnected");
+  await app.press("id:nav-proxies");
+  await app.waitFor("id:node-示例节点 / Example proxy");
+  expect(app.texts()).toContain("Disconnected · Browse saved nodes. Connect to switch or test.");
+  expect(app.texts()).toContain("For next connection");
+  expect(app.enabled("id:node-示例节点 / Example proxy")).toBe(false);
+  expect(app.enabled("id:delay-示例节点 / Example proxy")).toBe(false);
+  expect(app.enabled("id:test-group")).toBe(false);
+  await app.type("id:node-search", "no-match");
+  await app.waitFor("text:No matching nodes");
+  await app.press("text:Reset filter");
+  await app.waitFor("id:node-DIRECT");
+  const groupCalls = () => app.host.calls().filter(c => (c.data as { method?: string })?.method === "proxies.groups").length;
+  const before = groupCalls();
+  await app.clock!.runFor(20000);
+  expect(groupCalls()).toBe(before);
+  const methods = app.host.calls().map(c => (c.data as { method?: string })?.method);
+  expect(methods).not.toContain("engine.start");
+  expect(methods).not.toContain("proxies.delay");
+  expect(methods).not.toContain("proxies.select");
+});
+
+test("first import shows offline nodes, and missing provider cache is explained", async () => {
+  const bridge = host(true), original = bridge.handlers["engine.dispatch"];
+  bridge.handlers["engine.dispatch"] = async (data: unknown) => {
+    const reply = await original(data);
+    if ((data as { method: string }).method === "proxies.groups") {
+      return { result: { ...(reply.result as object), incomplete: true } } as never;
+    }
+    return reply;
+  };
+  const app = await open("./App.tsx", { host: bridge, locale: "en-US" });
+  await app.press("id:nav-proxies");
+  await app.waitFor("text:No profile selected");
+  await app.press("text:Open profiles");
+  await app.type("id:profile-name", "Offline");
+  await app.type("id:profile-url", "https://example.invalid/offline.yaml");
+  await app.press("id:import-profile");
+  await app.waitFor("text:Selected");
+  await app.press("id:nav-proxies");
+  await app.waitFor("id:node-示例节点 / Example proxy");
+  expect(app.texts()).toContain("Some provider nodes have no local preview. Connect to load the full list.");
+  expect(app.host.calls().some(c => ["engine.start", "android.connect", "profiles.activate"].includes((c.data as { method?: string })?.method ?? c.name))).toBe(false);
 });
 
 test("failed imports preserve the draft and never become successful", async () => {

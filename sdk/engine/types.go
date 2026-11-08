@@ -54,6 +54,15 @@ type Traffic struct {
 	At          int64  `json:"at"`
 }
 
+// TrafficRates is the lightweight notification sample, without slow statistics.
+type TrafficRates struct {
+	Up        int64 `json:"up"`
+	Down      int64 `json:"down"`
+	UpTotal   int64 `json:"upTotal"`
+	DownTotal int64 `json:"downTotal"`
+	At        int64 `json:"at"`
+}
+
 type Status struct {
 	APIVersion        int          `json:"apiVersion"`
 	Running           bool         `json:"running"`
@@ -124,7 +133,9 @@ type Group struct {
 }
 
 type GroupList struct {
-	Groups []Group `json:"groups"`
+	Groups     []Group `json:"groups"`
+	Preview    bool    `json:"preview,omitempty"`
+	Incomplete bool    `json:"incomplete,omitempty"`
 }
 
 type Log struct {

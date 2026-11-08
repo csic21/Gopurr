@@ -7,6 +7,16 @@ cd "$project_dir"
 python3 native/ui/sync-assets.py
 target="${1:-catalyst}"
 app_version="$(python3 -c 'import json; print(json.load(open("mygo.json"))["version"])')"
+distribution="${GOPURR_NATIVE_DISTRIBUTION:-0}"
+bundle_id="io.github.gopurr.native"
+app_name="Gopurr Native"
+data_directory="Gopurr Native"
+if [[ "$distribution" == 1 ]]; then
+  [[ "$target" == catalyst ]] || { echo 'Distribution requires the desktop Catalyst target' >&2; exit 1; }
+  bundle_id="io.github.gopurr.app"
+  app_name="Gopurr"
+  data_directory="Gopurr"
+fi
 update_feed="${GOPURR_NATIVE_UPDATE_FEED:-}"
 update_public_key=""
 if [[ -n "$update_feed" ]]; then
@@ -38,6 +48,7 @@ case "$target" in
     triple="arm64-apple-ios15.0-macabi"
     framework_slice="ios-arm64-maccatalyst"
     app_path="$project_dir/bin/native/Gopurr Native.app"
+    if [[ "$distribution" == 1 ]]; then app_path="${GOPURR_NATIVE_APP_PATH:-$project_dir/bin/darwin-arm64/Gopurr.app}"; fi
     device_family="<integer>6</integer>"
     ;;
   ios-simulator)
@@ -52,6 +63,11 @@ esac
 
 build_dir="$project_dir/bin/native/apple/$target"
 mkdir -p "$build_dir" "$project_dir/.cache/clang"
+final_app_path="$app_path"
+mkdir -p "$(dirname "$final_app_path")"
+bundle_work="$(mktemp -d "$(dirname "$final_app_path")/.native-bundle-XXXXXX")"
+trap 'rm -rf "$bundle_work"' EXIT
+app_path="$bundle_work/$app_name.app"
 sdk_path="$(xcrun --sdk "$apple_sdk" --show-sdk-path)"
 clang_path="$(xcrun --sdk "$apple_sdk" --find clang)"
 cc_wrapper="$build_dir/clang-ios"
@@ -72,7 +88,7 @@ if [[ "$target" == catalyst ]]; then
   if [[ -n "$update_feed" ]]; then
     helper_ldflags+=" -X github.com/egoist/mygo.production=1"
     helper_ldflags+=" -X github.com/egoist/mygo.packageName=Gopurr"
-    helper_ldflags+=" -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.native"
+    helper_ldflags+=" -X github.com/egoist/mygo.packageIdentifier=$bundle_id"
     helper_ldflags+=" -X github.com/egoist/mygo.packageURLSchemes=gopurr,clash"
     helper_ldflags+=" -X github.com/egoist/mygo.packageVersion=$app_version"
     helper_ldflags+=" -X github.com/egoist/mygo.packageUpdateFeed=$update_feed"
@@ -100,10 +116,10 @@ cp -R "$build_dir/ui/." "$resource_dir/nsh/"
 if [[ "$target" == catalyst ]]; then
   cp "$build_dir/gopurr-desktop" "$resource_dir/gopurr-desktop"
   codesign --force --sign - "$resource_dir/gopurr-desktop"
-  python3 - "$resource_dir/native-build.json" "$app_version" "$update_feed" "$update_public_key" <<'PY'
+  python3 - "$resource_dir/native-build.json" "$app_version" "$update_feed" "$update_public_key" "$data_directory" <<'PY'
 import json, pathlib, sys
-path, version, feed, key = sys.argv[1:]
-pathlib.Path(path).write_text(json.dumps(dict(schema=1,ui='nsh-desktop',backend='desktop-v2',version=version,updateFeed=feed,updatePublicKey=key,updateEnabled=bool(feed)),indent=2)+'\n')
+path, version, feed, key, home = sys.argv[1:]
+pathlib.Path(path).write_text(json.dumps(dict(schema=1,ui='nsh-desktop',backend='desktop-v2',version=version,updateFeed=feed,updatePublicKey=key,updateEnabled=bool(feed),dataDirectory=home),indent=2)+'\n')
 PY
 fi
 cp LICENSE THIRD_PARTY_NOTICES.md "$resource_dir/"
@@ -159,22 +175,23 @@ if [[ "$target" == catalyst ]]; then
   )
 fi
 xcrun swiftc "${swift_args[@]}" native/apple/EngineBridge.swift native/apple/DesktopBridge.swift native/apple/App.swift \
-  "$build_dir/libgopurr.a" "$build_dir/DesktopWindow.o" -o "$executable_dir/Gopurr Native"
+  "$build_dir/libgopurr.a" "$build_dir/DesktopWindow.o" -o "$executable_dir/$app_name"
 
 cat > "$plist_path" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>io.github.gopurr.native</string>
-<key>CFBundleName</key><string>Gopurr Native</string>
-<key>CFBundleDisplayName</key><string>Gopurr Native</string>
-<key>CFBundleExecutable</key><string>Gopurr Native</string>
+<key>CFBundleIdentifier</key><string>$bundle_id</string>
+<key>CFBundleName</key><string>$app_name</string>
+<key>CFBundleDisplayName</key><string>$app_name</string>
+<key>CFBundleExecutable</key><string>$app_name</string>
+<key>GopurrDataDirectory</key><string>$data_directory</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>gopurr</string><string>clash</string></array></dict></array>
 <key>CFBundleShortVersionString</key><string>$app_version</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
-<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>MinimumOSVersion</key><string>15.0</string>
 <key>UIDeviceFamily</key><array>$device_family</array>
 <key>UILaunchScreen</key><dict/>
@@ -194,4 +211,16 @@ cat > "$plist_path" <<EOF
 </dict></plist>
 EOF
 codesign --force --sign - "$app_path"
-printf 'Built %s\n' "$app_path"
+python3 - "$app_path" "$final_app_path" "$bundle_work/previous.app" <<'PY'
+import os, pathlib, sys
+source, destination, previous = map(pathlib.Path, sys.argv[1:])
+if destination.exists():
+    os.replace(destination, previous)
+try:
+    os.replace(source, destination)
+except BaseException:
+    if previous.exists():
+        os.replace(previous, destination)
+    raise
+PY
+printf 'Built %s\n' "$final_app_path"

@@ -20,6 +20,8 @@ public final class MainActivity extends Activity {
     private final Map<Integer, Long> permissionRequests = new HashMap<>();
     private int nextPermissionCode = 1024;
     private SessionController.Listener listener;
+    private boolean resumed;
+    private String pendingPage;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -44,7 +46,7 @@ public final class MainActivity extends Activity {
             String page = getIntent().getStringExtra("page");
             if ("overview".equals(page) || "profiles".equals(page) || "proxies".equals(page) || "settings".equals(page)) params.put("page", page);
             app.setParams(params);
-            if (!app.setGrantedCapabilities("{\"host\":[\"engine.dispatch\",\"android.session\",\"android.connect\",\"android.disconnect\",\"android.apps\",\"android.scope.get\",\"android.scope.set\",\"android.file.pick\",\"android.notifications\",\"android.notifications.request\",\"android.appearance\"],\"statusBar\":true}")) {
+            if (!app.setGrantedCapabilities("{\"host\":[\"engine.dispatch\",\"android.session\",\"android.connect\",\"android.disconnect\",\"android.apps\",\"android.scope.get\",\"android.scope.set\",\"android.file.pick\",\"android.notifications\",\"android.notifications.request\",\"android.notifications.settings\",\"android.notifications.configure\",\"android.appearance\"],\"statusBar\":true}")) {
                 throw new IllegalStateException("The native host permissions could not be configured.");
             }
             app.handle("android.session", (data, reply) -> reply.resolve(controller.snapshot()));
@@ -54,6 +56,14 @@ public final class MainActivity extends Activity {
             app.handle("android.file.pick", (data, reply) -> actions.pickFile(reply));
             app.handle("android.notifications", (data, reply) -> reply.resolve(actions.notifications()));
             app.handle("android.notifications.request", (data, reply) -> actions.requestNotifications(reply));
+            app.handle("android.notifications.settings", (data, reply) -> {
+                try { reply.resolve(actions.openNotificationSettings()); }
+                catch (Exception error) { reply.reject(SessionController.message(error)); }
+            });
+            app.handle("android.notifications.configure", (data, reply) -> {
+                try { reply.resolve(actions.configureNotifications(object(data))); }
+                catch (Exception error) { reply.reject(SessionController.message(error)); }
+            });
             app.handle("android.appearance", (data, reply) -> {
                 try { reply.resolve(actions.appearance(object(data))); }
                 catch (Exception error) { reply.reject(SessionController.message(error)); }
@@ -130,7 +140,7 @@ public final class MainActivity extends Activity {
     }
 
     private static boolean readMethod(String method) {
-        return method.equals("engine.status") || method.endsWith(".list") || method.endsWith(".get") || method.equals("proxies.groups");
+        return method.equals("engine.status") || method.equals("engine.traffic") || method.endsWith(".list") || method.endsWith(".get") || method.equals("proxies.groups");
     }
 
     private static JSONObject object(Object data) throws Exception {
@@ -155,7 +165,33 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        if (actions != null) actions.applyAppearance();
+        resumed = true;
+        if (actions != null) { actions.applyAppearance(); actions.refreshNotifications(); }
+        // The SDK publishes its active lifecycle after Activity.onResume.
+        // Deliver navigation on the next main-loop turn, after that transition.
+        getWindow().getDecorView().post(this::deliverNavigation);
+    }
+
+    @Override protected void onPause() {
+        resumed = false;
+        super.onPause();
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        String page = intent.getStringExtra("page");
+        if ("overview".equals(page) || "profiles".equals(page) || "proxies".equals(page) || "settings".equals(page)) {
+            pendingPage = page;
+            getWindow().getDecorView().post(this::deliverNavigation);
+        }
+    }
+
+    private void deliverNavigation() {
+        if (app != null && resumed && pendingPage != null) {
+            try { if (app.send("android.navigate", new JSONObject().put("page", pendingPage))) pendingPage = null; }
+            catch (Exception ignored) { }
+        }
     }
 
     @Override protected void onDestroy() {

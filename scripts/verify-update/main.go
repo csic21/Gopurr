@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"flag"
 	"fmt"
@@ -121,6 +122,32 @@ func run() error {
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
+		if runtime.GOOS == "darwin" {
+			// The replacement can change the host executable. Read its plist
+			// instead of assuming that an update only replaces a Go binary.
+			if b, e := os.ReadFile(filepath.Join(appDir, "Contents/Info.plist")); e == nil {
+				decoder := xml.NewDecoder(strings.NewReader(string(b)))
+				key := ""
+				for {
+					token, e := decoder.Token()
+					if e != nil {
+						break
+					}
+					if start, ok := token.(xml.StartElement); ok {
+						if start.Name.Local == "key" {
+							_ = decoder.DecodeElement(&key, &start)
+						} else if start.Name.Local == "string" && key == "CFBundleExecutable" {
+							var name string
+							_ = decoder.DecodeElement(&name, &start)
+							if name != "" && filepath.Base(name) == name {
+								binary = filepath.Join(appDir, "Contents/MacOS", name)
+							}
+							break
+						}
+					}
+				}
+			}
+		}
 		checkCtx, checkCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		out, err := exec.CommandContext(checkCtx, binary, "--version").CombinedOutput()
 		checkCancel()

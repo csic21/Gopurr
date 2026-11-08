@@ -108,6 +108,51 @@ func TestDefaultValidatesWithoutReadingAnyKeyOrWritingArtifacts(t *testing.T) {
 		t.Fatal(output.String())
 	}
 }
+
+func TestProductionPackagePreservesDesktopTrustAndFeeds(t *testing.T) {
+	f := fixture(t)
+	plist := filepath.Join(f.options.app, "Contents/Info.plist")
+	b, err := os.ReadFile(plist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = bytes.ReplaceAll(b, []byte("io.github.gopurr.native"), []byte("io.github.gopurr.app"))
+	b = bytes.ReplaceAll(b, []byte("<string>Gopurr Native</string>"), []byte("<string>Gopurr</string>"))
+	b = bytes.Replace(b, []byte("</dict></plist>"), []byte("<key>GopurrDataDirectory</key><string>Gopurr</string><key>LSMinimumSystemVersion</key><string>12.0</string></dict></plist>"), 1)
+	os.WriteFile(plist, b, 0644)
+	os.Rename(filepath.Join(f.options.app, "Contents/MacOS/Gopurr Native"), filepath.Join(f.options.app, "Contents/MacOS/Gopurr"))
+	var marker nativeBuild
+	markerPath := filepath.Join(f.options.app, "Contents/Resources/native-build.json")
+	if err := readJSON(markerPath, &marker); err != nil {
+		t.Fatal(err)
+	}
+	marker.DataDirectory = "Gopurr"
+	b, _ = json.Marshal(marker)
+	os.WriteFile(markerPath, b, 0644)
+	f.inspect.buildInfo = func(string) (*debug.BuildInfo, error) { return helperInfo(f.config, "io.github.gopurr.app"), nil }
+	if err := run(args(f, "-production", "-sign", "-key-env", "TEST_KEY"), func(string) string { return base64.StdEncoding.EncodeToString(f.key) }, io.Discard, f.inspect); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := os.ReadFile(filepath.Join(f.options.out, "update-darwin-arm64.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	native, err := os.ReadFile(filepath.Join(f.options.out, manifestName))
+	if err != nil || !bytes.Equal(legacy, native) {
+		t.Fatal("migration feeds disagree", err)
+	}
+	var m manifest
+	json.Unmarshal(legacy, &m)
+	if !strings.HasSuffix(m.URL, "/gopurr-1.2.3-darwin-arm64.tar.gz") {
+		t.Fatal("legacy artifact URL changed", m.URL)
+	}
+	marker.DataDirectory = "Gopurr Native"
+	b, _ = json.Marshal(marker)
+	os.WriteFile(markerPath, b, 0644)
+	if err := run(args(f, "-production"), func(string) string { t.Fatal("validation read private key"); return "" }, io.Discard, f.inspect); err == nil {
+		t.Fatal("production accepted an isolated preview home")
+	}
+}
 func TestSignsCompleteBundleWithExistingTrustAndDoesNotChangeInput(t *testing.T) {
 	f := fixture(t)
 	if err := os.Symlink("LICENSE", filepath.Join(f.options.app, "Contents/Resources/license-alias")); err != nil {

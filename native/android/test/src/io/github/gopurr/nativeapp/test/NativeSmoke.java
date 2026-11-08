@@ -81,10 +81,15 @@ public final class NativeSmoke extends Instrumentation {
             JSONObject imported = call("profiles.import", new JSONObject().put("name", "Native smoke").put("yaml", FIXTURE));
             String id = imported.getString("id");
             require(!id.isEmpty(), "JNI import returned no profile ID");
+            JSONObject preview = call("proxies.groups", null);
+            require(preview.optBoolean("preview") && preview.getJSONArray("groups").length() > 0,
+                    "Imported nodes were unavailable before the first connection");
+            require(!call("engine.status", null).getBoolean("running"), "Browsing nodes started the core");
             JSONObject active = call("profiles.activate", new JSONObject().put("id", id));
             require(id.equals(active.getString("activeProfile")), "Imported profile was not selected");
             call("engine.stop", null);
             require(!call("engine.status", null).getBoolean("running"), "Local core did not stop before VPN start");
+            require(call("proxies.groups", null).optBoolean("preview"), "Disconnected nodes did not return a preview");
             cancelledPermissionCannotReconnect();
             statusDuringDownload();
             validateScope();
@@ -109,6 +114,9 @@ public final class NativeSmoke extends Instrumentation {
             require(sawTun, "No real TUN startup event was captured");
             JSONObject traffic = call("engine.status", null).getJSONObject("traffic");
             require(traffic.getLong("upTotal") > 0 && traffic.getLong("downTotal") > 0, "No real packet accounting was recorded");
+            JSONObject rates = call("engine.traffic", null);
+            require(rates.getLong("upTotal") > 0 && rates.getLong("downTotal") > 0 && !rates.has("memory") && !rates.has("connections"), "Notification traffic used slow or empty statistics");
+            verifyTrafficNotification();
 
             JSONObject stopped = vpn(false);
             require(!stopped.getBoolean("tun") && !stopped.getBoolean("running"), "VPN did not stop");
@@ -132,7 +140,12 @@ public final class NativeSmoke extends Instrumentation {
             if ("true".equals(arguments.getString("capture"))) captureOverview(true);
             if ("true".equals(arguments.getString("capture"))) { openPage("proxies"); capture("native-smoke-proxies.png"); }
             require(!vpn(false).getBoolean("tun"), "Final VPN stop failed");
-            if ("true".equals(arguments.getString("capture"))) captureOverview(false);
+            if ("true".equals(arguments.getString("capture"))) {
+                captureOverview(false);
+                openPage("proxies");
+                waitForText("Disconnected · Browse saved nodes. Connect to switch or test.");
+                capture("native-smoke-proxies-offline.png");
+            }
             if ("true".equals(arguments.getString("capture"))) captureMobilePages();
             // Leave an unmistakable pair of preferences for the runner's next
             // instrumentation process. It force-stops this UID between phases.
@@ -175,6 +188,72 @@ public final class NativeSmoke extends Instrumentation {
         JSONObject request = new JSONObject().put("method", method);
         if (parameters != null) request.put("params", parameters);
         return unwrap(engine.dispatch(request.toString()));
+    }
+
+    private android.app.Notification waitForNotification(boolean live) throws Exception {
+        android.app.NotificationManager manager = getTargetContext().getSystemService(android.app.NotificationManager.class);
+        long deadline = android.os.SystemClock.uptimeMillis() + 7000;
+        String lastText = "no notification";
+        while (android.os.SystemClock.uptimeMillis() < deadline) {
+            for (android.service.notification.StatusBarNotification entry : manager.getActiveNotifications()) {
+                android.app.Notification notice = entry.getNotification();
+                String text = String.valueOf(notice.extras.getCharSequence(android.app.Notification.EXTRA_TEXT));
+                if (notice.bigContentView != null) {
+                    android.view.View rendered = notice.bigContentView.apply(getTargetContext(), null);
+                    android.widget.TextView down = rendered.findViewById(io.github.gopurr.nativeapp.R.id.notification_down);
+                    if (down != null) text = String.valueOf(down.getText());
+                }
+                lastText = text;
+                if (entry.getId() == 1 && text.contains("/s") == live) return notice;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Notification did not switch to " + (live ? "live traffic" : "connection state") + ": " + lastText);
+    }
+
+    private void verifyTrafficNotification() throws Exception {
+        Context context = getTargetContext();
+        android.app.Notification notice = waitForNotification(true);
+        require(notice.contentIntent != null && notice.contentView != null && notice.bigContentView != null, "Notification lacks quick entry or compact content");
+        require(notice.actions == null || notice.actions.length == 0, "Notification adds a separate action row");
+        android.view.View compact = notice.bigContentView.apply(context, null);
+        android.view.View button = compact.findViewById(io.github.gopurr.nativeapp.R.id.notification_disconnect);
+        require(button instanceof android.widget.Button && button.hasOnClickListeners(), "Inline disconnect is not a native actionable button");
+        require(notice.getSmallIcon().getResId() == io.github.gopurr.nativeapp.R.drawable.notification_icon, "Notification reused the opaque launcher icon");
+        context.getSharedPreferences("android-session", Context.MODE_PRIVATE).edit().putBoolean("notificationTraffic", false).commit();
+        context.sendBroadcast(new Intent("io.github.gopurr.nativeapp.NOTIFICATION_CHANGED").setPackage(context.getPackageName()));
+        waitForNotification(false);
+        context.getSharedPreferences("android-session", Context.MODE_PRIVATE).edit().putBoolean("notificationTraffic", true).commit();
+        context.sendBroadcast(new Intent("io.github.gopurr.nativeapp.NOTIFICATION_CHANGED").setPackage(context.getPackageName()));
+        waitForNotification(true);
+        openPage("settings");
+        waitForText("Status notification");
+        shell("input keyevent KEYCODE_HOME");
+        Thread.sleep(300);
+        shell("cmd statusbar expand-notifications");
+        Thread.sleep(500);
+        press(context.getPackageName() + ":id/notification_body", false);
+        automation.waitForIdle(300, 5000);
+        // NSH exposes virtual nodes: use the same explicit tree walk as other
+        // UI checks instead of framework findByText, which misses those nodes.
+        waitForText("Your profile and network connection.");
+        if ("true".equals(arguments.getString("capture"))) {
+            shell("cmd statusbar expand-notifications");
+            // Software-rendered emulators may need longer than Android's
+            // nominal shade animation before a screenshot is fully opaque.
+            Thread.sleep(2000);
+            capture("native-smoke-notification.png");
+            shell("cmd uimode night yes");
+            Thread.sleep(700);
+            capture("native-smoke-notification-dark.png");
+            shell("cmd uimode night no");
+            Thread.sleep(300);
+            press("Disconnect", true);
+            shell("cmd statusbar collapse");
+            long deadline = android.os.SystemClock.elapsedRealtime() + 5000;
+            while (call("engine.status", null).getBoolean("tun") && android.os.SystemClock.elapsedRealtime() < deadline) Thread.sleep(50);
+            require(!call("engine.status", null).getBoolean("tun"), "Inline notification disconnect did not stop VPN");
+        }
     }
 
     private JSONObject vpn(boolean connect) throws Exception {

@@ -52,10 +52,12 @@ type nativeBuild struct {
 	UpdateFeed      string `json:"updateFeed"`
 	UpdatePublicKey string `json:"updatePublicKey"`
 	UpdateEnabled   bool   `json:"updateEnabled"`
+	DataDirectory   string `json:"dataDirectory,omitempty"`
 }
 type options struct {
 	app, out, configPath, bundleID, nshID, keyEnv, notes string
 	sign, printFlags                                     bool
+	production                                           bool
 }
 type inspectors struct {
 	buildInfo func(string) (*debug.BuildInfo, error)
@@ -83,6 +85,7 @@ func run(args []string, getenv func(string) string, out io.Writer, inspect inspe
 	f.StringVar(&o.keyEnv, "key-env", "", "environment variable holding the base64 Ed25519 private key; required with -sign")
 	f.StringVar(&o.notes, "notes", "", "optional release notes text file")
 	f.BoolVar(&o.printFlags, "print-link-flags", false, "print release helper link flags and exit without reading any key")
+	f.BoolVar(&o.production, "production", false, "require the established desktop identity and data location; emit the legacy feed alias")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
@@ -92,6 +95,9 @@ func run(args []string, getenv func(string) string, out io.Writer, inspect inspe
 	c, err := readConfig(o.configPath)
 	if err != nil {
 		return err
+	}
+	if o.production {
+		o.bundleID = "io.github.gopurr.app"
 	}
 	if o.printFlags {
 		fmt.Fprintln(out, linkFlags(c, o.bundleID))
@@ -224,6 +230,12 @@ func validateBundle(o options, c config, inspect inspectors) error {
 	}
 	if marker.Schema != 1 || marker.UI != "nsh-desktop" || marker.Backend != "desktop-v2" || marker.Version != c.Version || !marker.UpdateEnabled || marker.UpdateFeed != feed(c) || marker.UpdatePublicKey != c.Updates.PublicKey {
 		return errors.New("native build marker does not match the enabled native release and existing update trust")
+	}
+	if o.production && (marker.DataDirectory != "Gopurr" || plist["GopurrDataDirectory"] != "Gopurr" || plist["CFBundleExecutable"] != "Gopurr") {
+		return errors.New("production NSH must preserve the desktop executable and data directory")
+	}
+	if o.production && plist["LSMinimumSystemVersion"] != "12.0" {
+		return errors.New("production migration must retain the macOS 12 deployment floor")
 	}
 	exe := plist["CFBundleExecutable"]
 	if exe == "" || filepath.Base(exe) != exe {
@@ -372,8 +384,11 @@ func validateMachO(path string, catalyst bool) error {
 		found := false
 		for _, load := range f.Loads {
 			raw := load.Raw()
-			if len(raw) >= 12 && f.ByteOrder.Uint32(raw[:4]) == 0x32 && f.ByteOrder.Uint32(raw[8:12]) == 6 {
+			if len(raw) >= 16 && f.ByteOrder.Uint32(raw[:4]) == 0x32 && f.ByteOrder.Uint32(raw[8:12]) == 6 {
 				found = true
+				if f.ByteOrder.Uint32(raw[12:16]) > 0x0f0000 {
+					return errors.New("Catalyst host exceeds the iOSMac 15 / macOS 12 deployment floor")
+				}
 			}
 		}
 		if !found {
@@ -514,6 +529,9 @@ func packageBundle(o options, c config, key ed25519.PrivateKey) (manifest, strin
 	}
 	defer os.RemoveAll(work)
 	name := c.Slug + "-native-" + c.Version + "-darwin-arm64.tar.gz"
+	if o.production {
+		name = c.Slug + "-" + c.Version + "-darwin-arm64.tar.gz"
+	}
 	archive := filepath.Join(work, name)
 	f, err := os.OpenFile(archive, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -561,6 +579,15 @@ func packageBundle(o options, c config, key ed25519.PrivateKey) (manifest, strin
 	if err = os.Link(filepath.Join(work, manifestName), finalManifest); err != nil {
 		os.Remove(finalArchive)
 		return m, "", "", err
+	}
+	if o.production {
+		// Existing installed versions request this name. Both manifests point
+		// at the same complete NSH archive and retain the original public key.
+		if err = os.Link(filepath.Join(work, manifestName), filepath.Join(out, "update-darwin-arm64.json")); err != nil {
+			os.Remove(finalArchive)
+			os.Remove(finalManifest)
+			return m, "", "", err
+		}
 	}
 	return m, finalArchive, finalManifest, nil
 }

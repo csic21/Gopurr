@@ -40,6 +40,9 @@ temporary Python HTTP fixture. It uses no public server or real subscription.
 DIRECT must return the exact fixture marker, REJECT must never reach the
 fixture, and forwarding must recover after node switching and VPN reconnect.
 It also checks TUN state, real traffic counters and captured TUN startup logs.
+Before the first connection and after stopping, JNI node queries must return a
+saved-profile preview without starting the core. The disconnected node page is
+also captured as `android-proxies-offline-live.png` for native visual review.
 An overlapping disconnect/connect regression checks that a stale disconnect
 cannot remove the new connection's foreground-service protection.
 The instrumentation also verifies that a pending subscription download does
@@ -71,6 +74,16 @@ Successful live/disconnected overview, proxy nodes, profiles, settings, and appl
 captures are copied from the development app's private cache to
 `native/ui/screenshots/android-*.png` using `run-as`; no production debugging
 endpoint is needed. The scope capture changes only an unsaved UI draft.
+
+The VPN run also checks the lightweight `engine.traffic` counters, live versus
+connection-only notification preferences, the separate transparent status icon,
+and opening Connect from a notification after an existing Settings window goes
+to the background. It verifies the inline native disconnect button, the absence
+of a separate action row, and that the inline action really stops VPN.
+Native light/dark captures are saved as `android-notification-live.png` and
+`android-notification-dark-live.png`.
+NSH virtual accessibility nodes are inspected by walking the tree, since the
+framework's `findAccessibilityNodeInfosByText` does not find those nodes.
 
 An APK build for an ABI is not a device test for that ABI. On an Apple Silicon
 host with only ARM emulator images, the x86_64 APK can be compiled and signature

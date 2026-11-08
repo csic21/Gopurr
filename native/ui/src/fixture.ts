@@ -10,7 +10,7 @@ export function fixtureTransport(empty = false): Transport {
     switch (method) {
       case "engine.status": return status;
       case "profiles.list": return { active: status.activeProfile, profiles };
-      case "proxies.groups": return { groups: status.running ? groups : [] };
+      case "proxies.groups": return { groups: status.activeProfile ? groups.map(g => ({ ...g, members: g.members.map(m => status.running ? m : { name: m.name, type: m.type }) })) : [], preview: !status.running };
       case "profiles.import": {
         const first = profiles.length === 0;
         const profile: Profile = { id: first ? "imported" : `imported-${profiles.length + 1}`, name: String(params.name), kind: params.url ? "url" : "local", source: params.url ? "example.invalid" : "本地配置", updated: "2026-11-07T00:00:00Z", active: first };

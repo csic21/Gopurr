@@ -64,7 +64,8 @@ final class DesktopBridge: @unchecked Sendable {
     private func open() throws {
         guard let helper = Bundle.main.url(forResource: "gopurr-desktop", withExtension: nil),
               let frontend = Bundle.main.executableURL else { throw BridgeError("The desktop helper is missing") }
-        let options: [String: Any] = ["home": home.path, "executable": helper.path, "frontend": frontend.path]
+        let options: [String: Any] = ["home": home.path, "executable": helper.path, "frontend": frontend.path,
+            "productionHome": Bundle.main.object(forInfoDictionaryKey: "GopurrDataDirectory") as? String == "Gopurr"]
         let json = String(decoding: try JSONSerialization.data(withJSONObject: options), as: UTF8.self)
         let result = try json.withCString { try decode(GopurrDesktopOpen(UnsafeMutablePointer(mutating: $0))) }
         if let failure = result["error"] as? [String: Any] { throw BridgeError(failure["message"] as? String ?? "Desktop startup failed") }

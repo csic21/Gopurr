@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/notification_body"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="44dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:paddingEnd="8dp"
+        android:orientation="vertical">
+        <TextView
+            android:id="@+id/notification_down"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification"
+            android:textSize="13sp"
+            android:singleLine="true"
+            android:ellipsize="end" />
+        <TextView
+            android:id="@+id/notification_up"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification"
+            android:textSize="13sp"
+            android:singleLine="true"
+            android:ellipsize="end" />
+    </LinearLayout>
+    <Button
+        android:id="@+id/notification_disconnect"
+        style="@android:style/Widget.Material.Button.Borderless"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:minWidth="76dp"
+        android:minHeight="0dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:textAppearance="@android:style/TextAppearance.Material.Notification.Title"
+        android:textSize="13sp"
+        android:textAllCaps="false" />
+</LinearLayout>

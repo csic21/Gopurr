@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "device": {
+    "reportedName": "OPPO Find X9s Pro",
+    "model": "PME110",
+    "android": "17"
+  },
+  "capturedAt": "2026-11-08T13:13:16.284309+08:00",
+  "scenario": "After screen-off standby, screen awake and unlocked, Gopurr in background, unplugged",
+  "seconds": 20.15,
+  "cpuSeconds": 0.14,
+  "cpuPercentOneCore": 0.695,
+  "pssMiBBefore": 140.99,
+  "pssMiBAfter": 141.02,
+  "newRenderedFrames": 0,
+  "displayBefore": {
+    "wakefulness": "Awake",
+    "keyguard_showing": "false",
+    "gopurr_focused": false
+  },
+  "displayAfter": {
+    "wakefulness": "Awake",
+    "keyguard_showing": "false",
+    "gopurr_focused": false
+  },
+  "vpnForegroundServiceObserved": true,
+  "ongoingNotificationObserved": true,
+  "tunFdCount": 2,
+  "sameProcessAsStandby": true,
+  "note": "CPU timing excludes dumpsys collection; wireless ADB active, charging off; current user subscription and normal background traffic; awake/unlocked and background state verified at both boundaries; single short observation, not a battery benchmark",
+  "endState": {
+    "vpn": "left connected",
+    "adbTransport": "disconnected after checks"
+  }
+}

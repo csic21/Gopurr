@@ -218,6 +218,18 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 		return nil, err
 	}
 	switch method {
+	case "engine.traffic":
+		if err := emptyParams(params); err != nil {
+			return nil, err
+		}
+		// Notifications need only atomic byte counters, not a connection walk
+		// or the process-memory probe performed by engine.status.
+		rates := TrafficRates{At: time.Now().UnixMilli()}
+		if e.core != nil && e.core.Running() {
+			rates.Up, rates.Down = statistic.DefaultManager.Now()
+			rates.UpTotal, rates.DownTotal = statistic.DefaultManager.Total()
+		}
+		return rates, nil
 	case "engine.status":
 		if err := emptyParams(params); err != nil {
 			return nil, err
@@ -287,6 +299,9 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 	case "proxies.groups":
 		if err := emptyParams(params); err != nil {
 			return nil, err
+		}
+		if !e.core.Running() {
+			return e.previewGroupsLocked()
 		}
 		return e.groupsLocked(), nil
 	case "proxies.select":

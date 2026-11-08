@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "device": {
+    "reportedName": "OPPO Find X9s Pro",
+    "model": "PME110",
+    "android": "17",
+    "systemVersion": "V17.0.0"
+  },
+  "appVersion": "0.6.22 development",
+  "apkSHA256": "96b132687bad5a68048f8aaae81654a999d4dda356eeb036b7a4787c61cc77ae",
+  "conditions": {
+    "charging": true,
+    "debugging": "wireless ADB",
+    "screen": "awake and unlocked at both boundaries",
+    "notification": "live traffic",
+    "profile": "user-provided; credentials and profile contents not recorded",
+    "durationPerScenarioSeconds": 20,
+    "cpuPercentBasis": "one CPU core = 100%",
+    "cpuTimingExcludesDumpsys": true
+  },
+  "notification": {
+    "notification_height_px": 319,
+    "old_height_px": 437,
+    "reduction_percent": 27.0,
+    "quick_entry": true,
+    "inline_disconnect": true
+  },
+  "endState": "disconnected",
+  "samples": [
+    {
+      "scenario": "verified-connected-foreground",
+      "capturedAt": "2026-11-08T12:08:54.696526+08:00",
+      "seconds": 20.11,
+      "cpuSeconds": 0.55,
+      "cpuPercentOneCore": 2.735,
+      "pssKiBBefore": 301116,
+      "pssKiBAfter": 302374,
+      "rssKiBAfter": 429692,
+      "frameDelta": 4,
+      "displayBefore": {
+        "wakefulness": "Awake",
+        "keyguard_showing": "false",
+        "gopurr_focused": true
+      },
+      "displayAfter": {
+        "wakefulness": "Awake",
+        "keyguard_showing": "false",
+        "gopurr_focused": true
+      }
+    },
+    {
+      "scenario": "verified-connected-background",
+      "capturedAt": "2026-11-08T12:09:17.546013+08:00",
+      "seconds": 20.15,
+      "cpuSeconds": 0.24,
+      "cpuPercentOneCore": 1.191,
+      "pssKiBBefore": 298840,
+      "pssKiBAfter": 276814,
+      "rssKiBAfter": 407448,
+      "frameDelta": 0,
+      "displayBefore": {
+        "wakefulness": "Awake",
+        "keyguard_showing": "false",
+        "gopurr_focused": false
+      },
+      "displayAfter": {
+        "wakefulness": "Awake",
+        "keyguard_showing": "false",
+        "gopurr_focused": false
+      }
+    },
+    {
+      "scenario": "verified-disconnected-foreground",
+      "capturedAt": "2026-11-08T12:09:54.971915+08:00",
+      "seconds": 20.09,
+      "cpuSeconds": 0.17,
+      "cpuPercentOneCore": 0.846,
+      "pssKiBBefore": 280047,
+      "pssKiBAfter": 277218,
+      "rssKiBAfter": 408396,
+      "frameDelta": 0,
+      "displayBefore": {
+        "wakefulness": "Awake",
+        "keyguard_showing": "false",
+        "gopurr_focused": true
+      },
+      "displayAfter": {
+        "wakefulness": "Awake",
+        "keyguard_showing": "false",
+        "gopurr_focused": true
+      }
+    }
+  ],
+  "limits": [
+    "Short observational samples, not repeated controlled benchmarks.",
+    "Normal background traffic and runtime warmup may affect results.",
+    "PSS values are process snapshots, not a sustained memory plateau.",
+    "Charging was active; no battery drain or energy-efficiency conclusion was drawn.",
+    "Earlier exploratory samples without display-state validation are excluded."
+  ]
+}

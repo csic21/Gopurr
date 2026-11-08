@@ -76,14 +76,47 @@ do not replace that work.
 
 ## Native desktop updates
 
+The macOS production entry point is now `scripts/release` / `make bundle`.
+It builds `bin/darwin-arm64/Gopurr.app` with the established
+`io.github.gopurr.app` identity, `Contents/MacOS/Gopurr` executable and
+`Application Support/Gopurr` data directory. `make native-bundle` remains an
+isolated preview. The Catalyst deployment target is iOSMac 15 / macOS 12;
+production validation checks the plist floor so the preview's earlier macOS
+14 plist cannot silently replace the legacy minimum.
+
+`GOPURR_NATIVE_DISTRIBUTION=1` selects the production identity; the release
+driver also supplies the native update feed. Packaging requires `-production`,
+which checks the original identity and data location, then emits both
+`update-darwin-arm64.json` (existing clients) and
+`update-native-darwin-arm64.json` (NSH clients). These files are identical and
+point at `gopurr-VERSION-darwin-arm64.tar.gz`, containing the whole app. The
+DMG retains `gopurr-VERSION-arm64.dmg`. Publishing requires both manifests.
+Use a new tag above the latest public version; do not replace a public tag's
+assets to perform the migration.
+
+Before the desktop model loads existing data, it preserves a private atomic
+`migration-nsh-v1/` snapshot. Paths and schemas remain unchanged. The legacy
+single-instance lock protects the canonical home from the old GUI; the home
+lock protects native backends, including explicit test homes. Damaged JSON
+or linked snapshot inputs fail startup without changing the original files.
+Previews do not automatically merge into the production home.
+
+The release workflow requires `TestNativeDesktopMigrationRoundtrip` before
+publication. An isolated identity, generated keys and loopback HTTP exercise
+the old updater, the actual Swift/NSH host, rejected signatures and a second
+whole-bundle update. `verify-update` separately installs the actual release
+archive using the existing production public key. Neither verification
+modifies an installed user application or system proxy. Evidence and
+distribution boundaries are recorded in [MACOS_MIGRATION.md](MACOS_MIGRATION.md).
+
 The NSH macOS app can retain the Ed25519 update trust in `mygo.json` and the
 existing `MYGO_UPDATER_PRIVATE_KEY` GitHub Actions secret. This is independent
 of Apple code signing and NSH's optional `.nshpkg` signing. Do not generate a
 replacement update key: an installed build trusts its existing public key.
 
-This preparation does not publish a release, install an update, alter an
-installed app, or change the existing desktop release workflow. Development
-builds keep application updates disabled.
+The preview packaging commands below do not publish a release or alter an
+installed application. Isolated development builds keep updates disabled;
+the production release driver enables the native feed explicitly.
 
 ## Build a release helper
 
@@ -106,7 +139,7 @@ GOPURR_NATIVE_UPDATE_FEED=https://github.com/csic21/Gopurr/releases/latest/downl
 Omitting `GOPURR_NATIVE_UPDATE_FEED` builds the isolated development app with
 updates disabled. This command builds locally and never reads the signing key.
 
-The flags set:
+For the preview identity the flags set (production uses `io.github.gopurr.app`):
 
 - `github.com/egoist/mygo.production=1`
 - `github.com/egoist/mygo.packageUpdateFeed`

@@ -4,8 +4,6 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import "DesktopWindow.h"
-#include <spawn.h>
-extern char **environ;
 
 #if TARGET_OS_MACCATALYST
 static id application(void) {
@@ -170,22 +168,11 @@ double GopurrDesktopTitlebarInset(void) {
     NSUInteger style = ((NSUInteger(*)(id,SEL))objc_msgSend)(mainWindow,NSSelectorFromString(@"styleMask"));
     return style & (1UL << 14) ? 0 : 80;
 }
-int GopurrDesktopRelaunch(void) {
-    pid_t pid;
-    // LaunchServices does not forward GOPURR_NATIVE_HOME. Start the signed
-    // bundle executable directly so an explicitly selected home survives an
-    // update/restart, as it does in the original desktop app.
-    const char *executable = NSBundle.mainBundle.executablePath.fileSystemRepresentation;
-    if (!executable) return -1;
-    char *args[] = {(char *)executable, NULL};
-    return posix_spawn(&pid,executable,NULL,NULL,args,environ);
-}
 #else
 void GopurrDesktopSetDock(int visible) {}
 int GopurrDesktopInstallWindowHooks(void (^visibility)(int)) { return 0; }
 void GopurrDesktopShowWindow(void) {}
 void GopurrDesktopHideWindow(void) {}
-int GopurrDesktopRelaunch(void) { return -1; }
 void GopurrDesktopLayoutChrome(void) {}
 double GopurrDesktopTitlebarInset(void) { return 0; }
 #endif

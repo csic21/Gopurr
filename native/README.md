@@ -1,6 +1,6 @@
 # NSH 原生客户端
 
-这是 Gopurr 的 NSH 原生客户端迁移。桌面先对齐原版八页、编辑器和系统集成，手机继续 Android 优先；现有正式桌面版仍由原来的发布流程维护。NSH 固定为 **0.4.0 / e626a8d**，SDK 下载到仓库内 `.cache/nsh` 并验证 SHA-256，不全局安装工具。
+这是 Gopurr 的 NSH 原生客户端。macOS 正式构建与发布入口使用八页 NSH 桌面，手机继续 Android 优先，Windows 保留原桌面。NSH 固定为 **0.4.0 / e626a8d**，SDK 下载到仓库内 `.cache/nsh` 并验证 SHA-256，不全局安装工具。macOS 的迁移设计和已运行验证见 [迁移验收记录](MACOS_MIGRATION.md)。
 
 ## 结构
 
@@ -34,6 +34,7 @@ make native-android-release # Android 正式签名 APK；需要专用签名环�
 make native-android-test  # 隔离模拟器上的实际 JNI / VPN / 路由规则验证
 make native-bundle        # Swift Mac Catalyst 应用包
 make native-run           # 构建并打开 Mac Catalyst 预览
+make bundle               # 正式身份的 macOS NSH 应用包（不发布）
 ```
 
 Android 构建需要 JDK 17、Android SDK 36、Build Tools 36.1.0 和 NDK。可通过 `ANDROID_SDK_ROOT`、`ANDROID_NDK_HOME`、`ANDROID_BUILD_TOOLS`、`GOPURR_JAVA_HOME` 指定已有安装。`NATIVE_ANDROID_ABI=x86_64` 可构建对应模拟器 APK。
@@ -57,17 +58,19 @@ Android 集成测试要求已经启动的**专用临时模拟器**，默认 `emu
 ## 当前功能与边界
 
 - 手机四入口为连接、节点、订阅、设置：URL 与粘贴 YAML 导入、配置启用、来源/名称编辑、更新及删除确认，规则/全局/直连、策略组与节点选择、单节点/本组测速、流量状态、诊断日志、外观与中英文。运行中的订阅更新只保存新内容并提示重新连接，保留当前 VPN 数据面。
+- 未连接也能查看与搜索当前配置的节点、策略组和下次连接选择；只读已保存 YAML、内联提供器及可用本地提供器缓存，不启动内核、下载提供器或显示旧延迟。缺失缓存或需要动态名称表达式的提供器明确提示连接后加载完整列表；切换节点与测速仍要求运行中的内核。
 - Android 在系统 VPN 授权后，由前台 `VpnService` 创建 IPv4/IPv6 TUN；核心使用其复制的文件描述符。路由与 DNS 由原生宿主管理，核心出站使用 `VpnService.protect()`；本应用被排除出 VPN，避免 UI 下载和核心连接进入自身隧道。
 - 断开、系统撤销与服务销毁先停止核心，再释放系统 TUN。关闭 Activity 不会主动结束正在运行的 VPN。暂未启用开机连接或 Always-on VPN。
 - Android 连接状态通过 `android.session` 快照与事件提供，等待系统授权时可取消；旧任务按代次和网卡所有权清理，不会关闭新连接。网卡地址、路由、MTU 和 DNS 来自 Go 生成的版本化 TunnelPlan，接入前校验 token。
 - 手选节点按订阅分别持久化，路由模式也会在进程重启后恢复；重开应用仍须明确连接。断开/重连及 VPN 启动恢复该订阅的选择，新配置移除成员时回默认并清理旧选择，删除订阅会清理记忆。保存失败时保留原模式或恢复原节点。
 - Android 提供系统文件选择导入、可选通知权限，以及所有应用/仅选中/排除选中的 VPN 应用范围。仅选中列表为空时拒绝保存/接入，Gopurr 自身始终排除；这不是为各应用分配代理组的功能。
+- Android 使用自适应启动器图标，猫形前景按安全区域放大；VPN 常驻通知可选择实时上下行流量或仅连接状态，两行速率分别附带累计流量，断开按钮放在右侧同行，正文点击返回连接页。设置页提供通知授权和系统通知设置入口。亮屏每 2 秒更新，省电模式 10 秒；熄屏暂停速率更新，亮屏立即恢复。
 - Mac Catalyst 使用完整八页桌面：概览、订阅、代理、连接、组网、规则、日志、设置；支持原业务的聚合、节点/策略组编辑、应用分流、YAML、覆写库、DNS/嗅探、备份、诊断、远程 Web 与快捷键。系统代理和 TUN 继续调用原桌面恢复/授权协议。
 - 桌面支持 320ms 单套导航几何过渡、400ms 真实流量历史插值与光轨，遵循系统减少动态效果；侧栏切换和切页保留筛选/草稿。
 - iOS Simulator 保留手机入口，尚未接入 iOS Packet Tunnel Extension。Android 的四页入口暂不包含新增桌面编辑器。
-- 开发包的整包更新保持禁用，避免误装现有 mygo 发布产物。更新界面及原签名验证业务已接通；正式切换还需制作并验收用原密钥签名的 NSH 整包发布。管理员授权、真实外部登录与正式更新安装不由自动测试擅自执行。
+- 独立预览的整包更新保持禁用。正式包保留原应用身份及更新公钥，旧版与 NSH 清单指向同一整包；Swift 窗口退出后后台再结束，由安装器完成替换并启动新宿主。发布流程会验证生产签名包，并用临时密钥和实际 NSH 宿主验收连续两次更新。管理员授权与真实外部登录仍由用户主动执行。
 
-Android 的锁屏长时间运行、Wi-Fi/蜂窝切换、厂商后台限制与耗电必须补充真机验收；模拟器与本地流量测试不能替代这些验证。
+Android 已完成一次 OPPO 真机拔线熄屏 VPN 待机 30 分钟观测，数据和限制见 [性能记录](PERFORMANCE.md)。过夜运行、重复耗电对照、Wi-Fi/蜂窝切换与厂商后台限制仍需真机验收；模拟器与本地流量测试不能替代这些验证。
 
 手机性能与能耗的已实现保障、剩余开销及真机对照验收见 [性能与能耗](PERFORMANCE.md)。转用 NSH 不代表耗电已经达标；界面后台停止周期刷新，VPN 数据面仍独立运行。
 
@@ -75,7 +78,7 @@ Android 的功能取舍、共享业务层边界和分阶段验收见 [Android �
 
 ## 数据与信任链
 
-Android 使用应用私有目录 `files/gopurr`；Apple 使用独立的 `Application Support/Gopurr Native`，测试可指定 `GOPURR_NATIVE_HOME`。桌面偏好使用原版 `prefs.json` schema，手机界面偏好位于宿主的 `ui` 目录。不会自动加载现有桌面版的数据或订阅。
+Android 使用应用私有目录 `files/gopurr`；Apple 独立预览使用 `Application Support/Gopurr Native`。macOS 正式包沿用旧桌面的 `Application Support/Gopurr` 和原 `prefs.json` schema，不改变订阅来源路径、缓存、恢复记录或组网身份的位置。首次启动前将订阅、凭据、覆写、偏好、远程控制及组网状态原样保存到私有 `migration-nsh-v1/`，成功后原子提交清单；失败保留数据并阻止启动，重启不会覆盖初始快照。测试可指定 `GOPURR_NATIVE_HOME` 或 `--gopurr-home`；独立预览数据不会自动合并进正式目录。
 
 手机引擎每个进程只允许一个实例，且进程不能换用另一个数据目录，因为上游缓存具有进程级单例。关闭后可以使用相同目录重新打开。
 
@@ -83,7 +86,7 @@ Android 使用应用私有目录 `files/gopurr`；Apple 使用独立的 `Applica
 
 手机源配置中的控制接口、额外入站、进程扫描、系统路由和后台地理数据更新由引擎剥离或覆盖。桌面保留原版完整配置能力和安全校验。对外只提供有版本号的窄接口；订阅摘要不返回 URL 凭据，失败导入或启用保留原配置。
 
-现有 `mygo.json` 的更新公钥、GitHub Secret `MYGO_UPDATER_PRIVATE_KEY` 与桌面发布工作流保持原样。正式切换桌面客户端前，必须让旧版本用原公钥验证并安装迁移包，再验证新客户端的后续更新。NSH 模块签名不替代这个整包更新流程。
+现有 `mygo.json` 更新公钥和 GitHub Secret `MYGO_UPDATER_PRIVATE_KEY` 保持原样。macOS 正式发布生成 `update-darwin-arm64.json` 与 `update-native-darwin-arm64.json`，两者指向同一签名整包。旧版升级与新客户端后续更新均走整包验签和安装流程；NSH 模块签名不替代它。尚未发布的新改动需使用高于已发布版本的新 tag，不能覆盖既有正式版本。
 
 ## 原生接口
 
@@ -105,6 +108,7 @@ void GopurrFree(char *response_json);
 | 方法 | 参数 |
 | --- | --- |
 | `engine.status` / `engine.start` / `engine.stop` | 无 |
+| `engine.traffic` | 无；仅上下行速率、累计字节和时间，不采样内存/连接列表 |
 | `engine.mode` | `{mode:"rule"\|"global"\|"direct"}` |
 | `profiles.list` | 无 |
 | `profiles.import` | `{name,url}` 或 `{name,yaml}` |

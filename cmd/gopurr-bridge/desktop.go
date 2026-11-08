@@ -44,9 +44,10 @@ var desktops = struct {
 func GopurrDesktopOpen(options *C.char) *C.char {
 	return returnedString(func() []byte {
 		var o struct {
-			Home       string `json:"home"`
-			Executable string `json:"executable"`
-			Frontend   string `json:"frontend"`
+			Home           string `json:"home"`
+			Executable     string `json:"executable"`
+			Frontend       string `json:"frontend"`
+			ProductionHome bool   `json:"productionHome"`
 		}
 		if options == nil || json.Unmarshal([]byte(C.GoString(options)), &o) != nil || !filepath.IsAbs(o.Home) || !filepath.IsAbs(o.Executable) || !filepath.IsAbs(o.Frontend) {
 			return failure("invalid_params", "Absolute desktop paths are required")
@@ -82,6 +83,10 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 			return failure("open_failed", err.Error())
 		}
 		cmd := exec.Command(o.Executable, "--native-backend", "--home", o.Home, "--socket", socket, "--token-file", tokenFile, "--frontend", o.Frontend, "--parent", fmt.Sprint(os.Getpid()))
+		cmd.Args = append(cmd.Args, "--wait-for-frontend-exit")
+		if o.ProductionHome {
+			cmd.Args = append(cmd.Args, "--production-home")
+		}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err = cmd.Start(); err != nil {

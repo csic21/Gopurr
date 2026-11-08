@@ -23,8 +23,8 @@ NATIVE_ANDROID_SERIAL ?= emulator-5580
 .PHONY: run build bundle brand-master icons preview-icons dev web web-dev tidy clean autostart test test-native update-geodata
 .PHONY: native-tools native-ui native-desktop-ui native-check native-test native-bundle native-run native-smoke native-desktop-smoke native-android native-android-release native-android-test
 
-# The NSH client is opt-in throughout migration. Existing build/release targets
-# keep producing the established desktop app and retain its update trust chain.
+# Native preview targets stay isolated. The macOS bundle/release entry point
+# below ships NSH using the established desktop identity and update trust.
 native-tools:
 	bash scripts/bootstrap-nsh.sh
 
@@ -86,6 +86,7 @@ update-geodata:
 icons:
 	go run scripts/generate-icons.go
 	go run scripts/generate-windows-tray.go
+	go run scripts/generate-android-icons.go
 
 # Re-render the flat vector design, then derive the runtime sizes.
 brand-master:

@@ -1,5 +1,7 @@
 # Gopurr NSH interface
 
+`AndroidPreview.tsx` adds fixture Android notification settings for native visual review. Run `.cache/nsh/nsh/bin/nsh test native/ui/AndroidPreview.tsx --target macos < native/ui/android-notifications.steps.js` to refresh the light/dark notification settings captures at 1060×720, 840×560 and 390×844. The real `App.tsx` never installs preview transports.
+
 The UI targets **NSH v0.4.0**. `Desktop.tsx` is the full eight-page desktop
 entry; it uses `desktop.dispatch` and the existing desktop business model in a
 private helper process. `App.tsx` is the four-page mobile entry. It calls the native host's `engine.dispatch` handler and never
@@ -30,6 +32,7 @@ mkdir -p native/ui/screenshots
 .cache/nsh/nsh/bin/nsh test native/ui/Preview.tsx --target macos < native/ui/mobile-compact.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/Preview.tsx --target macos < native/ui/mobile-phone.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/Preview.tsx --target macos < native/ui/mobile-details.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/Preview.tsx --target macos < native/ui/offline-nodes.steps.js
 ```
 
 These screenshots are actual **AppKit renders at phone and desktop widths**;

@@ -75,13 +75,14 @@ aar_dir="$project_dir/.cache/nsh/android-aar"
 # cmfa leaves Android's app/route management to our VpnService. Without it,
 # upstream attempts to read the root-only /data/system/packages.xml file.
 go build -trimpath -ldflags="-s -w" -tags=with_gvisor,cmfa -buildmode=c-shared -o "$build_dir/libgopurr.so" ./cmd/gopurr-bridge
+env -u GOOS -u GOARCH CGO_ENABLED=0 go run scripts/generate-android-icons.go
 "$clang" -fPIC -shared -Wl,-soname,libgopurrjni.so -Wl,-z,max-page-size=16384 \
   -I "$build_dir" native/android/jni/gopurr_jni.c -L "$build_dir" -lgopurr -llog \
   -o "$build_dir/libgopurrjni.so"
 
 "$nsh" build native/ui/App.tsx --release --out "$build_dir/ui"
 mkdir -p "$build_dir/res/drawable-nodpi" "$build_dir/generated" "$build_dir/classes" "$build_dir/dex"
-cp internal/brand/icon-master.png "$build_dir/res/drawable-nodpi/app_icon.png"
+cp -R native/android/res/. "$build_dir/res/"
 "$build_tools/aapt2" compile --dir "$build_dir/res" -o "$build_dir/resources.zip"
 "$build_tools/aapt2" link -o "$build_dir/base.apk" -I "$android_jar" \
   --manifest "$build_dir/AndroidManifest.xml" --java "$build_dir/generated" \

@@ -43,18 +43,23 @@ func TestRealNativeBundlePackaging(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Updates.PublicKey = base64.StdEncoding.EncodeToString(pub)
+	plist, err := readPlist(filepath.Join(source, "Contents/Info.plist"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := plist["CFBundleIdentifier"]
 	dir := t.TempDir()
 	app := filepath.Join(dir, filepath.Base(source))
 	if err = exec.Command("/bin/cp", "-R", source, app).Run(); err != nil {
 		t.Fatal(err)
 	}
 	helper := filepath.Join(app, "Contents/Resources/gopurr-desktop")
-	cmd := exec.Command("go", "build", "-ldflags", linkFlags(c, "io.github.gopurr.native"), "-o", helper, ".")
+	cmd := exec.Command("go", "build", "-ldflags", linkFlags(c, id), "-o", helper, ".")
 	cmd.Dir = repo
 	if output, e := cmd.CombinedOutput(); e != nil {
 		t.Fatalf("build disposable release helper: %v\n%s", e, output)
 	}
-	marker := nativeBuild{Schema: 1, UI: "nsh-desktop", Backend: "desktop-v2", Version: c.Version, UpdateFeed: feed(c), UpdatePublicKey: c.Updates.PublicKey, UpdateEnabled: true}
+	marker := nativeBuild{Schema: 1, UI: "nsh-desktop", Backend: "desktop-v2", Version: c.Version, UpdateFeed: feed(c), UpdatePublicKey: c.Updates.PublicKey, UpdateEnabled: true, DataDirectory: plist["GopurrDataDirectory"]}
 	b, err := json.Marshal(marker)
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +80,11 @@ func TestRealNativeBundlePackaging(t *testing.T) {
 	if err = os.WriteFile(cfg, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err = run([]string{"-config", cfg, "-app", app, "-out", filepath.Join(dir, "artifacts"), "-sign", "-key-env", "EPHEMERAL_TEST_ONLY"}, func(name string) string {
+	args := []string{"-config", cfg, "-app", app, "-out", filepath.Join(dir, "artifacts"), "-sign", "-key-env", "EPHEMERAL_TEST_ONLY"}
+	if id == "io.github.gopurr.app" {
+		args = append(args, "-production")
+	}
+	err = run(args, func(name string) string {
 		if name != "EPHEMERAL_TEST_ONLY" {
 			t.Fatal("unexpected key lookup")
 		}

@@ -5,6 +5,5 @@ void GopurrDesktopSetDock(int visible);
 int GopurrDesktopInstallWindowHooks(void (^visibility)(int));
 void GopurrDesktopShowWindow(void);
 void GopurrDesktopHideWindow(void);
-int GopurrDesktopRelaunch(void);
 void GopurrDesktopLayoutChrome(void);
 double GopurrDesktopTitlebarInset(void);

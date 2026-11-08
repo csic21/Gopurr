@@ -17,5 +17,10 @@ func init() {
 	if err := json.Unmarshal(packagedConfig, &config); err != nil || config.Version == "" {
 		panic("mygo.json must contain an application version")
 	}
-	buildinfo.Version = config.Version
+	// Release helpers carry an explicit linker version. Keep that value for
+	// updater comparisons and daemon compatibility; plain builds use the
+	// embedded config as before.
+	if buildinfo.Version == "dev" {
+		buildinfo.Version = config.Version
+	}
 }

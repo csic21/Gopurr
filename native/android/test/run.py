@@ -136,7 +136,7 @@ def main():
             destination.write_bytes(copied.stdout)
             captures.append(str(destination))
         report["captures"] = captures
-        for page in ("profiles", "settings", "app-scope", "proxies"):
+        for page in ("profiles", "settings", "app-scope", "proxies", "proxies-offline", "notification", "notification-dark"):
             copied = subprocess.run([args.adb, "-s", args.serial, "exec-out", "run-as", TARGET,
                                      "cat", f"cache/native-smoke-{page}.png"],
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15, check=True)

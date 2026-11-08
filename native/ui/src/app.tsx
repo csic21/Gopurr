@@ -1,13 +1,13 @@
-import { cleanup, colorScheme, effect, Image, List, reduceMotion, Scroll, setColorScheme, signal, Storage, Text, View } from "nsh";
+import { cleanup, colorScheme, effect, host, Image, lifecycle, List, reduceMotion, Scroll, setColorScheme, signal, Storage, Text, View } from "nsh";
 import { BackHandler } from "nsh/mobile";
 import { Button, Input } from "nsh/base";
 import { call } from "./client";
 import type { Profile } from "./client";
 import { colors } from "./theme";
 import { language, tr } from "./i18n";
-import { action, activate, activeProfile, busy, changeMode, connected, connecting, error, groupName, loaded, members, message, mutationBusy, page, profiles, query, refresh, selectedGroup, session, startMobileStore, status, tasks, testMember, toggleEngine, visibleGroups } from "./mobile/store";
+import { action, activate, activeProfile, busy, changeMode, connected, connecting, error, groupName, groupsIncomplete, loaded, members, message, mutationBusy, page, profiles, query, refresh, selectedGroup, session, startMobileStore, status, tasks, testMember, toggleEngine, visibleGroups } from "./mobile/store";
 import { androidCall, androidHost } from "./mobile/platform";
-import type { AppScope, InstalledApp } from "./mobile/platform";
+import type { AppScope, InstalledApp, NotificationSettings } from "./mobile/platform";
 import { Action, bytes, compact, Empty, Field, Heading, Icon, Label, Panel } from "./mobile/ui";
 import logo from "../assets/sidebar.png";
 import overviewIcon from "../assets/icons/layout-dashboard.svg";
@@ -132,17 +132,18 @@ function Profiles() {
 }
 function Proxies() {
   return <View style={{ flex: 1, padding: 16, gap: 12 }}>
-    <Heading title={tr("节点", "Nodes")} description={tr("选择策略组和节点，测速不会改变出口。", "Choose a group and node. Testing keeps your current selection.")} />
-    <If when={!status()?.running}><Panel><Empty title={tr("代理尚未启动", "The proxy is stopped")} description={tr("连接后即可选择节点。", "Connect to choose a proxy node.")} action={() => <Action label={profiles().length ? tr("打开连接", "Open connection") : tr("查看订阅", "Open profiles")} primary onPress={() => navigate(profiles().length ? "overview" : "profiles")} />} /></Panel></If>
-    <If when={!!status()?.running && !visibleGroups().length}><Panel><Empty title={tr("没有策略组", "No proxy groups")} description={tr("当前配置没有可显示的策略组。", "This profile has no visible proxy groups.")} /></Panel></If>
-    <If when={!!status()?.running && visibleGroups().length > 0}>
+    <Heading title={tr("节点", "Nodes")} description={status()?.running ? tr("选择策略组和节点，测速不会改变出口。", "Choose a group and node. Testing keeps your current selection.") : tr("未连接 · 浏览已保存的节点，连接后可切换和测速。", "Disconnected · Browse saved nodes. Connect to switch or test.")} />
+    <If when={!status()?.activeProfile}><Panel><Empty title={tr("尚未选择配置", "No profile selected")} description={tr("导入并选择订阅后，无需连接即可查看节点。", "Import and select a profile to browse nodes without connecting.")} action={() => <Action label={tr("查看订阅", "Open profiles")} primary onPress={() => navigate("profiles")} />} /></Panel></If>
+    <If when={!!status()?.activeProfile && !visibleGroups().length}><Panel><Empty title={tr("没有策略组", "No proxy groups")} description={tr("当前配置没有可显示的策略组。", "This profile has no visible proxy groups.")} /></Panel></If>
+    <If when={!status()?.running && groupsIncomplete()}><Label text={tr("部分提供器节点尚无可用本地预览，连接后加载完整列表。", "Some provider nodes have no local preview. Connect to load the full list.")} muted size={12} /></If>
+    <If when={visibleGroups().length > 0}>
       <Scroll horizontal style={{ flexShrink: 0, height: 48 }} contentStyle={{ flexDirection: "row", gap: 8 }}><Each of={visibleGroups()}>{g => <Action label={g().name} primary={selectedGroup()?.name === g().name} disabled={false} onPress={() => { groupName.set(g().name); query.set(""); }} />}</Each></Scroll>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><Input testID="node-search" value={query()} onChange={({ value }) => query.set(value)} placeholder={tr("搜索节点", "Search nodes")} autoCorrect={false} autoCapitalize="none" style={{ flex: 1, minHeight: 44, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors().border, backgroundColor: colors().surface, color: colors().text, placeholderColor: colors().faint, fontSize: 14 }} /><Action testID="test-group" label={tasks()["delay-group"] ? tr("测速中…", "Testing…") : tr("测试本组", "Test group")} disabled={!!busy()} onPress={() => void action("delay-group", async () => { const names = selectedGroup()?.members.map(m => m.name) ?? []; for (const n of names) { if (!status()?.running) break; await testMember(n); } })} /></View>
-      <List testID="node-list" each={members()} keyExtractor={item => item.name} style={{ flex: 1, borderRadius: 10, backgroundColor: colors().surface }} empty={<Empty title={tr("没有匹配的节点", "No matching nodes")} description={tr("换个名称，或清除搜索条件。", "Try another name or clear the search.")} action={() => <Action label={tr("重置筛选", "Reset filter")} disabled={false} onPress={() => query.set("")} />} />}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><Input testID="node-search" value={query()} onChange={({ value }) => query.set(value)} placeholder={tr("搜索节点", "Search nodes")} autoCorrect={false} autoCapitalize="none" style={{ flex: 1, minHeight: 44, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors().border, backgroundColor: colors().surface, color: colors().text, placeholderColor: colors().faint, fontSize: 14 }} /><Action testID="test-group" label={tasks()["delay-group"] ? tr("测速中…", "Testing…") : tr("测试本组", "Test group")} disabled={!status()?.running || !!busy()} onPress={() => void action("delay-group", async () => { const names = selectedGroup()?.members.map(m => m.name) ?? []; for (const n of names) { if (!status()?.running) break; await testMember(n); } })} /></View>
+      <List testID="node-list" each={members()} keyExtractor={item => item.name} style={{ flex: 1, borderRadius: 10, backgroundColor: colors().surface }} empty={<Empty title={!query().trim() && !status()?.running && groupsIncomplete() ? tr("节点等待加载", "Nodes not loaded yet") : tr("没有匹配的节点", "No matching nodes")} description={!query().trim() && !status()?.running && groupsIncomplete() ? tr("连接后可加载此策略组的提供器节点。", "Connect to load provider nodes for this group.") : tr("换个名称，或清除搜索条件。", "Try another name or clear the search.")} action={() => <If when={!!query().trim()}><Action label={tr("重置筛选", "Reset filter")} disabled={false} onPress={() => query.set("")} /></If>} />}>
         {m => <View style={{ flexDirection: "row", minHeight: 68, alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: colors().border, borderLeftWidth: 3, borderLeftColor: selectedGroup()?.now === m().name ? colors().accent : "transparent", backgroundColor: selectedGroup()?.now === m().name ? colors().selected : colors().surface, paddingRight: 12 }}>
-          <Button testID={`node-${m().name}`} selected={selectedGroup()?.now === m().name} disabled={mutationBusy() || selectedGroup()?.type !== "Selector"} onPress={() => void action("select", async () => { await call("proxies.select", { group: selectedGroup()?.name, member: m().name }); })} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 68, paddingHorizontal: 12 }} hoverStyle={{ backgroundColor: colors().hover }} focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }} disabledStyle={{ opacity: 0.75 }}>
-            <Icon source={selectedGroup()?.now === m().name ? checkedIcon : circleIcon} selected={selectedGroup()?.now === m().name} /><View style={{ flex: 1, gap: 4 }}><Text style={{ fontSize: 13, color: colors().text, fontWeight: selectedGroup()?.now === m().name ? "600" : "400", numberOfLines: 2 }}>{m().name}</Text><Label text={selectedGroup()?.now === m().name ? tr("当前出口", "Selected") : m().type} muted size={11} /></View>
-          </Button><Action testID={`delay-${m().name}`} label={tasks()[`delay-${m().name}`] ? tr("测速中…", "Testing…") : m().delay !== undefined ? `${m().delay} ms` : tr("测速", "Test")} disabled={!!busy()} onPress={() => void testMember(m().name)} />
+          <Button testID={`node-${m().name}`} selected={selectedGroup()?.now === m().name} disabled={!status()?.running || mutationBusy() || selectedGroup()?.type !== "Selector"} onPress={() => void action("select", async () => { await call("proxies.select", { group: selectedGroup()?.name, member: m().name }); })} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 68, paddingHorizontal: 12 }} hoverStyle={{ backgroundColor: colors().hover }} focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }} disabledStyle={{ opacity: status()?.running ? 0.75 : 1 }}>
+            <Icon source={selectedGroup()?.now === m().name ? checkedIcon : circleIcon} selected={selectedGroup()?.now === m().name} /><View style={{ flex: 1, gap: 4 }}><Text style={{ fontSize: 13, color: colors().text, fontWeight: selectedGroup()?.now === m().name ? "600" : "400", numberOfLines: 2 }}>{m().name}</Text><Label text={selectedGroup()?.now === m().name ? status()?.running ? tr("当前出口", "Selected") : tr("下次连接使用", "For next connection") : m().type} muted size={11} /></View>
+          </Button><Action testID={`delay-${m().name}`} label={tasks()[`delay-${m().name}`] ? tr("测速中…", "Testing…") : status()?.running && m().delay !== undefined ? `${m().delay} ms` : tr("测速", "Test")} disabled={!status()?.running || !!busy()} onPress={() => void testMember(m().name)} />
         </View>}
       </List>
     </If>
@@ -166,11 +167,42 @@ function LogsPage() {
   reload();
   return <View style={{ flex: 1, padding: 16, gap: 12 }}><Heading title={tr("诊断日志", "Diagnostic logs")} description={tr("最近的内核日志，便于排查连接问题。", "Recent engine logs for connection troubleshooting.")} action={() => <Action label={tr("返回", "Back")} disabled={false} onPress={() => subpage.set("")} />} /><Field label={tr("搜索日志", "Search logs")} value={search()} onChange={value => search.set(value)} /><If when={!!logError()}><Label text={logError()} /></If><Action label={tr("刷新日志", "Refresh logs")} disabled={false} onPress={reload} /><List each={logs().filter(l => `${l.level} ${l.text}`.toLowerCase().includes(search().toLowerCase()))} keyExtractor={(l, i) => `${i}-${l.at}`} style={{ flex: 1, backgroundColor: colors().surface, borderRadius: 10 }} empty={<Empty title={tr("暂无日志", "No logs")} description={tr("连接运行后将在此显示日志。", "Logs appear here when the connection runs.")} />}>{l => <View selectable style={{ padding: 12, gap: 4, borderBottomWidth: 1, borderColor: colors().border }}><Label text={`${l().at}  ${l().level}`} muted size={11} /><Text style={{ fontSize: 12, fontFamily: "monospace", color: colors().text }}>{l().text}</Text></View>}</List></View>;
 }
+function NotificationPanel() {
+  const settings = signal<NotificationSettings | null>(null);
+  effect(() => {
+    if (lifecycle() !== "active") return;
+    let disposed = false;
+    void androidCall<NotificationSettings>("android.notifications").then(value => { if (!disposed) settings.set(value); }).catch(value => { if (!disposed) error.set(message(value)); });
+    return () => { disposed = true; };
+  });
+  const configure = (traffic: boolean) => void action("notification", async () => {
+    settings.set(await androidCall<NotificationSettings>("android.notifications.configure", { traffic }));
+  }, false);
+  const permission = () => void action("notification", async () => {
+    settings.set(await androidCall<NotificationSettings>("android.notifications.request"));
+  }, false);
+  const systemSettings = () => void action("notification", async () => { await androidCall("android.notifications.settings"); }, false);
+  return <Panel>
+    <Label text={tr("状态栏通知", "Status notification")} bold size={16} />
+    <Label text={settings()?.enabled ? tr("已允许显示通知", "Notifications enabled") : tr("未允许显示通知", "Notifications disabled")} muted size={12} />
+    <Label text={tr("VPN 连接时常驻，点击通知返回连接页，也可直接断开。", "Stays visible while VPN is connected. Tap to open Connect, or disconnect directly.")} muted size={12} />
+    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+      <Action testID="notification-traffic" label={tr("实时流量", "Live traffic")} primary={settings()?.traffic === true} disabled={!settings() || !!tasks().notification} onPress={() => configure(true)} />
+      <Action testID="notification-state-only" label={tr("仅连接状态", "Connection only")} primary={settings()?.traffic === false} disabled={!settings() || !!tasks().notification} onPress={() => configure(false)} />
+    </View>
+    <Label text={tr("亮屏时每 2 秒更新速率，省电模式下每 10 秒更新；熄屏暂停，亮屏后恢复。", "Rates update every 2 seconds, or 10 seconds in battery saver. Updates pause with the screen off and resume when it wakes.")} muted size={12} />
+    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+      <If when={!!settings()?.canRequest}><Action testID="notification-permission" label={tr("允许通知", "Allow notifications")} disabled={!!tasks().notification} onPress={permission} /></If>
+      <Action testID="notification-settings" label={tr("系统通知设置", "System notification settings")} disabled={!!tasks().notification} onPress={systemSettings} />
+    </View>
+  </Panel>;
+}
+
 function Settings() {
   const changeAppearance = (value: "system" | "light" | "dark") => { appearance.set(value); setColorScheme(value); void Storage.setItem("appearance", value).catch(e => error.set(message(e))); };
   const changeLanguage = (value: "system" | "zh-Hans" | "en") => { language.set(value); void Storage.setItem("language", value).catch(e => error.set(message(e))); };
   return <Scroll testID="settings-scroll" style={{ flex: 1 }} contentStyle={{ padding: 16, gap: 16 }}><Heading title={tr("设置", "Settings")} description={tr("外观与语言立即生效。", "Appearance and language changes apply immediately.")} />
-    <If when={androidHost()}><Panel><Label text={tr("VPN", "VPN")} bold size={16} /><Label text={tr("选择参与连接的应用，通知中也可随时断开。", "Choose apps that use VPN. Disconnect anytime from the notification.")} muted size={12} /><Action testID="open-app-scope" label={tr("应用范围", "App scope")} disabled={false} onPress={() => subpage.set("apps")} /><Action label={tr("通知权限", "Notification permission")} disabled={false} onPress={() => void action("notification", async () => { await androidCall("android.notifications.request"); })} /></Panel></If>
+    <If when={androidHost()}><Panel><Label text="VPN" bold size={16} /><Label text={tr("选择参与连接的应用。", "Choose which apps use VPN.")} muted size={12} /><Action testID="open-app-scope" label={tr("应用范围", "App scope")} disabled={false} onPress={() => subpage.set("apps")} /></Panel><NotificationPanel /></If>
     <Panel><Label text={tr("外观", "Appearance")} size={16} bold /><View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}><Action label={tr("跟随系统", "System")} primary={appearance() === "system"} disabled={false} onPress={() => changeAppearance("system")} /><Action label={tr("浅色", "Light")} primary={appearance() === "light"} disabled={false} onPress={() => changeAppearance("light")} /><Action label={tr("深色", "Dark")} primary={appearance() === "dark"} disabled={false} onPress={() => changeAppearance("dark")} /></View></Panel>
     <Panel><Label text={tr("语言", "Language")} size={16} bold /><View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}><Action label={tr("跟随系统", "System")} primary={language() === "system"} disabled={false} onPress={() => changeLanguage("system")} /><Action label="简体中文" primary={language() === "zh-Hans"} disabled={false} onPress={() => changeLanguage("zh-Hans")} /><Action label="English" primary={language() === "en"} disabled={false} onPress={() => changeLanguage("en")} /></View></Panel>
     <Panel><Label text={tr("诊断", "Diagnostics")} size={16} bold /><Action testID="open-logs" label={tr("查看日志", "View logs")} disabled={false} onPress={() => subpage.set("logs")} /><Label text={tr("查看最近的连接与内核事件。", "Review recent connection and engine events.")} muted size={12} /></Panel>
@@ -180,6 +212,12 @@ function Settings() {
 export function GopurrApp(props: { preview?: boolean } = {}) {
   void Promise.all([Storage.getItem("appearance"), Storage.getItem("language")]).then(([theme, lang]) => { if (theme === "system" || theme === "light" || theme === "dark") { appearance.set(theme); setColorScheme(theme); } if (lang === "system" || lang === "zh-Hans" || lang === "en") language.set(lang); }).catch(e => error.set(message(e)));
   startMobileStore();
+  if (androidHost()) cleanup(host.on("android.navigate", value => {
+    const target = (value as unknown as { page?: string }).page;
+    if (target === "overview" || target === "profiles" || target === "proxies" || target === "settings") {
+      subpage.set(""); page.set(target);
+    }
+  }));
   effect(() => {
     const scheme = colorScheme();
     if (androidHost()) {

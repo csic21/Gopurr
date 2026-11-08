@@ -2,6 +2,8 @@ package io.github.gopurr.nativeapp;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -9,6 +11,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsetsController;
@@ -115,12 +118,38 @@ final class NativeActions {
 
     JSONObject notifications() {
         boolean granted = Build.VERSION.SDK_INT < 33 || activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+        NotificationManager manager = activity.getSystemService(NotificationManager.class);
+        NotificationChannel channel = manager.getNotificationChannel(GopurrVpnService.CHANNEL);
+        boolean enabled = granted && manager.areNotificationsEnabled()
+                && (channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE);
         boolean requested = activity.getSharedPreferences("android-session", Activity.MODE_PRIVATE).getBoolean("notificationRequested", false);
         boolean canRequest = Build.VERSION.SDK_INT >= 33 && !granted && (!requested || activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS));
         JSONObject state = new JSONObject();
-        try { state.put("granted", granted).put("canRequest", canRequest); }
+        try { state.put("granted", granted).put("enabled", enabled).put("canRequest", canRequest)
+                .put("traffic", activity.getSharedPreferences("android-session", Activity.MODE_PRIVATE).getBoolean("notificationTraffic", true)); }
         catch (Exception ignored) { }
         return state;
+    }
+
+    JSONObject configureNotifications(JSONObject value) {
+        Object traffic = value.opt("traffic");
+        if (!(traffic instanceof Boolean)) throw new IllegalArgumentException("Notification traffic must be true or false.");
+        activity.getSharedPreferences("android-session", Activity.MODE_PRIVATE).edit().putBoolean("notificationTraffic", (Boolean) traffic).apply();
+        refreshNotifications();
+        return notifications();
+    }
+
+    JSONObject openNotificationSettings() {
+        NotificationChannel channel = activity.getSystemService(NotificationManager.class).getNotificationChannel(GopurrVpnService.CHANNEL);
+        Intent intent = new Intent(channel == null ? Settings.ACTION_APP_NOTIFICATION_SETTINGS : Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName());
+        if (channel != null) intent.putExtra(Settings.EXTRA_CHANNEL_ID, GopurrVpnService.CHANNEL);
+        activity.startActivity(intent);
+        return notifications();
+    }
+
+    void refreshNotifications() {
+        activity.sendBroadcast(new Intent(GopurrVpnService.NOTIFICATION_CHANGED).setPackage(activity.getPackageName()));
     }
 
     void requestNotifications(NshHostReply reply) {
@@ -135,6 +164,7 @@ final class NativeActions {
     void permissionsResult(int request) {
         if (request != NOTIFICATIONS || notificationReply == null) return;
         NshHostReply reply = notificationReply; notificationReply = null; reply.resolve(notifications());
+        refreshNotifications();
     }
 
     void close() {

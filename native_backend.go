@@ -41,6 +41,8 @@ func runNativeBackend(args []string) error {
 	tokenFile := fs.String("token-file", "", "session authentication file")
 	frontend := fs.String("frontend", "", "NSH application executable")
 	parent := fs.Int("parent", 0, "frontend PID")
+	waitForFrontend := fs.Bool("wait-for-frontend-exit", false, "keep the bundle alive until the NSH host exits")
+	productionHome := fs.Bool("production-home", false, "reuse and snapshot the established desktop data")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -51,12 +53,39 @@ func runNativeBackend(args []string) error {
 	if err != nil {
 		return err
 	}
+	// mygo forwards os.Args to the updated bundle. Backend socket/authentication
+	// arguments describe this session only and must never reach the next host.
+	os.Args = []string{*frontend, "--gopurr-home", *home}
+	mygo.App.SetName("Gopurr")
+	configDir, _ := os.UserConfigDir()
+	if *productionHome && *home == filepath.Join(configDir, "Gopurr") && !mygo.App.RequestSingleInstanceLock() {
+		return nativehost.ErrHomeInUse
+	}
 	homeLock, err := nativehost.LockHome(*home)
 	if err != nil {
 		return err
 	}
 	defer homeLock.Close()
-	if err = prepareNativeHome(*home); err != nil {
+	if *productionHome {
+		if err = nativehost.PrepareDesktopMigration(*home); err != nil {
+			return fmt.Errorf("prepare desktop data migration: %w", err)
+		}
+	}
+	if *productionHome {
+		// The original desktop's default port is part of its behavior. Only
+		// isolated previews reserve a random port; a release keeps defaults.
+		err = securefs.PrivateDir(*home)
+		if path := filepath.Join(*home, "overrides.json"); err == nil {
+			if _, e := os.Lstat(path); e == nil {
+				err = securefs.PrivateFile(path)
+			} else if !errors.Is(e, os.ErrNotExist) {
+				err = e
+			}
+		}
+	} else {
+		err = prepareNativeHome(*home)
+	}
+	if err != nil {
 		return err
 	}
 	if err = os.Setenv("GOPURR_HOME", *home); err != nil {
@@ -72,6 +101,7 @@ func runNativeBackend(args []string) error {
 	update.ConfigureHTTPClient(a.UpdateProxyURL)
 	events := &nativehost.Events{}
 	show := func() { a.SetWindowVisible(true); events.Add("show", map[string]any{"page": a.NativePage()}) }
+	mygo.App.OnSecondInstance(func([]string, string) { show() })
 	mygo.App.SetMenu(a.ApplicationMenu(show))
 	mygo.App.OnLocaleChanged(func(string) { mygo.App.SetMenu(a.ApplicationMenu(show)) })
 	importURL := func(raw string) error {
@@ -103,10 +133,31 @@ func runNativeBackend(args []string) error {
 		})
 	})
 	var quitOnce sync.Once
+	finalQuitRequested := false // UI thread; prevents parent-watch/OS quit racing relaunch
 	scheduleQuit := func() {
 		quitOnce.Do(func() {
-			events.Add("quit", map[string]bool{"relaunch": a.RelaunchRequested()})
-			time.AfterFunc(5*time.Second, func() { mygo.RunOnMain(mygo.App.Quit) })
+			// The installer waits for this helper. First release the Swift host;
+			// then mygo marks the staged update for relaunch and exits. Its
+			// installer opens the new bundle only after the atomic replacement.
+			relaunch := a.RelaunchRequested()
+			events.Add("quit", map[string]bool{"relaunch": false})
+			go func() {
+				if *waitForFrontend {
+					for nativeParentAlive(*parent) {
+						time.Sleep(50 * time.Millisecond)
+					}
+				} else {
+					time.Sleep(500 * time.Millisecond)
+				}
+				mygo.RunOnMain(func() {
+					finalQuitRequested = true
+					if relaunch {
+						mygo.App.Relaunch()
+					} else {
+						mygo.App.Quit()
+					}
+				})
+			}()
 		})
 	}
 	var shutdownWaiters []chan error
@@ -150,6 +201,9 @@ func runNativeBackend(args []string) error {
 	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
 		if a.ShutdownReady() {
 			scheduleQuit()
+			if !finalQuitRequested || (*waitForFrontend && nativeParentAlive(*parent)) {
+				e.PreventDefault()
+			}
 			return
 		}
 		e.PreventDefault()

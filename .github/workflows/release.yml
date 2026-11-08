@@ -83,6 +83,12 @@ jobs:
       - name: Windows service and Wintun smoke test
         if: runner.os == 'Windows'
         run: go run ./scripts/smoke-windows -binary bin/windows-amd64/Gopurr.exe
+      - name: Verify native macOS migration and subsequent update
+        if: runner.os == 'macOS'
+        env:
+          CGO_ENABLED: '1'
+          GOPURR_NATIVE_PACKAGE_TEST_APP: ${{ github.workspace }}/bin/darwin-arm64/Gopurr.app
+        run: go test -v ./scripts/package-native-update -run '^TestNativeDesktopMigrationRoundtrip$' -count=1 -timeout=12m
       - name: Verify signed update from a disposable old app
         env:
           TARGET: ${{ matrix.target }}
@@ -123,6 +129,7 @@ jobs:
           test -s "gopurr-${RELEASE_TAG#v}-android-x86_64.apk"
           test -s update-darwin-arm64.json
           test -s update-windows-amd64.json
+          test -s update-native-darwin-arm64.json
           sha256sum -- *.dmg *.exe *.apk *.tar.gz *.json > SHA256SUMS
       - name: Publish after all platforms succeed
         shell: bash

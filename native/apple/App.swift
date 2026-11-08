@@ -5,6 +5,10 @@ import UIKit
 @main
 enum GopurrNative {
     static func main() {
+        if CommandLine.arguments.dropFirst().contains("--version") {
+            print("Gopurr " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"))
+            return
+        }
         UIApplicationMain(CommandLine.argc, CommandLine.unsafeArgv, nil,
                           NSStringFromClass(AppDelegate.self))
     }
@@ -29,12 +33,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let home: URL
-        if let override = ProcessInfo.processInfo.environment["GOPURR_NATIVE_HOME"],
+        let args = CommandLine.arguments
+        let homeIndex = args.firstIndex(of: "--gopurr-home")
+        let argumentHome = homeIndex.flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
+        if let override = argumentHome ?? ProcessInfo.processInfo.environment["GOPURR_NATIVE_HOME"] ?? ProcessInfo.processInfo.environment["GOPURR_HOME"],
            override.hasPrefix("/") {
             home = URL(fileURLWithPath: override, isDirectory: true)
         } else {
             home = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Gopurr Native", isDirectory: true)
+                .appendingPathComponent(Bundle.main.object(forInfoDictionaryKey: "GopurrDataDirectory") as? String ?? "Gopurr Native", isDirectory: true)
         }
         #if targetEnvironment(macCatalyst)
         self.desktop = DesktopBridge(home: home)
@@ -56,9 +63,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                             if event["kind"] as? String == "prefs", let prefs = event["value"] as? [String: Any] { self.applyPreferences(prefs) }
                             self.onDesktopEvent?(event)
                             if event["kind"] as? String == "quit" {
-                                if (event["value"] as? [String:Any])?["relaunch"] as? Bool == true {
-                                    if GopurrDesktopRelaunch() != 0 { self.onDesktopEvent?(["kind":"error", "value":"Could not reopen Gopurr"]); continue }
-                                }
+                                // The backend's updater owns relaunch after replacement.
                                 exit(0)
                             }
                         }

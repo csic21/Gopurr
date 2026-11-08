@@ -11,6 +11,7 @@ export const status = signal<Status | null>(null);
 export const session = signal<AndroidSession | null>(null);
 export const profiles = signal<Profile[]>([]);
 export const groups = signal<Group[]>([]);
+export const groupsIncomplete = signal(false);
 export const tasks = signal<Record<string, boolean>>({});
 export const error = signal("");
 export const loaded = signal(false);
@@ -56,7 +57,12 @@ export async function refreshLists(): Promise<void> {
 
 async function refreshGroups(): Promise<void> {
   if (groupsRequest) return groupsRequest;
-  groupsRequest = (async () => { groups.set((await call<{ groups: Group[] }>("proxies.groups")).groups); })();
+  groupsRequest = (async () => {
+    try {
+      const result = await call<{ groups: Group[]; incomplete?: boolean }>("proxies.groups");
+      groups.set(result.groups); groupsIncomplete.set(!!result.incomplete);
+    } catch (value) { groups.set([]); groupsIncomplete.set(false); throw value; }
+  })();
   try { await groupsRequest; } finally { groupsRequest = undefined; }
 }
 
@@ -138,7 +144,7 @@ export function startMobileStore() {
       finally { if (!disposed) statusTimer = setTimeout(pollStatus, interval); }
     }
     async function pollGroups() {
-      try { if (!mutationBusy()) await refreshGroups(); }
+      try { if (status()?.running && !mutationBusy()) await refreshGroups(); }
       catch { /* A failed automatic refresh retains the last usable list. */ }
       finally { if (!disposed) groupsTimer = setTimeout(pollGroups, 9000); }
     }

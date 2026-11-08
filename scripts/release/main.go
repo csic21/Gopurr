@@ -81,6 +81,9 @@ func run() error {
 		flags = append(flags, "-tags=with_gvisor")
 	}
 	env = append(env, "GOFLAGS="+strings.Join(flags, " "))
+	if *platform == "darwin/arm64" {
+		return buildNativeMac(config, current, *output, *release, *skipDMG, env)
+	}
 	if os.Getenv("MYGO_UPDATER_PRIVATE_KEY") == "" {
 		if key, err := os.ReadFile(".secrets/mygo-update.key"); err == nil {
 			env = append(env, "MYGO_UPDATER_PRIVATE_KEY="+strings.TrimSpace(string(key)))
