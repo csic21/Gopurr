@@ -1,6 +1,6 @@
 use libloading::Library;
 use nsh_engine::{HostChannel, Policy, parse_capabilities};
-use nsh_platform_windows::{App, AppOptions, AppView, AssetBase, Bundle};
+use nsh_platform_windows::{App, AppOptions, AppView, Appearance, AssetBase, Bundle};
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
@@ -439,6 +439,11 @@ fn run_on_ui_thread() -> Result<(), String> {
             host: channel.clone(),
             asset_base: Some(AssetBase::Directory(root.join("nsh/assets"))),
             data_dir: Some(home.join("nsh")),
+            appearance: match prefs["appearance"].as_str() {
+                Some("dark") => Appearance::Dark,
+                Some("light") => Appearance::Light,
+                _ => Appearance::System,
+            },
             ..Default::default()
         },
     )
