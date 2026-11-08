@@ -2,14 +2,13 @@
 package profile
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -165,9 +164,13 @@ func (s *Store) ActiveID() string {
 }
 
 // SetActive marks a profile as the one to run.
-func (s *Store) SetActive(id string) error {
+func (s *Store) SetActive(id string) error { return s.SetActiveContext(context.Background(), id) }
+func (s *Store) SetActiveContext(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	previous := s.Active
 	commit := func() error {
 		s.Active = id
@@ -189,9 +192,13 @@ func (s *Store) SetActive(id string) error {
 }
 
 // Remove deletes a profile and its file.
-func (s *Store) Remove(id string) error {
+func (s *Store) Remove(id string) error { return s.RemoveContext(context.Background(), id) }
+func (s *Store) RemoveContext(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	for _, p := range s.Items {
 		if p.Aggregate == nil {
 			continue
@@ -206,12 +213,22 @@ func (s *Store) Remove(id string) error {
 		if p.ID != id {
 			continue
 		}
-		_ = os.Remove(filepath.Join(s.dir, "profiles", p.File))
-		s.Items = append(s.Items[:i], s.Items[i+1:]...)
+		previousItems, previousActive := s.Items, s.Active
+		next := make([]Profile, 0, len(s.Items)-1)
+		next = append(next, s.Items[:i]...)
+		next = append(next, s.Items[i+1:]...)
+		s.Items = next
 		if s.Active == id {
 			s.Active = ""
 		}
-		return s.save()
+		if err := s.save(); err != nil {
+			s.Items, s.Active = previousItems, previousActive
+			return err
+		}
+		// Index commit is authoritative. A private unreferenced cache can be
+		// cleaned later; do not report rollback after successful deletion.
+		_ = os.Remove(filepath.Join(s.dir, "profiles", p.File))
+		return nil
 	}
 	return nil
 }
@@ -256,6 +273,13 @@ func (s *Store) Refresh(id string) error { return s.RefreshChecked(id, nil) }
 
 // RefreshChecked validates/applies the candidate before replacing the cache.
 func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
+	return s.RefreshCheckedContext(context.Background(), id, accept)
+}
+
+func (s *Store) RefreshCheckedContext(ctx context.Context, id string, accept func([]byte) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	var target Profile
 	found := false
@@ -292,12 +316,15 @@ func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 			return fmt.Errorf(localize.Text("读取本地文件失败: %w"), err)
 		}
 	} else {
-		body, info, title, err = s.fetchProfile(target)
+		body, info, title, err = s.fetchProfileContext(ctx, target)
 		if err != nil {
 			return err
 		}
 	}
 	if err := validate(body); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if accept != nil {
@@ -308,9 +335,15 @@ func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	for i, p := range s.Items {
 		if p.ID != id {
 			continue
+		}
+		if !sameImportProfile(target, p) {
+			return errors.New(localize.Text("订阅正在更新，请稍后重试"))
 		}
 		path := filepath.Join(s.dir, "profiles", p.File)
 		previous, err := os.ReadFile(path)
@@ -319,6 +352,9 @@ func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 		}
 		if err := writeContent(path, body); err != nil {
 			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return errors.Join(err, writeContent(path, previous))
 		}
 		s.Items[i].Updated = time.Now()
 		s.Items[i].Info = info
@@ -356,44 +392,8 @@ func fetch(url string) (body []byte, info Info, title string, err error) {
 	return fetchWith(url, "", nil)
 }
 
-func fetchWith(address, userAgent string, proxy *url.URL) (body []byte, info Info, title string, err error) {
-	req, err := http.NewRequest(http.MethodGet, address, nil)
-	if err != nil {
-		return nil, Info{}, "", err
-	}
-	if userAgent == "" {
-		userAgent = "clash.meta/mihomo"
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "*/*")
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil // Explicit direct download unless this profile opts in.
-	if proxy != nil {
-		transport.Proxy = http.ProxyURL(proxy)
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Timeout: 30 * time.Second, Transport: transport}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, Info{}, "", fmt.Errorf(localize.Text("下载失败: %w"), err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, Info{}, "", fmt.Errorf(localize.Text("下载失败: HTTP %d"), resp.StatusCode)
-	}
-	body, err = io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	if err != nil {
-		return nil, Info{}, "", err
-	}
-	if len(body) == 0 {
-		return nil, Info{}, "", errors.New(localize.Text("订阅内容为空"))
-	}
-
-	info = parseUserinfo(resp.Header.Get("subscription-userinfo"))
-	title = decodeTitle(resp.Header.Get("profile-title"))
-	return body, info, title, nil
+func fetchWith(address, userAgent string, proxy *url.URL) ([]byte, Info, string, error) {
+	return fetchWithContext(context.Background(), address, userAgent, proxy)
 }
 
 func parseUserinfo(raw string) Info {

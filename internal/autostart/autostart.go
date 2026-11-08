@@ -15,3 +15,9 @@ func Set(enabled bool) error {
 	}
 	return set(enabled, executable)
 }
+
+// SetExecutable uses the visible frontend when the business process is bundled
+// as a helper executable. It never changes the launch entry until requested.
+func SetExecutable(enabled bool, executable string) error {
+	return set(enabled, executable)
+}

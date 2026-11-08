@@ -2,6 +2,7 @@ package profile
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,11 +18,18 @@ import (
 // committing either its cache or index. The callback runs without the store
 // mutex and can inspect the old profile or apply a candidate to the kernel.
 func (s *Store) AddChecked(address, name string, accept func(Profile, []byte) error) (Profile, error) {
+	return s.AddCheckedContext(context.Background(), address, name, accept)
+}
+
+func (s *Store) AddCheckedContext(ctx context.Context, address, name string, accept func(Profile, []byte) error) (Profile, error) {
+	if err := ctx.Err(); err != nil {
+		return Profile{}, err
+	}
 	source := Profile{URL: address}
 	if old, err := s.Get(idOf(address)); err == nil {
 		source.UserAgent, source.UseProxy = old.UserAgent, old.UseProxy
 	}
-	body, info, title, err := s.fetchProfile(source)
+	body, info, title, err := s.fetchProfileContext(ctx, source)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -33,10 +41,17 @@ func (s *Store) AddChecked(address, name string, accept func(Profile, []byte) er
 		name = firstNonEmpty(title, hostOf(address))
 	}
 	p := Profile{ID: idOf(address), Name: name, Kind: KindURL, URL: address, File: idOf(address) + ".yaml", Updated: time.Now(), Info: info}
-	return s.importChecked(p, body, explicitName, accept)
+	return s.importCheckedContext(ctx, p, body, explicitName, accept)
 }
 
 func (s *Store) AddFileChecked(path, name string, accept func(Profile, []byte) error) (Profile, error) {
+	return s.AddFileCheckedContext(context.Background(), path, name, accept)
+}
+
+func (s *Store) AddFileCheckedContext(ctx context.Context, path, name string, accept func(Profile, []byte) error) (Profile, error) {
+	if err := ctx.Err(); err != nil {
+		return Profile{}, err
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return Profile{}, err
@@ -54,10 +69,17 @@ func (s *Store) AddFileChecked(path, name string, accept func(Profile, []byte) e
 	}
 	id := idOf("file:" + abs)
 	p := Profile{ID: id, Name: name, Kind: KindFile, Path: abs, File: id + ".yaml", Updated: time.Now()}
-	return s.importChecked(p, body, explicitName, accept)
+	return s.importCheckedContext(ctx, p, body, explicitName, accept)
 }
 
 func (s *Store) importChecked(candidate Profile, body []byte, explicitName bool, accept func(Profile, []byte) error) (Profile, error) {
+	return s.importCheckedContext(context.Background(), candidate, body, explicitName, accept)
+}
+
+func (s *Store) importCheckedContext(ctx context.Context, candidate Profile, body []byte, explicitName bool, accept func(Profile, []byte) error) (Profile, error) {
+	if err := ctx.Err(); err != nil {
+		return Profile{}, err
+	}
 	s.mu.Lock()
 	previousActive := s.Active
 	var previous *Profile
@@ -84,6 +106,9 @@ func (s *Store) importChecked(candidate Profile, body []byte, explicitName bool,
 		return Profile{}, err
 	}
 	s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Profile{}, err
+	}
 	if accept != nil {
 		if err := accept(cloneProfile(candidate), body); err != nil {
 			return Profile{}, err
@@ -91,6 +116,9 @@ func (s *Store) importChecked(candidate Profile, body []byte, explicitName bool,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Profile{}, err
+	}
 	index := -1
 	for i, p := range s.Items {
 		if p.ID == candidate.ID {
@@ -113,6 +141,12 @@ func (s *Store) importChecked(candidate Profile, body []byte, explicitName bool,
 	}
 	if err := writeContent(path, body); err != nil {
 		return Profile{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		if hadFile {
+			return Profile{}, errors.Join(err, writeContent(path, oldBody))
+		}
+		return Profile{}, errors.Join(err, os.Remove(path))
 	}
 	if index >= 0 {
 		s.Items[index] = candidate

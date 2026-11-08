@@ -2,7 +2,11 @@ package app
 
 import (
 	"errors"
+	"gopurr/internal/nativehost"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -161,4 +165,107 @@ func TestDismissRestartFailureClearsRelaunchIntent(t *testing.T) {
 	if a.RelaunchRequested() || a.shutdown.err != "" || a.softwareUpdates.Snapshot().Visible {
 		t.Fatal("returning to the app retained a stale restart request or modal")
 	}
+}
+
+func TestShutdownWaitsForDownloadingProfileBeforeReadyAndHomeUnlock(t *testing.T) {
+	a, _ := newSettingsTestApp(t, nil)
+	downloadEntered, releaseDownload := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	var block atomic.Bool
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if block.Load() {
+			close(downloadEntered)
+			<-releaseDownload
+		}
+		_, _ = w.Write([]byte("rules: [\"MATCH,DIRECT\"]\n"))
+	}))
+	defer func() { releaseOnce.Do(func() { close(releaseDownload) }); source.Close() }()
+	item, err := a.store.Add(source.URL, "Delayed local subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.store.SetActive(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	homeLock, err := nativehost.LockHome(a.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer homeLock.Close()
+	closed := make(chan struct{}, 1)
+	a.proxy = proxyControllerFixture{close: func() error { closed <- struct{}{}; return nil }}
+	if !a.beginProfileWork() {
+		t.Fatal("profile reservation unavailable")
+	}
+	block.Store(true)
+	profileDone := make(chan error, 1)
+	go func() { err := a.refreshManagedProfile(item.ID); a.endProfileWork(); profileDone <- err }()
+	select {
+	case <-downloadEntered:
+	case <-time.After(time.Second):
+		t.Fatal("profile download did not start")
+	}
+	posted := make(chan func(), 2)
+	done := make(chan error, 1)
+	a.beginShutdown(func(fn func()) { posted <- fn }, func(err error) {
+		if err == nil {
+			if !a.ShutdownReady() {
+				t.Error("home unlock preceded ShutdownReady")
+			}
+			homeLock.Close()
+		}
+		done <- err
+	})
+	select {
+	case <-posted:
+		t.Fatal("shutdown started before profile download/commit finished")
+	case <-time.After(35 * time.Millisecond):
+	}
+	if a.ShutdownReady() {
+		t.Fatal("profile download did not block readiness")
+	}
+	select {
+	case <-closed:
+		t.Fatal("cleanup ran during profile work")
+	default:
+	}
+	if lock, err := nativehost.LockHome(a.dir); !errors.Is(err, nativehost.ErrHomeInUse) {
+		if lock != nil {
+			lock.Close()
+		}
+		t.Fatal("home unlocked during pending profile work", err)
+	}
+	releaseOnce.Do(func() { close(releaseDownload) })
+	select {
+	case err := <-profileDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("profile did not commit")
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(2 * time.Second):
+			t.Fatal("shutdown did not resume after profile commit")
+		}
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shutdown completion missing")
+	}
+	if !a.ShutdownReady() {
+		t.Fatal("shutdown never became ready")
+	}
+	again, err := nativehost.LockHome(a.dir)
+	if err != nil {
+		t.Fatal("completed cleanup did not release the home", err)
+	}
+	again.Close()
 }

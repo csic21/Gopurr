@@ -1,12 +1,14 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	"gopurr/internal/patch"
+	"gopurr/internal/workflow"
 )
 
 // A transaction owns immutable inputs. Only its completion touches UI state;
@@ -44,23 +46,28 @@ func (w overrideChange) run() (bool, error) {
 			}
 		}
 	}
-	rollback := func(err error) (bool, error) {
-		if running {
-			if restore := w.start(previous); restore != nil {
-				err = errors.Join(err, fmt.Errorf(tr("恢复原配置失败：%w"), restore))
-			}
+	change := workflow.ConfigChange{Candidate: candidate, Commit: func(context.Context) error {
+		if err := w.persist(); err != nil {
+			return fmt.Errorf(tr("保存失败，已保留原配置：%w"), err)
 		}
-		return false, err
-	}
+		return nil
+	}}
 	if running {
-		if err = w.start(candidate); err != nil {
-			return rollback(fmt.Errorf(tr("内核未接受配置，未保存：%s"), err))
+		change.Apply = func(_ context.Context, raw []byte) error {
+			if err := w.start(raw); err != nil {
+				return fmt.Errorf(tr("内核未接受配置，未保存：%s"), err)
+			}
+			return nil
+		}
+		change.Restore = func(context.Context) error {
+			if err := w.start(previous); err != nil {
+				return fmt.Errorf(tr("恢复原配置失败：%w"), err)
+			}
+			return nil
 		}
 	}
-	if err = w.persist(); err != nil {
-		return rollback(fmt.Errorf(tr("保存失败，已保留原配置：%w"), err))
-	}
-	return running, nil
+	result, err := workflow.RunConfigChange(context.Background(), change)
+	return result.Applied, err
 }
 
 func (a *App) prepareOverrideChange(id string, global patch.Overrides, local patch.ProfileOverrides) (overrideChange, error) {

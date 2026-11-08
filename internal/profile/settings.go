@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -11,6 +12,9 @@ import (
 func (s *Store) SetProxyURL(fn func() *url.URL) { s.mu.Lock(); s.proxyURL = fn; s.mu.Unlock() }
 
 func (s *Store) fetchProfile(p Profile) ([]byte, Info, string, error) {
+	return s.fetchProfileContext(context.Background(), p)
+}
+func (s *Store) fetchProfileContext(ctx context.Context, p Profile) ([]byte, Info, string, error) {
 	var proxy *url.URL
 	if p.UseProxy {
 		s.mu.Lock()
@@ -23,7 +27,7 @@ func (s *Store) fetchProfile(p Profile) ([]byte, Info, string, error) {
 			return nil, Info{}, "", fmt.Errorf("%s", localize.Text("使用代理更新需要先启动内核，请启动后重试或关闭此选项"))
 		}
 	}
-	return fetchWith(p.URL, p.UserAgent, proxy)
+	return fetchWithContext(ctx, p.URL, p.UserAgent, proxy)
 }
 
 func ValidateSettings(p Profile) error {

@@ -84,6 +84,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "--native-backend" {
+		if err := runNativeBackend(os.Args[2:]); err != nil {
+			log.Printf("native desktop: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	mygo.App.SetName("Gopurr")
 	if os.Getenv("GOPURR_HOME") == "" && !mygo.App.RequestSingleInstanceLock() {
@@ -343,6 +350,10 @@ func cancelRelease() {
 }
 
 func installTray(a *app.App) bool {
+	return installTrayWithWindow(a, func() { showWindow(a) })
+}
+
+func installTrayWithWindow(a *app.App, openWindow func()) bool {
 	// The icon shows the window on a left click and its state menu on a
 	// right click, as other menu bar proxies do. Only Linux panels, which
 	// have no separate right click, open the menu on the click itself.
@@ -385,7 +396,6 @@ func installTray(a *app.App) bool {
 		syncWindowsTrayIcon()
 		tray.OnAppearanceChange(syncWindowsTrayIcon)
 	}
-	openWindow := func() { showWindow(a) }
 	if menuOnClick {
 		installPanelTrayMenu(a, tray, openWindow)
 		return true

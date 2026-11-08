@@ -1464,15 +1464,10 @@ func (a *App) useSubscription(id string) {
 		return
 	}
 	defer a.endProfileWork()
-	previous := a.store.ActiveID()
-	if err := a.store.SetActive(id); err != nil {
-		a.setSubErr(err.Error())
-		return
-	}
 	a.setSubErr("")
-	if !a.startKernel() {
-		_ = a.store.SetActive(previous)
-		a.setSubErr(a.notice)
+	if err := a.activateManagedProfile(context.Background(), id); err != nil {
+		a.errorNotice(err.Error())
+		a.setSubErr(err.Error())
 		return
 	}
 	a.proxyGroup = ""

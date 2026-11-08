@@ -10,6 +10,9 @@ permissions:
   contents: read
 
 jobs:
+  android:
+    uses: ./.github/workflows/android.yml
+
   test:
     strategy:
       fail-fast: false

@@ -1748,5 +1748,6 @@
   "此节点由代理集合提供，暂不支持单独覆写。可新增本地节点并加入策略组。": "This node belongs to a provider and cannot be edited individually yet. Add a local node to a group instead.",
   "返回基本信息": "Back to basic fields",
   "编辑 TLS、传输等协议选项；名称、地址、协议与认证信息请在基本信息中填写。": "Edit TLS, transport and other options here. Set the name, server, protocol and credentials in the basic fields.",
-  "提示详情": "Details"
+  "提示详情": "Details",
+  "拒绝访问硬链接文件: %s": "Hard-linked file rejected: %s"
 }

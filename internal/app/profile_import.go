@@ -1,65 +1,66 @@
 package app
 
 import (
-	"errors"
+	"context"
 	"time"
 
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
+	"gopurr/internal/workflow"
 )
 
-// importManagedProfile keeps a reimport's source cache and running kernel in
-// the same transaction, then rebuilds dependent aggregates without fetching
-// the source a second time. Callers hold beginProfileWork for this operation.
+// importManagedProfile keeps reimported source/cache and running configuration
+// in one transaction. Legacy callers keep their existing background lifetime.
 func (a *App) importManagedProfile(importer func(func(profile.Profile, []byte) error) (profile.Profile, error)) (profile.Profile, error) {
+	return a.importManagedProfileContext(context.Background(), importer)
+}
+
+func (a *App) importManagedProfileContext(ctx context.Context, importer func(func(profile.Profile, []byte) error) (profile.Profile, error)) (profile.Profile, error) {
 	running := a.k != nil && a.k.RunningForChange()
 	var previous []byte
-	var err error
 	if running {
+		var err error
 		previous, err = a.lastAcceptedConfig()
 		if err != nil {
 			return profile.Profile{}, err
 		}
 	}
 	activeID := a.store.ActiveID()
-	attempted := false
-	p, err := importer(func(candidate profile.Profile, raw []byte) error {
-		active := activeID == "" || activeID == candidate.ID
-		local := patch.ProfileOverrides{}
-		if candidate.Overrides != nil {
-			local = *candidate.Overrides
-		}
-		if !active && candidate.Overrides == nil {
-			return nil
-		}
-		global := a.runtimeOverrides()
-		if !active {
-			global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
-		}
-		composed, err := patch.ApplyLayers(raw, global, local)
-		if err != nil {
-			return err
-		}
-		if active && a.k != nil {
-			attempted = true
-			return a.k.Start(composed)
-		}
-		return nil
+	result, err := workflow.RunProfileChange(ctx, workflow.ProfileChange{
+		Persist: importer,
+		Prepare: func(_ context.Context, candidate profile.Profile, raw []byte) (workflow.ProfilePlan, error) {
+			active := activeID == "" || activeID == candidate.ID
+			local := patch.ProfileOverrides{}
+			if candidate.Overrides != nil {
+				local = *candidate.Overrides
+			}
+			if !active && candidate.Overrides == nil {
+				return workflow.ProfilePlan{}, nil
+			}
+			global := a.runtimeOverrides()
+			if !active {
+				global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
+			}
+			composed, err := patch.ApplyLayers(raw, global, local)
+			return workflow.ProfilePlan{Config: composed, Apply: active && a.k != nil}, err
+		},
+		Apply: func(_ context.Context, raw []byte) error { return a.k.Start(raw) },
+		Restore: func(context.Context) error {
+			if running {
+				return a.k.Start(previous)
+			}
+			return a.k.Stop()
+		},
 	})
 	if err != nil {
-		if attempted {
-			if running {
-				err = errors.Join(err, a.k.Start(previous))
-			} else {
-				err = errors.Join(err, a.k.Stop())
-			}
-		}
-		return p, err
+		return result.Profile, err
 	}
 	a.featureCacheAt = time.Time{}
-	if attempted {
+	if result.Applied {
 		a.cancelDelayTest()
 		a.proxyGroup = ""
 	}
-	return p, a.refreshDependentAggregates(p.ID)
+	// A committed source is authoritative. Rebuild dependents as before, even
+	// if its original requester disappears after the source commit succeeded.
+	return result.Profile, a.refreshDependentAggregatesContext(context.WithoutCancel(ctx), result.Profile.ID)
 }

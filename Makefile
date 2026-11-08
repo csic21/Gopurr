@@ -14,8 +14,62 @@ NPM_CONFIG_CACHE ?= $(CURDIR)/.cache/npm
 export NPM_CONFIG_CACHE
 
 BIN := bin/Gopurr
+NSH := $(CURDIR)/.cache/nsh/nsh/bin/nsh
+NSH_TSC ?= $(shell command -v tsc 2>/dev/null)
+NATIVE_TARGET ?= catalyst
+NATIVE_ANDROID_ABI ?= arm64-v8a
+NATIVE_ANDROID_SERIAL ?= emulator-5580
 
 .PHONY: run build bundle brand-master icons preview-icons dev web web-dev tidy clean autostart test test-native update-geodata
+.PHONY: native-tools native-ui native-desktop-ui native-check native-test native-bundle native-run native-smoke native-desktop-smoke native-android native-android-release native-android-test
+
+# The NSH client is opt-in throughout migration. Existing build/release targets
+# keep producing the established desktop app and retain its update trust chain.
+native-tools:
+	bash scripts/bootstrap-nsh.sh
+
+native-ui: native-tools
+	python3 native/ui/sync-assets.py
+	$(NSH) build native/ui/App.tsx --release --out bin/native/ui
+
+native-desktop-ui: native-tools
+	python3 native/ui/sync-assets.py
+	$(NSH) build native/ui/Desktop.tsx --release --out bin/native/desktop-ui
+
+native-check: native-tools
+	python3 native/ui/sync-assets.py
+	$(NSH) check native/ui $(if $(NSH_TSC),--tsc "$(NSH_TSC)",)
+
+native-test: native-tools
+	python3 native/ui/sync-assets.py
+	go test ./sdk/engine ./internal/workflow ./internal/profile ./internal/nativehost ./internal/app ./cmd/gopurr-bridge
+	$(NSH) test native/ui
+
+native-bundle: native-ui
+	bash scripts/build-native-apple.sh $(NATIVE_TARGET)
+
+native-run: native-bundle
+	open "bin/native/Gopurr Native.app"
+
+native-android: native-ui
+	bash scripts/build-native-android.sh $(NATIVE_ANDROID_ABI)
+
+# See native/RELEASING.md for the required Android signing environment.
+native-android-release:
+	bash scripts/build-native-android.sh $(NATIVE_ANDROID_ABI) release "$(NATIVE_ANDROID_VERSION)"
+
+native-android-test: native-android
+	GOPURR_TEST_ANDROID_ABI=$(NATIVE_ANDROID_ABI) bash scripts/test-native-android.sh $(NATIVE_ANDROID_SERIAL)
+
+# ctypes checks the native ABI, then sends real HTTP through the isolated
+# engine's SOCKS listener to a temporary local server. It changes no OS settings.
+native-smoke:
+	mkdir -p .cache/native-smoke
+	CGO_ENABLED=1 go build -buildmode=c-shared -o .cache/native-smoke/libgopurr.dylib ./cmd/gopurr-bridge
+	python3 scripts/smoke-native-bridge.py --library "$(CURDIR)/.cache/native-smoke/libgopurr.dylib"
+
+native-desktop-smoke: native-bundle
+	python3 scripts/smoke-native-desktop.py
 
 build:
 	go build -o $(BIN) .

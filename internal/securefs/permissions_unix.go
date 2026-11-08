@@ -29,6 +29,15 @@ func restrict(path string, directory bool) error {
 	if !directory && !info.Mode().IsRegular() {
 		return fmt.Errorf(localize.Text("不是普通文件: %s"), path)
 	}
+	if !directory {
+		var stat unix.Stat_t
+		if err := unix.Fstat(fd, &stat); err != nil {
+			return err
+		}
+		if stat.Nlink != 1 {
+			return fmt.Errorf(localize.Text("拒绝访问硬链接文件: %s"), path)
+		}
+	}
 	mode := os.FileMode(0600)
 	if directory {
 		mode = 0700

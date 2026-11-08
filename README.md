@@ -18,8 +18,12 @@ Gopurr 是基于 [mihomo](https://github.com/MetaCubeX/mihomo) 的原生桌面�
 | --- | --- | --- |
 | macOS Apple Silicon（M1 及后续 M 系列） | `gopurr-版本-arm64.dmg` | 打开后将 Gopurr 拖入 Applications |
 | Windows 10/11 x64 | `gopurr-setup-版本-amd64.exe` | 按安装向导安装到当前用户目录 |
+| Android 9 及以上 ARM64 | `gopurr-版本-android-arm64-v8a.apk` | 下载后允许浏览器或文件管理器安装此 APK |
+| Android 9 及以上 x86_64 | `gopurr-版本-android-x86_64.apk` | 适用于 x86_64 设备或模拟器 |
 
 安装与系统验证提示见 [发布说明](docs/release-notes.md)。
+
+Android 从 v0.6.21 起提供独立原生客户端，使用系统 VPN 授权接入设备流量。已有开发包与正式包签名不同，首次安装正式包前需卸载开发包（会删除开发包的数据）；后续正式版本可覆盖升级。构建与签名配置见 [Android 发布说明](native/RELEASING.md#android-apk-releases)。
 
 ## 开始使用
 
@@ -178,6 +182,8 @@ macOS 菜单栏图标左键直接显示主窗口，右键打开菜单，在菜�
 首次启动会自动准备随安装包提供的 GeoIP／GeoSite／ASN 基础数据库，普通内核与 TUN 服务均可直接使用，无需手动下载文件。内核就绪后默认每天在后台检查所需数据库，通过当前分流线路下载并校验后替换；下载失败或内容无效时保留本地版本，一小时后重试。成功检查时间会保存，重启应用不会重复下载；切换数据库来源后会立即检查。订阅或 YAML 中显式设置的 `geo-auto-update`、`geo-update-interval` 和 `geox-url` 继续生效。
 
 ## 开发与构建
+
+NSH 原生客户端正在独立迁移。桌面已补齐八页和主要编辑器，手机 Android 优先。界面、Go 核心接口和原生宿主位于 `native/`、`sdk/engine/`，使用 `make native-bundle` 构建 NSH 桌面包、`make native-android` 构建 Android 开发 APK；现有正式桌面版的构建、数据和更新签名流程继续保留。构建方式与当前迁移范围见 [NSH 客户端说明](native/README.md)。
 
 使用 Go 1.27.3。界面由 [mygo](https://github.com/egoist/mygo) 原生渲染，mihomo 内核在独立进程中运行，应用通过本地控制器 socket 与内核通信。远程 Web 前端使用 Node.js 20+、Vite、React 与 TypeScript 构建，运行时不需要 Node。
 

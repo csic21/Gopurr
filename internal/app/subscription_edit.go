@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
+	"gopurr/internal/workflow"
 )
 
 type subscriptionEditState struct {
@@ -134,28 +136,35 @@ func subscriptionUpdateLabel(p profile.Profile, globalHours ...int) string {
 // refreshManagedProfile keeps both the cache and running config intact when
 // a changed source downloads valid YAML that the kernel cannot accept.
 func (a *App) refreshManagedProfile(id string) error {
-	if err := a.refreshManagedProfileOnly(id); err != nil {
+	return a.refreshManagedProfileContext(context.Background(), id)
+}
+func (a *App) refreshManagedProfileContext(ctx context.Context, id string) error {
+	if err := a.refreshManagedProfileOnlyContext(ctx, id); err != nil {
 		return err
 	}
-	return a.refreshDependentAggregates(id)
+	return a.refreshDependentAggregatesContext(context.WithoutCancel(ctx), id)
 }
-
 func (a *App) refreshDependentAggregates(id string) error {
+	return a.refreshDependentAggregatesContext(context.Background(), id)
+}
+func (a *App) refreshDependentAggregatesContext(ctx context.Context, id string) error {
 	var failures []error
 	for _, dependent := range a.store.DependentAggregates(id) {
-		if err := a.refreshManagedProfileOnly(dependent.ID); err != nil {
+		if err := a.refreshManagedProfileOnlyContext(ctx, dependent.ID); err != nil {
 			failures = append(failures, fmt.Errorf(tr("来源已更新；聚合配置 %s 保留原版本：%w"), dependent.Name, err))
 		}
 	}
 	return errors.Join(failures...)
 }
-
 func (a *App) refreshManagedProfileOnly(id string) error {
+	return a.refreshManagedProfileOnlyContext(context.Background(), id)
+}
+func (a *App) refreshManagedProfileOnlyContext(ctx context.Context, id string) error {
 	active := a.store.ActiveID() == id
 	running := active && a.k != nil && a.k.RunningForChange()
 	var previous []byte
-	var err error
 	if running {
+		var err error
 		previous, err = a.configBytes()
 		if err != nil {
 			previous, err = a.lastAcceptedConfig()
@@ -164,33 +173,35 @@ func (a *App) refreshManagedProfileOnly(id string) error {
 			return err
 		}
 	}
-	attemptedReload := false
-	err = a.store.RefreshChecked(id, func(body []byte) error {
-		p, err := a.store.Get(id)
-		if err != nil {
-			return err
-		}
-		var local patch.ProfileOverrides
-		if p.Overrides != nil {
-			local = *p.Overrides
-		}
-		global := a.runtimeOverrides()
-		if !active {
-			global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
-		}
-		candidate, err := patch.ApplyLayers(body, global, local)
-		if err != nil {
-			return err
-		}
-		if running {
-			attemptedReload = true
-			return a.k.Start(candidate)
-		}
-		return nil
+	_, err := workflow.RunProfileChange(ctx, workflow.ProfileChange{
+		Persist: func(accept func(profile.Profile, []byte) error) (profile.Profile, error) {
+			err := workflow.Refresh(ctx, a.store, id, func(raw []byte) error {
+				item, err := a.store.Get(id)
+				if err != nil {
+					return err
+				}
+				return accept(item, raw)
+			})
+			if err != nil {
+				return profile.Profile{}, err
+			}
+			return a.store.Get(id)
+		},
+		Prepare: func(_ context.Context, item profile.Profile, raw []byte) (workflow.ProfilePlan, error) {
+			local := patch.ProfileOverrides{}
+			if item.Overrides != nil {
+				local = *item.Overrides
+			}
+			global := a.runtimeOverrides()
+			if !active {
+				global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
+			}
+			candidate, err := patch.ApplyLayers(raw, global, local)
+			return workflow.ProfilePlan{Config: candidate, Apply: running}, err
+		},
+		Apply:   func(_ context.Context, raw []byte) error { return a.k.Start(raw) },
+		Restore: func(context.Context) error { return a.k.Start(previous) },
 	})
-	if err != nil && attemptedReload {
-		return errors.Join(err, a.k.Start(previous))
-	}
 	if err == nil && active {
 		a.cancelDelayTest()
 		a.bmu.Lock()

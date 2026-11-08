@@ -18,6 +18,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  android:
+    uses: ./.github/workflows/android.yml
+    with:
+      release: true
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
   build:
     strategy:
       fail-fast: false
@@ -85,7 +96,7 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -108,10 +119,12 @@ jobs:
         run: |
           test -s "gopurr-${RELEASE_TAG#v}-arm64.dmg"
           test -s "gopurr-setup-${RELEASE_TAG#v}-amd64.exe"
+          test -s "gopurr-${RELEASE_TAG#v}-android-arm64-v8a.apk"
+          test -s "gopurr-${RELEASE_TAG#v}-android-x86_64.apk"
           test -s update-darwin-arm64.json
           test -s update-windows-amd64.json
-          sha256sum *.dmg *.exe *.tar.gz *.json > SHA256SUMS
-      - name: Publish after both platforms succeed
+          sha256sum -- *.dmg *.exe *.apk *.tar.gz *.json > SHA256SUMS
+      - name: Publish after all platforms succeed
         shell: bash
         run: |
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > /tmp/release-draft; then

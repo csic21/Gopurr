@@ -1,0 +1,77 @@
+# Gopurr NSH interface
+
+The UI targets **NSH v0.4.0**. `Desktop.tsx` is the full eight-page desktop
+entry; it uses `desktop.dispatch` and the existing desktop business model in a
+private helper process. `App.tsx` is the four-page mobile entry. It calls the native host's `engine.dispatch` handler and never
+falls back to a demo or remote desktop connection. The host returns the SDK JSON
+envelope (`result` or `error`); `src/client.ts` unwraps it.
+
+Run commands from the repository root with the pinned CLI:
+
+```sh
+python3 native/ui/sync-assets.py
+.cache/nsh/nsh/bin/nsh check native/ui
+.cache/nsh/nsh/bin/nsh test native/ui/App.test.tsx
+.cache/nsh/nsh/bin/nsh build native/ui/App.tsx --release --out native/ui/.nsh/release
+```
+
+The application needs the native host to operate. Running `nsh run App.tsx` by
+itself shows an engine-unavailable error; it cannot start a VPN by itself.
+
+`Preview.tsx` is a separate entry for visual review. Its deterministic fixtures
+have an always-visible preview label and contain no real credentials or proxy
+traffic. The screenshot batches capture the four pages in both themes at
+1060×720, 840×560 and 390×844, plus import, editing and diagnostic pages in
+English. Each runs separately within the native step runner's 30-second budget:
+
+```sh
+mkdir -p native/ui/screenshots
+.cache/nsh/nsh/bin/nsh test native/ui/Preview.tsx --target macos < native/ui/render.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/Preview.tsx --target macos < native/ui/mobile-compact.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/Preview.tsx --target macos < native/ui/mobile-phone.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/Preview.tsx --target macos < native/ui/mobile-details.steps.js
+```
+
+These screenshots are actual **AppKit renders at phone and desktop widths**;
+phone-width AppKit images do not establish Android or iOS VPN acceptance.
+
+`sync-assets.py` generates colors from `internal/app/theme.go` and copies the
+existing Lucide assets (license in `assets/icons/LICENSE`) and the app mark
+from `internal/brand/icon-master.png`. The desktop sidebar uses its exact
+`internal/brand/sidebar.png` runtime derivative, matching the original window
+at both 32-point and compact 24-point sizes. Run it before builds; those files remain
+the shared source of palette and branding.
+
+The native preview uses its own application ID and storage so installing it
+does not replace the existing desktop client's subscriptions or update setup.
+UI preferences use NSH's private `Storage`; imported credentials remain in the
+Go engine's private data directory, not UI storage.
+
+Mobile business state and task coordination live in `src/mobile/store.ts`;
+`platform.ts` describes Android session, document and application-scope calls.
+The host publishes connection intent and progress independently of engine
+queries. A connection command never waits for a traffic refresh before making
+Cancel available. Latency values come from the engine's current group snapshot,
+so a same-name node in a new profile does not inherit a UI-only cached result.
+Page motion uses ordinary view opacity/translation with a finite animation;
+mobile pages do not require a ShaderView/Vulkan transition surface.
+
+The desktop entry includes subscription/aggregate and proxy editors, connections,
+mesh, rules and template library, logs, and seven settings categories. It keeps
+unsaved drafts and filters across navigation, supports reduced motion, and uses
+320 ms navigation transitions and 400 ms traffic history interpolation. It does
+not substitute fixture data when the host is unavailable.
+
+`DesktopPreview.tsx` and `DesktopMotionPreview.tsx` are separate visual fixtures.
+Run the real native AppKit renderer (one instance at a time):
+
+```sh
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-render.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-dialogs.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-editors.steps.js
+```
+
+`Desktop.test.tsx` and `DesktopEditors.test.tsx` exercise draft preservation,
+failed saves, explicit authorization of mesh ports, and animation reversal.
+`make native-desktop-smoke` verifies the shipped desktop helper with a real core,
+loopback traffic, rollback and backup validation in an isolated directory.

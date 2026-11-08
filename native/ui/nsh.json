@@ -1,0 +1,34 @@
+{
+  "name": "Gopurr",
+  "id": "io.github.gopurr.nsh.preview",
+  "version": "0.6.21",
+  "build": 1,
+  "icon": "assets/icon-master.png",
+  "statusBar": {
+    "foreground": "auto"
+  },
+  "capabilities": {
+    "host": [
+      "engine.dispatch",
+      "desktop.dispatch",
+      "desktop.file.open",
+      "desktop.file.save",
+      "desktop.clipboard.write",
+      "desktop.openURL",
+      "desktop.reveal",
+      "desktop.window.close",
+      "desktop.window.dirty",
+      "android.session",
+      "android.connect",
+      "android.disconnect",
+      "android.apps",
+      "android.scope.get",
+      "android.scope.set",
+      "android.file.pick",
+      "android.notifications",
+      "android.notifications.request",
+      "android.appearance"
+    ],
+    "statusBar": true
+  }
+}

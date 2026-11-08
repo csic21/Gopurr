@@ -51,11 +51,12 @@ func (a *App) beginShutdown(dispatch func(func()), done func(error)) {
 	}
 	a.cancelMeshProbe()
 	a.shutdown.err = ""
-	if busyNetwork(a) {
-		// Wait off the UI thread, then snapshot the committed proxy/TUN state.
-		// Otherwise a late service handover could resurrect a core after quit.
+	if a.shutdownBusy() {
+		// Wait off the UI thread, then snapshot committed network/profile state.
+		// An automatic subscription refresh may still be downloading before
+		// it reloads the core; a late handover must not resurrect it after quit.
 		go func() {
-			for busyNetwork(a) {
+			for a.shutdownBusy() {
 				time.Sleep(25 * time.Millisecond)
 			}
 			dispatch(func() { a.startShutdownWorker(dispatch, done) })
@@ -203,4 +204,14 @@ func (a *App) shutdownModal(c *ui.Context) {
 			})
 		})
 	})
+}
+
+// Profile imports/automatic refreshes reserve subBusy before downloading. They
+// can reload the kernel long after network controls look idle. Shutdown waits
+// for that reservation too, while normal network actions keep their existing
+// busyNetwork semantics (some already hold a profile reservation themselves).
+func (a *App) shutdownBusy() bool {
+	a.bmu.Lock()
+	defer a.bmu.Unlock()
+	return a.subBusy || a.kernelBusy || a.svcBusy || a.sysBusy || a.tunChanging || a.proxySelecting || a.proxySelectionActive.Load() > 0
 }

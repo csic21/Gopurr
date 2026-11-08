@@ -1,0 +1,116 @@
+name: Android
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+      tag:
+        type: string
+        default: ''
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_STORE_PASSWORD:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    # The checksum-pinned NSH compiler currently supports macOS Apple Silicon.
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      GOPATH: ${{ github.workspace }}/.cache/go
+      GOMODCACHE: ${{ github.workspace }}/.cache/mod
+      GOCACHE: ${{ github.workspace }}/.cache/build
+      GOFLAGS: -tags=with_gvisor
+      RELEASE_TAG: ${{ inputs.tag }}
+      ANDROID_ABI: ${{ matrix.abi }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Validate release tag and signing configuration
+        if: inputs.release
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
+          git show-ref --verify "refs/tags/$RELEASE_TAG"
+          for name in KEYSTORE KEY_ALIAS STORE_PASSWORD KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing Android signing secret: $name (see native/RELEASING.md)"
+              exit 1
+            fi
+          done
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Select JDK 17 and install pinned Android tools
+        run: |
+          java_home="$(/usr/libexec/java_home -v 17)"
+          echo "JAVA_HOME=$java_home" >> "$GITHUB_ENV"
+          echo "$java_home/bin" >> "$GITHUB_PATH"
+          export JAVA_HOME="$java_home"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            'platforms;android-36' 'build-tools;36.1.0' 'ndk;29.0.14206865'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+      - name: Test Android packaging and session lifecycle
+        run: |
+          python3 scripts/test-android-release.py
+          bash scripts/test-native-android-host.sh
+          go test ./sdk/engine ./internal/workflow ./cmd/gopurr-bridge
+      - name: Check native UI
+        run: |
+          make native-check
+          .cache/nsh/nsh/bin/nsh test native/ui
+      - name: Build development APK
+        if: ${{ !inputs.release }}
+        run: bash scripts/build-native-android.sh "$ANDROID_ABI"
+      - name: Build signed release APK
+        if: inputs.release
+        env:
+          GOPURR_ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GOPURR_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          GOPURR_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          GOPURR_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export GOPURR_ANDROID_KEYSTORE="$RUNNER_TEMP/gopurr-android.jks"
+          trap 'rm -f "$GOPURR_ANDROID_KEYSTORE"' EXIT
+          python3 - <<'PY'
+          import base64
+          import os
+          key = base64.b64decode(os.environ.pop('GOPURR_ANDROID_KEYSTORE_BASE64'), validate=True)
+          with open(os.open(os.environ['GOPURR_ANDROID_KEYSTORE'], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as out:
+              out.write(key)
+          PY
+          unset GOPURR_ANDROID_KEYSTORE_BASE64
+          # The parent Release workflow owns the monotonically increasing number.
+          # Reruns of a workflow keep the same code; prereleases use the same sequence.
+          export GOPURR_ANDROID_VERSION_CODE="$((1000000 + GITHUB_RUN_NUMBER))"
+          bash scripts/build-native-android.sh "$ANDROID_ABI" release "$RELEASE_TAG"
+      - name: Remove signing material
+        if: ${{ always() && inputs.release }}
+        run: rm -f "$RUNNER_TEMP/gopurr-android.jks"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ inputs.release && 'release' || 'ci' }}-android-${{ matrix.abi }}
+          path: ${{ inputs.release && format('dist/android-{0}/*.apk', matrix.abi) || format('bin/native/gopurr-native-{0}-debug.apk', matrix.abi) }}
+          if-no-files-found: error
+          retention-days: 7
