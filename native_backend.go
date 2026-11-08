@@ -57,8 +57,7 @@ func runNativeBackend(args []string) error {
 	// arguments describe this session only and must never reach the next host.
 	os.Args = []string{*frontend, "--gopurr-home", *home}
 	mygo.App.SetName("Gopurr")
-	configDir, _ := os.UserConfigDir()
-	if *productionHome && *home == filepath.Join(configDir, "Gopurr") && !mygo.App.RequestSingleInstanceLock() {
+	if *productionHome && nativehost.IsCanonicalHome(*home) && !mygo.App.RequestSingleInstanceLock() {
 		return nativehost.ErrHomeInUse
 	}
 	homeLock, err := nativehost.LockHome(*home)

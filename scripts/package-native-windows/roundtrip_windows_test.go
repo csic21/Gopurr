@@ -41,7 +41,8 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(work)
-	home := filepath.Join(work, "home")
+	fixtureAppData := filepath.Join(work, "appdata")
+	home := filepath.Join(fixtureAppData, "Gopurr")
 	if err := securefs.PrivateDir(home); err != nil {
 		t.Fatal(err)
 	}
@@ -143,11 +144,11 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	if err := os.WriteFile(sourcePath, []byte(windowsLegacyFixture), 0600); err != nil {
 		t.Fatal(err)
 	}
-	flags := "-X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageUpdateFeed=" + server.URL + "/update-windows-amd64.json -X github.com/egoist/mygo.packageUpdateKey=" + base64.StdEncoding.EncodeToString(pub)
+	flags := "-X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageUpdateFeed=" + server.URL + "/update-windows-amd64.json -X github.com/egoist/mygo.packageUpdateKey=" + base64.StdEncoding.EncodeToString(pub)
 	fixtureCommand(t, repo, nil, "go", "build", "-ldflags", flags, "-o", binary, sourcePath)
 	sessionPath := filepath.Join(work, "session.json")
 	old := exec.Command(binary, "--gopurr-home", home)
-	old.Env = append(os.Environ(), "GOPURR_HOME="+home, "GOPURR_NATIVE_SESSION_OUTPUT="+sessionPath, "GOPURR_AUTOSTART=1", "GOPURR_TUN=0")
+	old.Env = append(os.Environ(), "APPDATA="+fixtureAppData, "GOPURR_NATIVE_SESSION_OUTPUT="+sessionPath, "GOPURR_AUTOSTART=1", "GOPURR_TUN=0")
 	logFile, err := os.Create(filepath.Join(work, "host.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -389,7 +390,7 @@ func copyFixtureTree(t *testing.T, source, dest string) {
 const windowsLegacyFixture = `package main
 import("context";"fmt";"os";"time";"github.com/egoist/mygo";"gopurr/internal/update")
 func main(){
- mygo.App.SetName("Gopurr");mygo.App.SetVersion("0.0.0");mygo.App.OnWindowAllClosed(func(){})
+ mygo.App.SetName("Gopurr");mygo.App.SetVersion("0.0.0");if !mygo.App.RequestSingleInstanceLock(){os.Exit(2)};mygo.App.OnWindowAllClosed(func(){})
  mygo.App.WhenReady(func(){go func(){ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel();release,err:= (update.Native{}).Check(ctx);if err!=nil||release==nil{fmt.Fprintln(os.Stderr,"check",err);os.Exit(1)};if err=release.Install(ctx,nil);err!=nil{fmt.Fprintln(os.Stderr,"install",err);os.Exit(1)};mygo.RunOnMain(mygo.App.Relaunch)}()})
  if err:=mygo.App.Run();err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
 }`

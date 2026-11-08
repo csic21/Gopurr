@@ -56,7 +56,7 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		}
 		if err := desktopHomeReady(o.Home); err != nil {
 			if errors.Is(err, nativehost.ErrHomeInUse) {
-				return failure("already_running", err.Error())
+				return desktopAlreadyRunning(o.Home)
 			}
 			return failure("open_failed", err.Error())
 		}
@@ -126,12 +126,12 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 			case <-p.done:
 				var exited *exec.ExitError
 				if errors.As(p.exitErr, &exited) && exited.ExitCode() == 23 {
-					return failure("already_running", nativehost.ErrHomeInUse.Error())
+					return desktopAlreadyRunning(o.Home)
 				}
 				if lock, err := nativehost.LockHome(o.Home); err == nil {
 					lock.Close()
 				} else if errors.Is(err, nativehost.ErrHomeInUse) {
-					return failure("already_running", err.Error())
+					return desktopAlreadyRunning(o.Home)
 				}
 				return failure("open_failed", "Desktop backend exited during startup")
 			case <-time.After(50 * time.Millisecond):
@@ -150,6 +150,14 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		b, _ := json.Marshal(map[string]any{"handle": id, "socket": socket, "tokenFile": tokenFile, "backendPID": cmd.Process.Pid, "frontendPID": os.Getpid()})
 		return b
 	})
+}
+
+func desktopAlreadyRunning(home string) []byte {
+	body, _ := json.Marshal(map[string]any{"error": map[string]any{
+		"code": "already_running", "message": nativehost.ErrHomeInUse.Error(),
+		"activate": nativehost.IsCanonicalHome(home),
+	}})
+	return body
 }
 
 //export GopurrDesktopCall

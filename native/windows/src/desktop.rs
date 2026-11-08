@@ -73,7 +73,12 @@ impl Bridge {
         let options = CString::new(json!({"home":home,"executable":root.join("gopurr-desktop.exe"),"frontend":root.join("Gopurr.exe"),"productionHome":true}).to_string()).unwrap();
         let value = unsafe { take_json(open(options.as_ptr()), free) }?;
         if let Some(error) = value.get("error") {
-            return Err(error["code"].as_str().unwrap_or("open_failed").to_owned()
+            let code = if error["code"] == "already_running" && error["activate"] == true {
+                "already_running_canonical"
+            } else {
+                error["code"].as_str().unwrap_or("open_failed")
+            };
+            return Err(code.to_owned()
                 + ": "
                 + error["message"]
                     .as_str()
@@ -380,12 +385,7 @@ fn run_on_ui_thread() -> Result<(), String> {
     }
     let (bridge, session) = match unsafe { Bridge::open(root, &home) } {
         Ok(value) => value,
-        Err(error)
-            if error.starts_with("already_running:")
-                && home
-                    == PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default())
-                        .join("Gopurr") =>
-        {
+        Err(error) if error.starts_with("already_running_canonical:") => {
             use std::os::windows::process::CommandExt;
             // The existing mygo singleton routes activation and protocol URLs
             // to the running backend. It never constructs a legacy window.
@@ -534,8 +534,8 @@ fn run_on_ui_thread() -> Result<(), String> {
             SendMessageW(
                 view.hwnd(),
                 WM_SETICON,
-                WPARAM(ICON_BIG as usize),
-                LPARAM(icon.0 as isize),
+                Some(WPARAM(ICON_BIG as usize)),
+                Some(LPARAM(icon.0 as isize)),
             );
         }
     }

@@ -79,3 +79,18 @@ func TestWindowsRejectsPublicSessionWithoutChangingACL(t *testing.T) {
 		t.Fatal("validation changed caller ACL")
 	}
 }
+
+func TestCanonicalWindowsHomeUsesDirectoryIdentity(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("APPDATA", config)
+	home := filepath.Join(config, "Gopurr")
+	if err := os.Mkdir(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if !IsCanonicalHome(home) || !IsCanonicalHome(strings.ToUpper(home)) {
+		t.Fatal("Windows case alias bypassed the legacy home lock")
+	}
+	if IsCanonicalHome(t.TempDir()) {
+		t.Fatal("isolated home could activate the production instance")
+	}
+}
