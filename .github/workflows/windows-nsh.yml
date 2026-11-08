@@ -36,6 +36,7 @@ jobs:
             .cache/cargo
             .cache/cargo-target
             .cache/nsh-windows
+            .cache/rust-license-texts
             .cache/build
             .cache/mod
           key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}
@@ -55,11 +56,53 @@ jobs:
       - name: Build actual NSH Windows application
         shell: pwsh
         run: ./scripts/build-native-windows.ps1
+      - name: Build compatible per-user installer
+        shell: pwsh
+        run: ./scripts/package-native-windows.ps1
+      - name: Verify installed migration, protocols and graceful uninstall
+        shell: pwsh
+        run: ./scripts/test-native-windows-installer.ps1
+      - name: Verify real core, Wintun, service and proxy recovery
+        env:
+          CGO_ENABLED: '0'
+        shell: pwsh
+        run: |
+          go run ./scripts/smoke -binary bin/native/windows-amd64/gopurr-desktop.exe
+          if ($LASTEXITCODE) { throw 'Native backend real-core smoke failed' }
+          go run ./scripts/smoke-windows -binary bin/native/windows-amd64/gopurr-desktop.exe
+          if ($LASTEXITCODE) { throw 'Native backend service/Wintun/proxy smoke failed' }
+      - name: Render Windows pages, navigation, editors and dialogs
+        shell: pwsh
+        run: |
+          $nsh = "$pwd/.cache/nsh-windows/nsh/bin/nsh.exe"
+          & $nsh test native/ui
+          if ($LASTEXITCODE) { throw 'NSH interaction tests failed' }
+          foreach ($steps in @('desktop-render','desktop-collapsed-pages','desktop-dialogs','desktop-editors','desktop-editors-large')) {
+            Get-Content "native/ui/$steps.steps.js" -Raw | & $nsh test native/ui/WindowsDesktopPreview.tsx --target windows
+            if ($LASTEXITCODE) { throw "Windows UI render failed: $steps" }
+          }
+      - name: Verify production-signed legacy to NSH update
+        env:
+          CGO_ENABLED: '0'
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        shell: pwsh
+        run: |
+          if (-not $env:MYGO_UPDATER_PRIVATE_KEY) { throw 'Production signing secret is required for Windows acceptance' }
+          go run ./scripts/package-native-windows -app bin/native/windows-amd64 -out dist/native-windows-amd64 -sign -key-env MYGO_UPDATER_PRIVATE_KEY -notes docs/release-notes.md
+          if ($LASTEXITCODE) { throw 'Production signing failed' }
+          go run ./scripts/verify-update -artifacts dist/native-windows-amd64
+          if ($LASTEXITCODE) { throw 'Production-key legacy update verification failed' }
+      - name: Verify actual NSH old-data migration and subsequent update
+        env:
+          CGO_ENABLED: '0'
+          GOPURR_NATIVE_WINDOWS_TEST_APP: ${{ github.workspace }}/bin/native/windows-amd64
+        run: go test -v ./scripts/package-native-windows -run '^TestWindowsNativeMigrationRoundtrip$' -count=1 -timeout=20m
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: windows-nsh-acceptance
           path: |
             bin/native/windows-amd64
+            dist/native-windows-amd64
             native/ui/screenshots/*.png
           retention-days: 7

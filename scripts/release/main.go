@@ -33,6 +33,7 @@ func run() error {
 	version := flag.String("version", "", "release version, with or without v")
 	release := flag.Bool("release", false, "require a signing key and stage release artifacts in dist")
 	output := flag.String("out", "bin", "build output directory")
+	nativeWindows := flag.Bool("native-windows", false, "opt-in Windows NSH acceptance build; production default stays unchanged until validated")
 	skipDMG := flag.Bool("skip-dmg", false, "build the local macOS app bundle only")
 	flag.Parse()
 	if *platform != "darwin/arm64" && *platform != "windows/amd64" {
@@ -83,6 +84,9 @@ func run() error {
 	env = append(env, "GOFLAGS="+strings.Join(flags, " "))
 	if *platform == "darwin/arm64" {
 		return buildNativeMac(config, current, *output, *release, *skipDMG, env)
+	}
+	if *nativeWindows {
+		return buildNativeWindows(config, current, *output, *release, env)
 	}
 	if os.Getenv("MYGO_UPDATER_PRIVATE_KEY") == "" {
 		if key, err := os.ReadFile(".secrets/mygo-update.key"); err == nil {

@@ -29,6 +29,7 @@ import (
 type desktopProcess struct {
 	dir, socket, token string
 	cmd                *exec.Cmd
+	exitErr            error // published by closing done
 	done               chan struct{}
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -104,7 +105,7 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		// failures and an unexpected backend exit. Never remove authentication
 		// while a backend may still need to restore the OS proxy.
 		cleanup = false
-		go func() { _ = cmd.Wait(); p.cancel(); _ = os.RemoveAll(p.dir); close(p.done) }()
+		go func() { p.exitErr = cmd.Wait(); p.cancel(); _ = os.RemoveAll(p.dir); close(p.done) }()
 		ready := false
 		deadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(deadline) {
@@ -123,6 +124,10 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 			}
 			select {
 			case <-p.done:
+				var exited *exec.ExitError
+				if errors.As(p.exitErr, &exited) && exited.ExitCode() == 23 {
+					return failure("already_running", nativehost.ErrHomeInUse.Error())
+				}
 				if lock, err := nativehost.LockHome(o.Home); err == nil {
 					lock.Close()
 				} else if errors.Is(err, nativehost.ErrHomeInUse) {
@@ -142,7 +147,7 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		desktops.items[id] = p
 		desktops.Unlock()
 		cleanup = false
-		b, _ := json.Marshal(map[string]any{"handle": id, "socket": socket, "tokenFile": tokenFile, "backendPID": cmd.Process.Pid})
+		b, _ := json.Marshal(map[string]any{"handle": id, "socket": socket, "tokenFile": tokenFile, "backendPID": cmd.Process.Pid, "frontendPID": os.Getpid()})
 		return b
 	})
 }

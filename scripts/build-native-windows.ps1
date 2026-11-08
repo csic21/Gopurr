@@ -18,6 +18,7 @@ $env:GOTOOLCHAIN = 'go1.27.3'
 $env:GOFLAGS = '-tags=with_gvisor'
 $env:CARGO_HOME = "$root/.cache/cargo"
 $env:CARGO_TARGET_DIR = "$root/.cache/cargo-target"
+$env:RUSTFLAGS = '-C target-feature=+crt-static'
 $env:GOPURR_VERSION = $Version
 $env:GOPURR_WINDOWS_ICON = "$stage/Gopurr.ico"
 $env:LIBCLANG_PATH = 'C:/Program Files/LLVM/bin'
@@ -44,9 +45,8 @@ if (-not (Test-Path "$sdk/verified-0.4.0")) {
 if ($LASTEXITCODE) { throw 'Sync NSH assets failed' }
 & $nsh build native/ui/Desktop.tsx --release --out "$stage/nsh"
 if ($LASTEXITCODE) { throw 'Build shared desktop UI failed' }
-# ICO wraps the unchanged PNG source. Both Windows executable and installer
-# use the same rendered brand master as the original application.
-& python -c 'import pathlib,struct,sys; b=pathlib.Path("internal/brand/logo.png").read_bytes(); pathlib.Path(sys.argv[1]).write_bytes(struct.pack("<HHH",0,1,1)+struct.pack("<BBBBHHII",0,0,0,0,1,32,len(b),22)+b)' "$stage/Gopurr.ico"
+# Runtime and installer share the rendered brand, with real ICO dimensions.
+& go run ./scripts/windows-icon -out "$stage/Gopurr.ico"
 if ($LASTEXITCODE) { throw 'Build Windows icon failed' }
 $env:CGO_ENABLED = '0'
 $flags = "-s -w -H=windowsgui -X gopurr/internal/buildinfo.Version=$Version -X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageName=Gopurr -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageURLSchemes=gopurr,clash -X github.com/egoist/mygo.packageVersion=$Version -X github.com/egoist/mygo.packageUpdateFeed=$UpdateFeed -X github.com/egoist/mygo.packageUpdateKey=$($config.updates.publicKey)"
@@ -63,8 +63,12 @@ if (-not $SkipRust) {
     & cargo build --locked --release --manifest-path native/windows/Cargo.toml
     if ($LASTEXITCODE) { throw 'Build NSH Windows frontend failed' }
 }
+& cargo metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc --manifest-path native/windows/Cargo.toml | Set-Content "$root/.cache/windows-cargo-metadata.json" -Encoding utf8NoBOM
+if ($LASTEXITCODE) { throw 'Read locked Rust dependency metadata failed' }
+& python scripts/cargo-notices.py --metadata "$root/.cache/windows-cargo-metadata.json" --out "$stage/licenses/rust"
+if ($LASTEXITCODE) { throw 'Collect bundled Rust license notices failed' }
 Copy-Item "$env:CARGO_TARGET_DIR/release/Gopurr.exe" "$stage/Gopurr.exe"
 Copy-Item LICENSE,THIRD_PARTY_NOTICES.md $stage
-Copy-Item licenses "$stage/licenses" -Recurse
+Copy-Item licenses/* "$stage/licenses" -Recurse -Force
 @{schema=1;ui='nsh-desktop';backend='desktop-v2';platform='windows-amd64';version=$Version;updateFeed=$UpdateFeed;updatePublicKey=$config.updates.publicKey;updateEnabled=$true;dataDirectory='Gopurr'} | ConvertTo-Json | Set-Content "$stage/native-build.json" -Encoding utf8NoBOM
 Write-Host "Built NSH Windows application: $stage"

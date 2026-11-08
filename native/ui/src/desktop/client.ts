@@ -1,6 +1,7 @@
 import { host, signal, setColorScheme, cleanup } from "nsh";
 import { language } from "./i18n";
 import type { DesktopSnapshot, Page } from "./types";
+export const desktopPlatform = signal(String(host.params.platform??"darwin"));
 export const page = signal<Page>((["overview","subs","proxies","conns","mesh","rules","logs","settings"].includes(String(host.params.page)) ? host.params.page : "overview") as Page);
 export const state = signal<DesktopSnapshot>({apiVersion:2,status:{traffic:{}},prefs:{},network:{},features:{},profiles:[],groups:[],history:[],service:{},capabilities:{}});
 export const snapshot = state;

@@ -115,6 +115,12 @@ func runNativeBackend(args []string) error {
 	}
 	mygo.App.OnSecondInstance(func(args []string, _ string) {
 		for _, arg := range args {
+			if arg == "--native-quit" {
+				mygo.App.Quit()
+				return
+			}
+		}
+		for _, arg := range args {
 			if strings.HasPrefix(arg, "gopurr://") || strings.HasPrefix(arg, "clash://") {
 				if err := importURL(arg); err != nil {
 					events.Add("error", err.Error())
@@ -296,6 +302,9 @@ func runNativeBackend(args []string) error {
 					return nil, err
 				}
 				mygo.RunOnMain(func() { a.SetWindowVisible(p.Visible) })
+				return true, nil
+			case "host.activate":
+				mygo.RunOnMain(show)
 				return true, nil
 			case "host.file.open", "host.file.save":
 				return nativeFileDialog(method, params)

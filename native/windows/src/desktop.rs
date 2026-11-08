@@ -3,6 +3,7 @@ use nsh_engine::{HostChannel, Policy, parse_capabilities};
 use nsh_platform_windows::{App, AppOptions, AppView, AssetBase, Bundle};
 use serde_json::{Value, json};
 use std::{
+    cell::{Cell, RefCell},
     ffi::{CStr, CString, c_char},
     path::{Path, PathBuf},
     rc::Rc,
@@ -18,7 +19,7 @@ use windows::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
         System::{
             Ole::{OleInitialize, OleUninitialize},
-            Threading::{OpenProcess, SYNCHRONIZE, WaitForSingleObject},
+            Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
         },
         UI::{
             HiDpi::{
@@ -55,6 +56,7 @@ struct Bridge {
     call: Call,
     free: Free,
     handle: u64,
+    pid: u32,
 }
 impl Bridge {
     unsafe fn open(root: &Path, home: &Path) -> Result<(Arc<Self>, Value), String> {
@@ -80,7 +82,19 @@ impl Bridge {
         let handle = value["handle"]
             .as_u64()
             .ok_or("Missing desktop bridge handle")?;
-        Ok((Arc::new(Self { call, free, handle }), value))
+        let pid = value["backendPID"]
+            .as_u64()
+            .and_then(|pid| u32::try_from(pid).ok())
+            .ok_or("Missing desktop backend PID")?;
+        Ok((
+            Arc::new(Self {
+                call,
+                free,
+                handle,
+                pid,
+            }),
+            value,
+        ))
     }
     fn request(&self, method: &str, params: Value) -> Result<Value, String> {
         let request = CString::new(json!({"method":method,"params":params}).to_string())
@@ -119,37 +133,37 @@ struct Window {
     channel: HostChannel,
     bridge: Arc<Bridge>,
     bundle: Bundle,
-    prefs: Value,
-    page: String,
-    visible: bool,
-    loaded: bool,
-    dirty: bool,
-    hidden_at: Instant,
+    prefs: RefCell<Value>,
+    page: RefCell<String>,
+    visible: Cell<bool>,
+    loaded: Cell<bool>,
+    dirty: Cell<bool>,
+    hidden_at: Cell<Instant>,
     running: Arc<AtomicBool>,
 }
 impl Window {
-    fn hide(&mut self) {
+    fn hide(&self) {
         unsafe {
             let _ = ShowWindow(self.view.hwnd(), SW_HIDE);
         }
-        self.visible = false;
-        self.hidden_at = Instant::now();
+        self.visible.set(false);
+        self.hidden_at.set(Instant::now());
         self.bridge.visible(false);
     }
-    fn show(&mut self) {
-        if !self.loaded {
-            params(&self.channel, &self.page);
+    fn show(&self) {
+        if !self.loaded.get() {
+            params(&self.channel, &self.page.borrow());
             self.view.load(App::Js(self.bundle.clone()));
-            self.loaded = true;
+            self.loaded.set(true);
         }
-        self.visible = true;
+        self.visible.set(true);
         self.bridge.visible(true);
         unsafe {
             let _ = ShowWindow(self.view.hwnd(), SW_RESTORE);
             let _ = SetForegroundWindow(self.view.hwnd());
         }
     }
-    fn event(&mut self, event: Value) {
+    fn event(&self, event: Value) {
         match event["kind"].as_str().unwrap_or("") {
             "quit" => {
                 self.running.store(false, Ordering::Release);
@@ -162,16 +176,20 @@ impl Window {
             }
             "show" => {
                 if let Some(page) = event["value"]["page"].as_str() {
-                    self.page = page.into();
+                    *self.page.borrow_mut() = page.into();
                 }
                 self.show();
             }
-            "prefs" => self.prefs = event["value"].clone(),
+            "prefs" => *self.prefs.borrow_mut() = event["value"].clone(),
             "snapshot" => {
-                self.prefs = event["value"]["prefs"].clone();
+                *self.prefs.borrow_mut() = event["value"]["prefs"].clone();
                 if let Some(page) = event["value"]["page"].as_str() {
-                    self.page = page.into();
+                    *self.page.borrow_mut() = page.into();
                 }
+                return;
+            }
+            "focus" => {
+                self.show();
                 return;
             }
             "hide" => {
@@ -179,7 +197,7 @@ impl Window {
                 return;
             }
             "dirty" => {
-                self.dirty = event["value"].as_bool().unwrap_or(true);
+                self.dirty.set(event["value"].as_bool().unwrap_or(true));
                 return;
             }
             _ => (),
@@ -215,7 +233,7 @@ unsafe extern "system" fn subclass(
     _: usize,
     data: usize,
 ) -> LRESULT {
-    let state = unsafe { &mut *(data as *mut Window) };
+    let state = unsafe { &*(data as *const Window) };
     match message {
         EVENT => {
             let event = unsafe { Box::from_raw(l.0 as *mut Value) };
@@ -223,7 +241,7 @@ unsafe extern "system" fn subclass(
             return LRESULT(0);
         }
         WM_CLOSE => {
-            if state.prefs["closeToTrayAcknowledged"].as_bool() == Some(true) {
+            if state.prefs.borrow()["closeToTrayAcknowledged"].as_bool() == Some(true) {
                 state.hide();
             } else {
                 let _ = state
@@ -255,18 +273,18 @@ unsafe extern "system" fn subclass(
             return LRESULT(0);
         }
         WM_TIMER if w.0 == TIMER => {
-            if !state.visible
-                && state.loaded
-                && !state.dirty
-                && state.prefs["lightMode"].as_bool() == Some(true)
-                && state.hidden_at.elapsed().as_secs()
-                    >= state.prefs["lightDelaySeconds"]
+            if !state.visible.get()
+                && state.loaded.get()
+                && !state.dirty.get()
+                && state.prefs.borrow()["lightMode"].as_bool() == Some(true)
+                && state.hidden_at.get().elapsed().as_secs()
+                    >= state.prefs.borrow()["lightDelaySeconds"]
                         .as_u64()
                         .unwrap_or(60)
                         .max(1)
             {
                 state.view.stop();
-                state.loaded = false;
+                state.loaded.set(false);
             }
             return LRESULT(0);
         }
@@ -285,7 +303,7 @@ fn argument(args: &[String], name: &str) -> Option<String> {
 }
 fn wait_for_process(pid: u32) -> Result<(), String> {
     unsafe {
-        match OpenProcess(SYNCHRONIZE, false, pid) {
+        match OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
             Ok(handle) => {
                 let result = WaitForSingleObject(handle, 30000);
                 let _ = windows::Win32::Foundation::CloseHandle(handle);
@@ -301,9 +319,19 @@ fn wait_for_process(pid: u32) -> Result<(), String> {
 }
 
 pub fn run() -> Result<(), String> {
+    thread::Builder::new()
+        .name("gopurr-nsh-ui".into())
+        .stack_size(8 << 20)
+        .spawn(run_on_ui_thread)
+        .map_err(|error| error.to_string())?
+        .join()
+        .map_err(|_| "The native desktop UI thread failed".to_owned())?
+}
+
+fn run_on_ui_thread() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() == 2 && args[1] == "--version" {
-        println!("Gopurr {} (NSH Windows)", env!("GOPURR_VERSION"));
+        println!("Gopurr {}", env!("GOPURR_VERSION"));
         return Ok(());
     }
     if let Some(pid) = argument(&args, "--wait-for-process") {
@@ -314,7 +342,10 @@ pub fn run() -> Result<(), String> {
     // Old shortcuts, registered service commands and core child commands all
     // continue to enter through Gopurr.exe. Forward only actual helper modes.
     if args.get(1).is_some_and(|arg| {
-        arg == "--core" || arg.starts_with("--service-") || arg.starts_with("--sysproxy-")
+        arg == "--core"
+            || arg.starts_with("--service-")
+            || arg.starts_with("--sysproxy-")
+            || arg == "--windows-service"
     }) {
         use std::os::windows::process::CommandExt;
         let status = std::process::Command::new(root.join("gopurr-desktop.exe"))
@@ -323,6 +354,19 @@ pub fn run() -> Result<(), String> {
             .status()
             .map_err(|e| e.to_string())?;
         std::process::exit(status.code().unwrap_or(1));
+    }
+    if args.iter().any(|arg| arg == "--native-quit") {
+        use std::os::windows::process::CommandExt;
+        let status = std::process::Command::new(root.join("gopurr-desktop.exe"))
+            .args(["--native-activate", "--native-quit"])
+            .env_remove("GOPURR_HOME")
+            .creation_flags(0x08000000)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("Could not request desktop shutdown".into());
+        }
+        return Ok(());
     }
     let home = argument(&args, "--gopurr-home")
         .or_else(|| std::env::var("GOPURR_NATIVE_HOME").ok())
@@ -336,7 +380,12 @@ pub fn run() -> Result<(), String> {
     }
     let (bridge, session) = match unsafe { Bridge::open(root, &home) } {
         Ok(value) => value,
-        Err(error) if error.starts_with("already_running:") => {
+        Err(error)
+            if error.starts_with("already_running:")
+                && home
+                    == PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default())
+                        .join("Gopurr") =>
+        {
             use std::os::windows::process::CommandExt;
             // The existing mygo singleton routes activation and protocol URLs
             // to the running backend. It never constructs a legacy window.
@@ -388,7 +437,7 @@ pub fn run() -> Result<(), String> {
             title: "Gopurr".into(),
             size: (width, height),
             host: channel.clone(),
-            asset_base: Some(AssetBase::Directory(root.join("nsh"))),
+            asset_base: Some(AssetBase::Directory(root.join("nsh/assets"))),
             data_dir: Some(home.join("nsh")),
             ..Default::default()
         },
@@ -414,6 +463,14 @@ pub fn run() -> Result<(), String> {
                 }
                 return;
             }
+            if matches!(
+                name,
+                "desktop.file.open" | "desktop.file.save" | "desktop.openURL" | "desktop.reveal"
+            ) {
+                unsafe {
+                    let _ = AllowSetForegroundWindow(bridge.pid);
+                }
+            }
             thread::spawn(move || {
                 let result = if name == "desktop.dispatch" {
                     let method = data["method"].as_str().unwrap_or("");
@@ -427,22 +484,25 @@ pub fn run() -> Result<(), String> {
                 } else {
                     bridge.result(&name.replacen("desktop.", "host.", 1), data)
                 };
+                if matches!(name, "desktop.file.open" | "desktop.file.save") {
+                    post(hwnd, json!({"kind":"focus"}));
+                }
                 call.reply(result);
             });
         });
     }
     let running = Arc::new(AtomicBool::new(true));
-    let mut state = Box::new(Window {
+    let state = Box::new(Window {
         view: view.clone(),
         channel: channel.clone(),
         bridge: bridge.clone(),
         bundle: bundle.clone(),
-        prefs,
-        page,
-        visible: true,
-        loaded: true,
-        dirty: false,
-        hidden_at: Instant::now(),
+        prefs: RefCell::new(prefs),
+        page: RefCell::new(page),
+        visible: Cell::new(true),
+        loaded: Cell::new(true),
+        dirty: Cell::new(false),
+        hidden_at: Cell::new(Instant::now()),
         running: running.clone(),
     });
     unsafe {
@@ -450,7 +510,7 @@ pub fn run() -> Result<(), String> {
             view.hwnd(),
             Some(subclass),
             1,
-            (&mut *state as *mut Window) as usize,
+            (&*state as *const Window) as usize,
         )
         .as_bool()
         {
@@ -475,7 +535,7 @@ pub fn run() -> Result<(), String> {
         }
     }
     view.load(App::Js(bundle));
-    if state.prefs["silentStart"].as_bool() == Some(true) {
+    if state.prefs.borrow()["silentStart"].as_bool() == Some(true) {
         state.hide();
     } else {
         view.show();
@@ -485,16 +545,23 @@ pub fn run() -> Result<(), String> {
     let alive = running.clone();
     thread::spawn(move || {
         let mut after = 0;
+        let mut failures = 0;
         while alive.load(Ordering::Acquire) {
             match polling.result("host.events", json!({"after":after})) {
                 Ok(events) => {
+                    failures = 0;
                     for event in events.as_array().into_iter().flatten() {
                         after = after.max(event["id"].as_u64().unwrap_or(0));
                         post(hwnd, event.clone());
                     }
                 }
                 Err(error) => {
+                    failures += 1;
                     post(hwnd, json!({"kind":"error","value":error}));
+                    if failures >= 3 {
+                        post(hwnd, json!({"kind":"quit"}));
+                        break;
+                    }
                 }
             }
             thread::sleep(Duration::from_millis(400));
