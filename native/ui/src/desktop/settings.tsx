@@ -2,7 +2,7 @@ import { cleanup, effect, Scroll, signal, View } from 'nsh';
 import type { PageProps } from './types';
 import { Action, Column, Empty, Feedback, Field, Heading, Label, Modal, Panel, Row, Section, Select as BaseSelect, Tabs, Toggle, fmtBytes } from './ui';
 import { setDesktopDraft, watchDesktopDraft } from './drafts';
-import { nativeCall } from './client';
+import { desktopPlatform, nativeCall } from './client';
 import { tr } from './i18n';
 import { colors } from './theme';
 
@@ -91,7 +91,7 @@ export function SettingsPage(p:PageProps) {
     <If when={tab()==='general'}><Section title={tr('外观','Appearance')}/><Panel>
       {selectRow(tr('语言','Language'),tr('立即生效；不支持的系统语言使用英文','Applied immediately; unsupported system languages use English'),'language',[{value:'system',title:tr('跟随系统','System')},{value:'zh-Hans',title:'简体中文'},{value:'en',title:'English'}])}
       {selectRow(tr('主题','Theme'),tr('窗口与内容统一配色，切换后立即生效','Applies to window and content immediately'),'appearance',[{value:'system',title:tr('跟随系统','System')},{value:'light',title:tr('浅色','Light')},{value:'dark',title:tr('深色','Dark')}])}
-      {selectRow(tr('显示程序坞图标','Dock icon'),tr('关闭后仍显示，点击图标重新打开窗口','Click the icon to reopen the window'),'dockVisibility',[{value:'hide',title:tr('隐藏','Hidden')},{value:'follow-window',title:tr('跟随窗口','With window')},{value:'show',title:tr('显示','Shown')}])}
+      <If when={desktopPlatform()!=='windows'}>{selectRow(tr('显示程序坞图标','Dock icon'),tr('关闭后仍显示，点击图标重新打开窗口','Click the icon to reopen the window'),'dockVisibility',[{value:'hide',title:tr('隐藏','Hidden')},{value:'follow-window',title:tr('跟随窗口','With window')},{value:'show',title:tr('显示','Shown')}])}</If>
     </Panel><Section title={tr('启动与行为','Startup and behavior')}/><Panel>
       {boolRow(tr('登录时启动 Gopurr','Launch at login'),tr('登录电脑后自动运行，无需手动打开','Start automatically when you log in'),'autoLaunch')}
       {boolRow(tr('静默启动','Start silently'),tr('启动后仅驻留菜单栏或托盘，可随时打开窗口','Keep the app in the menu bar or tray on startup'),'silentStart')}

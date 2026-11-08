@@ -18,6 +18,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  windows-nsh:
+    uses: ./.github/workflows/windows-nsh.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets:
+      MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+
   android:
     uses: ./.github/workflows/android.yml
     with:
@@ -41,7 +48,7 @@ jobs:
             platform: windows/amd64
             target: windows-amd64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       GOPATH: ${{ github.workspace }}/.cache/go
       GOMODCACHE: ${{ github.workspace }}/.cache/mod
@@ -58,6 +65,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: runner.os == 'Windows'
+        with:
+          path: |
+            .cache/cargo
+            .cache/cargo-target
+            .cache/nsh-windows
+            .cache/rust-license-texts
+            .cache/build
+            .cache/mod
+          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}-release
+          restore-keys: windows-nsh-${{ runner.os }}-
       - name: Use short temporary paths for Windows Unix sockets
         if: runner.os == 'Windows'
         shell: pwsh
@@ -81,9 +100,12 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         shell: bash
         run: go run ./scripts/release -release -version "$RELEASE_TAG" -platform "$PLATFORM"
+      - name: Windows native backend real-core smoke test
+        if: runner.os == 'Windows'
+        run: go run ./scripts/smoke -binary bin/windows-amd64/gopurr-desktop.exe
       - name: Windows service and Wintun smoke test
         if: runner.os == 'Windows'
-        run: go run ./scripts/smoke-windows -binary bin/windows-amd64/Gopurr.exe
+        run: go run ./scripts/smoke-windows -binary bin/windows-amd64/gopurr-desktop.exe
       - name: Verify native macOS migration and subsequent update
         if: runner.os == 'macOS'
         env:
@@ -102,8 +124,20 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: always() && runner.os == 'Windows'
+        with:
+          path: |
+            .cache/cargo
+            .cache/cargo-target
+            .cache/nsh-windows
+            .cache/rust-license-texts
+            .cache/build
+            .cache/mod
+          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}-release
+
   publish:
-    needs: [build, android]
+    needs: [build, android, windows-nsh]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -131,6 +165,9 @@ jobs:
           test -s update-darwin-arm64.json
           test -s update-windows-amd64.json
           test -s update-native-darwin-arm64.json
+          test -s update-native-windows-amd64.json
+          cmp -s update-darwin-arm64.json update-native-darwin-arm64.json
+          cmp -s update-windows-amd64.json update-native-windows-amd64.json
           sha256sum -- *.dmg *.exe *.apk *.tar.gz *.json > SHA256SUMS
       - name: Publish after all platforms succeed
         shell: bash

@@ -32,8 +32,8 @@ import (
 // and core process, while the only window is the NSH frontend. No legacy window
 // or editor is constructed in this mode.
 func runNativeBackend(args []string) error {
-	if runtime.GOOS != "darwin" {
-		return errors.New("NSH desktop backend currently requires macOS")
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		return errors.New("NSH desktop backend requires macOS or Windows")
 	}
 	fs := flag.NewFlagSet("native-backend", flag.ContinueOnError)
 	home := fs.String("home", "", "private application directory")
@@ -57,8 +57,7 @@ func runNativeBackend(args []string) error {
 	// arguments describe this session only and must never reach the next host.
 	os.Args = []string{*frontend, "--gopurr-home", *home}
 	mygo.App.SetName("Gopurr")
-	configDir, _ := os.UserConfigDir()
-	if *productionHome && *home == filepath.Join(configDir, "Gopurr") && !mygo.App.RequestSingleInstanceLock() {
+	if *productionHome && nativehost.IsCanonicalHome(*home) && !mygo.App.RequestSingleInstanceLock() {
 		return nativehost.ErrHomeInUse
 	}
 	homeLock, err := nativehost.LockHome(*home)
@@ -101,7 +100,6 @@ func runNativeBackend(args []string) error {
 	update.ConfigureHTTPClient(a.UpdateProxyURL)
 	events := &nativehost.Events{}
 	show := func() { a.SetWindowVisible(true); events.Add("show", map[string]any{"page": a.NativePage()}) }
-	mygo.App.OnSecondInstance(func([]string, string) { show() })
 	mygo.App.SetMenu(a.ApplicationMenu(show))
 	mygo.App.OnLocaleChanged(func(string) { mygo.App.SetMenu(a.ApplicationMenu(show)) })
 	importURL := func(raw string) error {
@@ -114,6 +112,27 @@ func runNativeBackend(args []string) error {
 		show()
 		return nil
 	}
+	mygo.App.OnSecondInstance(func(args []string, _ string) {
+		for _, arg := range args {
+			if arg == "--native-quit" {
+				mygo.App.Quit()
+				return
+			}
+		}
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "gopurr://") || strings.HasPrefix(arg, "clash://") {
+				if err := importURL(arg); err != nil {
+					events.Add("error", err.Error())
+				}
+			}
+		}
+		for _, arg := range args {
+			if arg == "--autostart" {
+				return
+			}
+		}
+		show()
+	})
 	mygo.App.OnOpenURL(func(raw string) {
 		mygo.App.WhenReady(func() {
 			if err := importURL(raw); err != nil {
@@ -140,6 +159,7 @@ func runNativeBackend(args []string) error {
 			// then mygo marks the staged update for relaunch and exits. Its
 			// installer opens the new bundle only after the atomic replacement.
 			relaunch := a.RelaunchRequested()
+			log.Printf("native shutdown ready; frontend=%d relaunch=%v", *parent, relaunch)
 			events.Add("quit", map[string]bool{"relaunch": false})
 			go func() {
 				if *waitForFrontend {
@@ -150,9 +170,10 @@ func runNativeBackend(args []string) error {
 					time.Sleep(500 * time.Millisecond)
 				}
 				mygo.RunOnMain(func() {
+					log.Printf("native frontend exited; finishing shutdown (relaunch=%v)", relaunch)
 					finalQuitRequested = true
 					if relaunch {
-						mygo.App.Relaunch()
+						nativeRelaunch(*frontend, *home)
 					} else {
 						mygo.App.Quit()
 					}
@@ -282,6 +303,9 @@ func runNativeBackend(args []string) error {
 					return nil, err
 				}
 				mygo.RunOnMain(func() { a.SetWindowVisible(p.Visible) })
+				return true, nil
+			case "host.activate":
+				mygo.RunOnMain(show)
 				return true, nil
 			case "host.file.open", "host.file.save":
 				return nativeFileDialog(method, params)
@@ -433,16 +457,4 @@ func prepareNativeHome(home string) error {
 		return securefs.WriteFile(path, body, 0600)
 	}
 	return errors.New("could not reserve a private desktop proxy port")
-}
-
-func nativeParentAlive(pid int) bool {
-	if pid <= 1 || os.Getppid() != pid {
-		return false
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = process.Signal(syscall.Signal(0))
-	return err == nil || errors.Is(err, syscall.EPERM)
 }

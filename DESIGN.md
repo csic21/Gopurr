@@ -75,7 +75,7 @@ Gopurr 是用于日常操作的原生桌面网络工具。设计优先级是清�
 
 ## NSH 原生客户端迁移
 
-NSH 客户端位于 `native/ui/`，macOS 正式构建使用 `Desktop.tsx`，独立预览与远程 Web 控制台分别构建，Windows 保留原桌面。它继续使用本文的品牌、语义配色、系统字体和 Lucide 图标；`native/ui/src/theme.ts` 镜像 `internal/app/theme.go` 的颜色，修改配色时须同步核对。
+NSH 客户端位于 `native/ui/`，macOS 与 Windows 正式构建使用 `Desktop.tsx`，分别由 Mac Catalyst 和 Win32 宿主运行；独立预览与远程 Web 控制台分别构建。它继续使用本文的品牌、语义配色、系统字体和 Lucide 图标；`native/ui/src/theme.ts` 镜像 `internal/app/theme.go` 的颜色，修改配色时须同步核对。
 
 - 桌面文字沿用系统字体和字体自身的自然行高，不统一强制 1.4 倍行高；设置与表单标签、节点与设备名称使用 500 字重，分组标题保留 600，设置说明为 11.5，日志正文使用 12 字号等宽字体。
 - 桌面入口 `Desktop.tsx` 包含原版八页，使用 184 像素侧栏与可收起的八页顶栏，最小窗口 840×560。macOS 标题栏高 38；品牌复用 `internal/brand/sidebar.png`，展开坐标 (20,54)、尺寸 32，收起坐标 (88,7)、尺寸 24，顺序保持系统按钮、品牌、侧栏开关。单套导航按 320ms 连续几何过渡，流量历史按 400ms 插值；减少动态效果时直接更新。

@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"gopurr/internal/nativehost"
+	"gopurr/internal/securefs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,11 +19,18 @@ import (
 )
 
 func TestDesktopStopCancelsActiveReadsAndRequestsGracefulShutdownOnce(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "gp-stop-")
+	temporaryRoot := ""
+	if runtime.GOOS == "darwin" {
+		temporaryRoot = "/tmp"
+	}
+	dir, err := os.MkdirTemp(temporaryRoot, "gp-stop-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
+	if err := securefs.PrivateDir(dir); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	process := &desktopProcess{dir: dir, socket: filepath.Join(dir, "rpc"), token: strings.Repeat("s", 64), ctx: ctx, cancel: cancel, done: make(chan struct{})}

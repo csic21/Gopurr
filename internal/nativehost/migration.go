@@ -40,7 +40,7 @@ func PrepareDesktopMigration(home string) error {
 		if err != nil {
 			return err
 		}
-		if json.Unmarshal(b, &m) != nil || m.Schema != 1 || m.Home != home || m.Files == nil {
+		if json.Unmarshal(b, &m) != nil || m.Schema != 1 || (m.Home != home && !sameDirectory(m.Home, home)) || m.Files == nil {
 			return errors.New("invalid desktop migration snapshot")
 		}
 		return nil
@@ -52,6 +52,9 @@ func PrepareDesktopMigration(home string) error {
 		return err
 	}
 	defer os.RemoveAll(stage)
+	if err := securefs.PrivateDir(stage); err != nil {
+		return err
+	}
 	m := migrationManifest{Schema: 1, Home: home, Created: time.Now().UTC(), Files: map[string]string{}}
 	// These contain subscriptions and credentials, overrides (including the
 	// template library), preferences, remote access and mesh identity. Proxy

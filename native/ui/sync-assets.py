@@ -9,10 +9,10 @@ import shutil
 UI = Path(__file__).resolve().parent
 ROOT = UI.parents[1]
 manifest_path = UI / "nsh.json"
-manifest = json.loads(manifest_path.read_text())
-manifest["version"] = json.loads((ROOT / "mygo.json").read_text())["version"]
-manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-SOURCE = (ROOT / "internal/app/theme.go").read_text()
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+manifest["version"] = json.loads((ROOT / "mygo.json").read_text(encoding="utf-8"))["version"]
+manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+SOURCE = (ROOT / "internal/app/theme.go").read_text(encoding="utf-8")
 FIELDS = {
     "Bg": "bg", "Side": "side", "Surface": "surface", "Hover": "hover",
     "Border": "border", "Selected": "selected", "SelectedBorder": "selectedBorder",
@@ -40,7 +40,7 @@ for name in ("light", "dark"):
     lines.extend(["};", ""])
 lines.append('export function colors() { return colorScheme() === "dark" ? dark : light; }')
 lines.append("")
-(UI / "src/theme.ts").write_text("\n".join(lines))
+(UI / "src/theme.ts").write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
 assets = UI / "assets"
 (assets / "icons").mkdir(parents=True, exist_ok=True)

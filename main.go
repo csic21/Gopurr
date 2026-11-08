@@ -20,6 +20,7 @@ import (
 	"gopurr/internal/brand"
 	"gopurr/internal/buildinfo"
 	"gopurr/internal/core"
+	"gopurr/internal/nativehost"
 	"gopurr/internal/service"
 	"gopurr/internal/sysproxy"
 	"gopurr/internal/update"
@@ -86,9 +87,19 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--native-backend" {
 		if err := runNativeBackend(os.Args[2:]); err != nil {
+			if errors.Is(err, nativehost.ErrHomeInUse) {
+				os.Exit(23)
+			}
 			log.Printf("native desktop: %v", err)
 			os.Exit(1)
 		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--native-activate" {
+		mygo.App.SetName("Gopurr")
+		// A second NSH host only forwards activation/URL arguments through
+		// the established singleton. It must never open the old UI.
+		mygo.App.RequestSingleInstanceLock()
 		return
 	}
 

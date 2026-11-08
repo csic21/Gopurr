@@ -164,14 +164,23 @@ func Call(ctx context.Context, path, token, method string, params json.RawMessag
 		}
 		return nil, err
 	}
-	b, err := io.ReadAll(io.LimitReader(c, MaxMessage+1))
+	// A response is one JSON value, just like the request. Do not wait for
+	// socket EOF after receiving it: teardown of a Windows Unix socket can
+	// lag the response and must not stall the next tray/quit event poll.
+	limited := &io.LimitedReader{R: c, N: MaxMessage + 1}
+	decoder := json.NewDecoder(limited)
+	var b json.RawMessage
+	err = decoder.Decode(&b)
+	if limited.N == 0 && (err != nil || decoder.InputOffset() > MaxMessage) {
+		return nil, fmt.Errorf("native response exceeds %d bytes", MaxMessage)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		return nil, err
 	}
-	if len(b) > MaxMessage {
+	if len(b) > MaxMessage || decoder.InputOffset() > MaxMessage {
 		return nil, fmt.Errorf("native response exceeds %d bytes", MaxMessage)
 	}
 	if !json.Valid(b) {
@@ -225,7 +234,7 @@ func privateParent(path string) error {
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+	if !info.IsDir() || privateAccess(filepath.Dir(path)) != nil {
 		return errors.New("native session directory must be private (0700)")
 	}
 	return nil
@@ -241,7 +250,7 @@ func ReadToken(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() < 32 || info.Size() > 4096 {
+	if !info.Mode().IsRegular() || privateAccess(path) != nil || info.Size() < 32 || info.Size() > 4096 {
 		return "", errors.New("invalid private native session credential")
 	}
 	raw, err := os.ReadFile(path)

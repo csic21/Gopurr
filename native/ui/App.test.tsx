@@ -12,15 +12,18 @@ function host(empty = false) {
 test("mobile polling stops while hidden and resumes with fresh lists", async () => {
   const app = await open("./App.tsx", { host: host(), locale: "en-US", clock: {} });
   await app.waitFor("text:Local proxy running");
-  await app.wait(100);
+  // The initial status arrives before the profile/group promises. Establish
+  // a completed initial refresh before measuring the background interval.
+  await app.waitFor("text:日常使用 / Everyday");
   const count = () => app.host.calls().filter(c => c.name === "engine.dispatch").length;
   await app.setLifecycle("background");
   const hidden = count();
   await app.clock!.runFor(30000);
   expect(count()).toBe(hidden);
   await app.setLifecycle("active");
-  await app.wait(100);
+  await app.waitUntil(() => count() >= hidden + 3);
   expect(count()).toBe(hidden + 3);
+  expect(app.host.calls().filter(c => c.name === "engine.dispatch").slice(hidden).map(c => (c.data as {method:string}).method).sort()).toEqual(["engine.status", "profiles.list", "proxies.groups"]);
   await app.setLifecycle("inactive");
   const inactive = count();
   await app.clock!.runFor(12000);
