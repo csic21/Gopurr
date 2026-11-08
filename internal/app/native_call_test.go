@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -102,6 +103,34 @@ func TestNativeSnapshotSeparatesPagesAndRedactsBridgeCredentials(t *testing.T) {
 	node := nodes[0].(map[string]any)
 	if node["source"] != "One" || node["base"].(map[string]any)["name"] != "One" {
 		t.Fatal(node)
+	}
+}
+
+func TestNativeMeshSnapshotEncodesDeviceAddressesAsStrings(t *testing.T) {
+	nativeDispatchFixture(t)
+	a, _, _ := proxyEditorTestApp(t)
+	f := fixtureMesh(a)
+	f.snap.Status.Self.IPs = []netip.Addr{netip.MustParseAddr("100.70.0.1"), netip.MustParseAddr("fd7a:115c:a1e0::1")}
+	f.snap.Status.Peers[0].IPs = []netip.Addr{netip.MustParseAddr("100.70.0.2")}
+	snapshot, err := a.NativeSnapshot(context.Background(), "mesh", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(snapshot["mesh"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Status struct {
+			Self  struct{ IPs []string }
+			Peers []struct{ IPs []string }
+		}
+	}
+	if err := json.Unmarshal(body, &wire); err != nil {
+		t.Fatalf("mesh addresses cannot be read by the UI: %v", err)
+	}
+	if !reflect.DeepEqual(wire.Status.Self.IPs, []string{"100.70.0.1", "fd7a:115c:a1e0::1"}) || !reflect.DeepEqual(wire.Status.Peers[0].IPs, []string{"100.70.0.2"}) {
+		t.Fatal("mesh address text was lost", wire)
 	}
 }
 func TestNativeRulesTransactionRollsBackRejectedRuntime(t *testing.T) {

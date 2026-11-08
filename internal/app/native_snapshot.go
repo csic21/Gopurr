@@ -5,6 +5,7 @@ package app
 // policy rather than maintaining a second desktop engine or preference store.
 import (
 	"context"
+	"encoding"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -65,6 +66,11 @@ func nativeValue(v reflect.Value) any {
 	}
 	if v.CanInterface() {
 		if _, ok := v.Interface().(json.Marshaler); ok {
+			return v.Interface()
+		}
+		// encoding/json also uses MarshalText for values such as netip.Addr.
+		// Reflecting their private fields would turn device IPs into {}.
+		if _, ok := v.Interface().(encoding.TextMarshaler); ok {
 			return v.Interface()
 		}
 	}

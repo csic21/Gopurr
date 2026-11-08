@@ -10,12 +10,12 @@ const clone = <T,>(v:T):T => JSON.parse(JSON.stringify(v));
 const errorText = (e:unknown) => e instanceof Error ? e.message : String(e);
 export const splitLines = (s:string) => s.split(/\r?\n/).map(v=>v.trim()).filter(v=>v && !v.startsWith('#'));
 const choices = (values:string[]) => values.map(value=>({value,title:value}));
-export function FormSelect(p:Parameters<typeof BaseSelect>[0]) {return <Column gap={6}><If when={!!p.label}><Label text={p.label??''} bold size={12}/></If><BaseSelect {...p}/></Column>;}
+export function FormSelect(p:Parameters<typeof BaseSelect>[0]) {return <Column gap={6}><If when={!!p.label}><Label text={p.label??''} weight={500} size={12}/></If><BaseSelect {...p}/></Column>;}
 const Select=FormSelect;
 const featureDrafts=new Map<string,{value:any;base:string}>();
 
 export function SettingRow(p:{title:string;description?:string;children?:any}) {
-  return <Row justify="space-between" gap={16}><View style={{flex:1,gap:3,minWidth:100}}><Label text={p.title} bold/><If when={!!p.description}><Label text={p.description!} muted size={11}/></If></View>{p.children}</Row>;
+  return <Row justify="space-between" gap={16}><View style={{flex:1,gap:2,minWidth:100}}><Label text={p.title} weight={500}/><If when={!!p.description}><Label text={p.description!} muted size={11.5}/></If></View>{p.children}</Row>;
 }
 export function SaveBar(p:{dirty:boolean;busy:boolean;onSave:()=>void;onDiscard:()=>void;error?:string;notice?:string}) {
   return <View style={{gap:8,paddingVertical:12}}><If when={!!p.error}><Feedback text={p.error!} danger/></If><If when={!!p.notice}><Feedback text={p.notice!}/></If><Row justify="space-between"><Label text={p.dirty?tr('有未保存的更改','Unsaved changes'):tr('已保存','Saved')} muted size={12}/><Row><Action label={tr('放弃更改','Discard')} disabled={!p.dirty||p.busy} onPress={p.onDiscard}/><Action label={p.busy?tr('正在保存…','Saving…'):tr('保存并应用','Save and apply')} primary disabled={!p.dirty||p.busy} onPress={p.onSave}/></Row></Row></View>;
