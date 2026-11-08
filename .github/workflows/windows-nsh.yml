@@ -84,6 +84,8 @@ jobs:
         shell: pwsh
         run: |
           $nsh = "$pwd/.cache/nsh-windows/nsh/bin/nsh.exe"
+          & $nsh check native/ui
+          if ($LASTEXITCODE) { throw 'NSH type checking failed' }
           & $nsh test native/ui
           if ($LASTEXITCODE) { throw 'NSH interaction tests failed' }
           foreach ($steps in @('desktop-render','desktop-collapsed-pages','desktop-dialogs','desktop-editors','desktop-editors-large')) {

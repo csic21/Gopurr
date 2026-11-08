@@ -16,7 +16,7 @@ test("Windows desktop settings keep startup controls and omit the macOS Dock pre
 test("Windows host activation continues across every page and theme", async()=>{
  const dispatch=desktopFixtureTransport();
  const app=await open("./Desktop.tsx",{width:840,height:560,platform:"windows",locale:"en-US",host:{params:{platform:"windows",nativeTitlebarInset:0},handlers:{"desktop.window.dirty":()=>{},"desktop.dispatch":async(value:unknown)=>{const v=value as {method:string;params:any};return {result:await dispatch(v.method,v.params)};}}}});
- for(const theme of ["light","dark"]){
+ for(const theme of ["light","dark"] as const){
   await app.setColorScheme(theme);
   for(const page of ["overview","subs","proxies","conns","mesh","rules","logs","settings"]){
    await app.host.send("desktop.event",{kind:"show",value:{page}});
