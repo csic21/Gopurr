@@ -30,7 +30,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             .cache/cargo
@@ -39,7 +39,7 @@ jobs:
             .cache/rust-license-texts
             .cache/build
             .cache/mod
-          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}
+          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: windows-nsh-${{ runner.os }}-
       - name: Configure short session paths and Rust
         shell: pwsh
@@ -52,10 +52,18 @@ jobs:
       - name: Test Windows migration, authentication and backend
         env:
           CGO_ENABLED: '0'
-        run: go test -v ./internal/nativehost ./cmd/gopurr-bridge ./internal/app -timeout=20m
+        run: go test -v . ./internal/nativehost ./internal/app -timeout=20m
       - name: Build actual NSH Windows application
         shell: pwsh
         run: ./scripts/build-native-windows.ps1
+      - name: Verify the actual Windows C ABI
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = '1'
+          $env:CC = @('C:/msys64/mingw64/bin/gcc.exe','C:/mingw64/bin/gcc.exe','C:/msys64/ucrt64/bin/gcc.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $env:CC) { $env:CC = (Get-Command gcc -ErrorAction Stop).Source }
+          go test -v ./cmd/gopurr-bridge -timeout=5m
+          if ($LASTEXITCODE) { throw 'Windows C ABI tests failed' }
       - name: Build compatible per-user installer
         shell: pwsh
         run: ./scripts/package-native-windows.ps1
@@ -104,5 +112,21 @@ jobs:
           path: |
             bin/native/windows-amd64
             dist/native-windows-amd64
-            native/ui/screenshots/*.png
           retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-nsh-screenshots
+          path: native/ui/screenshots/*.png
+          retention-days: 7
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: always()
+        with:
+          path: |
+            .cache/cargo
+            .cache/cargo-target
+            .cache/nsh-windows
+            .cache/rust-license-texts
+            .cache/build
+            .cache/mod
+          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}

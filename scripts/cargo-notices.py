@@ -75,6 +75,9 @@ for identity in sorted(selected):
         if found:
             files.extend(found)
             break
+    # Vendored engines and fonts can carry additional notices below the
+    # crate root (for example QuickJS's own copyright and license).
+    nested = [p for p in source.rglob('*') if p.is_file() and not p.is_symlink() and re.fullmatch(r'(LICENSE|LICENCE|COPYING|NOTICE)([-_.][A-Za-z0-9_.-]+)?', p.name.upper())]
     if not files:
         files = upstream_license_files(package, source)
     if not files and package['name'] == 'mac' and package['version'] == '0.1.1':
@@ -91,8 +94,11 @@ for identity in sorted(selected):
     name = f"{package['name']}-{package['version']}"
     destination = args.out / name
     destination.mkdir(exist_ok=True)
-    for path in set(files):
-        shutil.copyfile(path, destination / path.name)
+    for path in set(files + nested):
+        relative = path.relative_to(source) if path.is_relative_to(source) else Path(path.name)
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
     index.extend([f"## {name}", '', package.get('license') or 'See the included upstream license texts.', '', package.get('repository') or package.get('homepage') or f'https://crates.io/crates/{package["name"]}/{package["version"]}', ''])
 (args.out / 'INDEX.md').write_text('\n'.join(index), encoding='utf-8')
 print(f'Collected source license texts for {len(selected)} locked Rust packages.')

@@ -33,7 +33,7 @@ The build checks the pinned official SDK archive SHA-256 and uses a checked-in C
 ## Required before switching production
 
 - [ ] Real Windows x64 host compiles and starts, including bridge DLL dependencies on a clean Windows installation.
-- [ ] Private session ACL rejection/authentication and durable old-data snapshot tests pass on Windows.
+- [x] Private session ACL rejection/authentication and durable old-data snapshot tests pass on Windows (run 42473625744).
 - [ ] All eight pages, collapsed navigation, editors and dialogs are inspected at 1060×720 and 840×560 in both themes, including the actual custom host window.
 - [ ] First close, tray wake, silent start, light release/reopen and dirty-draft preservation pass.
 - [ ] Real core traffic, Wintun/service management and proxy recovery pass on the ephemeral Windows runner.
@@ -43,4 +43,4 @@ The build checks the pinned official SDK archive SHA-256 and uses a checked-in C
 - [ ] Per-user installer, protocol handlers, autostart, registry identity and uninstall data retention pass.
 - [ ] Only after all preceding evidence is recorded, change the default Windows release builder and require these checks in the official Release workflow.
 
-Remote validation needs the development branch pushed to `csic21/Gopurr`. Automatic approval currently rejected that push pending the user's explicit source-upload authorization. Local verification alone does not clear any Windows acceptance checkbox above.
+Remote validation needs the development branch pushed to `csic21/Gopurr`. The user authorized the push and [draft PR #1](https://github.com/csic21/Gopurr/pull/1) runs the acceptance workflow. The first Windows run passed private session ACL/authentication and migration snapshots; remaining runtime/build checks are pending. Local verification alone does not clear the remaining Windows acceptance checkboxes above.
