@@ -23,9 +23,18 @@ fi
 
 mkdir -p "$cache_dir/download"
 if [[ ! -f "$archive_path" ]]; then
-  curl --fail --location --retry 2 --connect-timeout 20 \
-    "https://github.com/longbridge/nsh/releases/download/v$version/$archive_name" \
-    --output "$archive_path.part"
+  # The browser download redirect can return 504 even while the release API
+  # serves the same immutable asset. Hosted jobs have a read-only GH_TOKEN;
+  # keep curl available for local machines without an authenticated gh CLI.
+  if command -v gh >/dev/null 2>&1 && \
+     [[ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]]; then
+    gh release download "v$version" --repo longbridge/nsh \
+      --pattern "$archive_name" --output "$archive_path.part" --clobber
+  else
+    curl --fail --location --retry 2 --retry-all-errors --connect-timeout 20 \
+      "https://github.com/longbridge/nsh/releases/download/v$version/$archive_name" \
+      --output "$archive_path.part"
+  fi
   mv "$archive_path.part" "$archive_path"
 fi
 
