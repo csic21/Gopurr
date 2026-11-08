@@ -28,7 +28,7 @@ go run ./scripts/release -native-windows -platform windows/amd64 -release
 
 The `Windows NSH acceptance` workflow also builds and installs the per-user installer on a disposable Windows runner, renders shared Windows fixtures and the actual custom host, runs the real core/service smoke checks, checks a production-signed old-client upgrade, and tests `mygo 0.0.0 → NSH 0.0.1 → NSH 0.0.2` with temporary keys, including invalid-signature refusal. These checks are prepared, not yet executed.
 
-The build checks the pinned official SDK archive SHA-256 and uses a checked-in Cargo lock. Go and Rust caches live inside `.cache`. No command above publishes a GitHub release or changes a production feed.
+The build checks the pinned official SDK archive SHA-256 and uses Rust 1.99.1 with a checked-in Cargo lock. The locked `oxc_sourcemap` dependency requires Rust 1.95 or newer. Full shared business/UI Go regression runs in the regular CI workflow; the dedicated Windows acceptance job avoids duplicating that screenshot suite. Go and Rust caches live inside `.cache`. No command above publishes a GitHub release or changes a production feed.
 
 ## Required before switching production
 

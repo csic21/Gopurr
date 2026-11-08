@@ -18,7 +18,7 @@ $env:GOTOOLCHAIN = 'go1.27.3'
 $env:GOFLAGS = '-tags=with_gvisor'
 $env:CARGO_HOME = "$root/.cache/cargo"
 $env:CARGO_TARGET_DIR = "$root/.cache/cargo-target"
-& rustup toolchain install 1.93.1 --profile minimal
+& rustup toolchain install 1.99.1 --profile minimal
 if ($LASTEXITCODE) { throw 'Install pinned Rust toolchain failed' }
 $env:RUSTFLAGS = '-C target-feature=+crt-static'
 $env:GOPURR_VERSION = $Version
@@ -65,10 +65,10 @@ Remove-Item "$stage/GopurrBridge.h"
 # Visual Studio compiler and SDK, rather than inheriting Go's GCC setting.
 $env:CC = $null
 if (-not $SkipRust) {
-    & cargo +1.93.1 build --locked --release --manifest-path native/windows/Cargo.toml
+    & cargo +1.99.1 build --locked --release --manifest-path native/windows/Cargo.toml
     if ($LASTEXITCODE) { throw 'Build NSH Windows frontend failed' }
 }
-& cargo +1.93.1 metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc --manifest-path native/windows/Cargo.toml | Set-Content "$root/.cache/windows-cargo-metadata.json" -Encoding utf8NoBOM
+& cargo +1.99.1 metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc --manifest-path native/windows/Cargo.toml | Set-Content "$root/.cache/windows-cargo-metadata.json" -Encoding utf8NoBOM
 if ($LASTEXITCODE) { throw 'Read locked Rust dependency metadata failed' }
 & python scripts/cargo-notices.py --metadata "$root/.cache/windows-cargo-metadata.json" --out "$stage/licenses/rust"
 if ($LASTEXITCODE) { throw 'Collect bundled Rust license notices failed' }

@@ -47,12 +47,12 @@ jobs:
           New-Item C:/gp-tmp -ItemType Directory -Force | Out-Null
           "TEMP=C:/gp-tmp" >> $env:GITHUB_ENV
           "TMP=C:/gp-tmp" >> $env:GITHUB_ENV
-          rustup toolchain install 1.93.1 --profile minimal
-          rustup override set 1.93.1
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup override set 1.99.1
       - name: Test Windows migration, authentication and backend
         env:
           CGO_ENABLED: '0'
-        run: go test -v . ./internal/nativehost ./internal/app -timeout=20m
+        run: go test -v . ./internal/nativehost -timeout=5m
       - name: Build actual NSH Windows application
         shell: pwsh
         run: ./scripts/build-native-windows.ps1
