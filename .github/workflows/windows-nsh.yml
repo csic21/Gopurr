@@ -88,8 +88,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'NSH type checking failed' }
           & $nsh test native/ui
           if ($LASTEXITCODE) { throw 'NSH interaction tests failed' }
-          foreach ($steps in @('desktop-render','desktop-collapsed-pages','desktop-dialogs','desktop-editors','desktop-editors-large')) {
-            Get-Content "native/ui/$steps.steps.js" -Raw | & $nsh test native/ui/WindowsDesktopPreview.tsx --target windows
+          foreach ($steps in @('desktop-render','desktop-collapsed-pages','desktop-dialogs','desktop-editors','desktop-editors-large','windows-states')) {
+            Get-Content "native/ui/$steps.steps.js" -Raw | & $nsh test native/ui/WindowsDesktopPreview.tsx --target windows --verbose
             if ($LASTEXITCODE) { throw "Windows UI render failed: $steps" }
           }
       - name: Verify production-signed legacy to NSH update

@@ -1,46 +1,51 @@
 # Windows NSH migration acceptance
 
-Status: Windows build, C ABI, private ACL/migration, installer/protocol/uninstall, real core/service/Wintun/proxy smoke and production-key legacy update verification passed in [run 42479343973](https://github.com/csic21/Gopurr/actions/runs/42479343973). **Not accepted or selected as the production default:** NSH-to-NSH restart timed out and actual-host navigation screenshots stopped changing after the Rules page. [Diagnostic run 42482209186](https://github.com/csic21/Gopurr/actions/runs/42482209186) also exposed an unprocessed activation event after a light-mode hide while the backend remained responsive. Framed RPC replies, bounded event polling and expanded native UI/lifecycle checks are being validated; a macOS test result cannot establish Windows runtime compatibility.
+Status: the actual Windows NSH lifecycle and update chain passed [run 42485072850](https://github.com/csic21/Gopurr/actions/runs/42485072850). Native screenshots were visually reviewed at both sizes and themes. **Production remains on mygo** while the additional in-app delivery of the graceful NSH uninstaller and the final complete CI run are being verified.
 
-The Win32 frontend (`native/windows`) embeds NSH 0.4.0 at the exact upstream commit `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`. It runs the shared `native/ui/Desktop.tsx` eight-page desktop and calls the existing Go desktop backend through `GopurrBridge.dll`. The host, bridge, backend and graceful NSH uninstaller ship together in the same installation directory so that the existing updater replaces the entire payload. The NSIS build emits the new uninstaller without installing files or writing registry entries on the builder; an in-app upgrade therefore replaces the old force-stop uninstaller too.
+The Win32 frontend (`native/windows`) embeds NSH 0.4.0 at upstream commit `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`. It runs the shared `native/ui/Desktop.tsx` eight-page desktop and calls the existing Go desktop backend through `GopurrBridge.dll`. The host, bridge, backend, UI assets and graceful NSH uninstaller ship in the same installation directory so the existing updater replaces the complete payload. NSIS emits the replacement uninstaller without installing files or writing registry entries on the builder.
 
 ## Preserved contracts
 
-- Executable: `Gopurr.exe`; install directory: `%LOCALAPPDATA%\Programs\Gopurr`; application identifier: `io.github.gopurr.app`.
-- Data: `%APPDATA%\Gopurr`; subscription paths, cache paths, profiles, overrides, preferences, remote access and mesh identity stay in place. The first NSH start creates the private, atomic `migration-nsh-v1` snapshot before reading the model. Invalid JSON or linked data stops migration rather than overwriting old data.
-- Existing Ed25519 public key from `mygo.json`; both `update-windows-amd64.json` and `update-native-windows-amd64.json` refer to the same complete archive with identical signatures. The production key must be supplied through the explicitly named environment variable; no fallback key file or new key is accepted.
-- Existing service and system proxy backend; administrative operations continue through the Go helper, including its protected service executable. No NSH process installs itself as the service binary.
-- Tray background operation, first-close confirmation, silent launch, global shortcuts, protocol import and light-mode release remain host/backend responsibilities. Unsaved drafts prevent releasing the view.
-- Restart launches the new `Gopurr.exe`, waits for the previous Go helper to exit, then loads the new DLL and takes the data lock. It never starts the backend as the desktop frontend.
+- Executable `Gopurr.exe`, default installation `%LOCALAPPDATA%\Programs\Gopurr`, application identifier `io.github.gopurr.app`, existing shortcuts and protocol schemes.
+- Data `%APPDATA%\Gopurr`. Profiles, cached subscriptions, credentials, overrides, preferences, remote access and mesh identity remain in place. Before opening the model, the first NSH start creates a private atomic `migration-nsh-v1` snapshot. Invalid JSON or linked data stops migration without overwriting the original files. Directory identity checks preserve singleton locking for case aliases.
+- The existing Ed25519 public key in `mygo.json`. `update-windows-amd64.json` and `update-native-windows-amd64.json` contain identical archive URLs, sizes and signatures. Production signing requires the explicitly named environment variable; no fallback key file or key rotation is accepted.
+- Existing core, service, Wintun, proxy recovery, tray and shortcut implementations. Privileged operations use the Go helper and its protected service executable.
+- First-close confirmation, tray activation, silent launch and light-mode view release. Unsaved drafts prevent releasing the view. RPC replies are complete JSON values; event polling retries with sequenced IDs and a bounded transport timeout, without waiting for connection teardown.
+- Update restart starts the new `Gopurr.exe`, waits for the old helper to exit, then loads the new DLL and takes the data lock. It never relaunches the helper as the frontend.
+- The complete update includes `Uninstall.exe`, replacing the legacy force-stop uninstaller. The NSH uninstaller requests graceful network/core shutdown and preserves user data, migration snapshots and the managed service.
 
-The NSH Windows runtime requires Windows 10 1809 or later (including its Unix-socket support). A changed minimum Windows version must be visible in release notes before any production switch.
+The NSH Windows runtime requires Windows 10 1809 or later. This minimum must appear in release notes before production selection. Validation runs on disposable Windows x64 GitHub runners, independently of macOS.
 
 ## Build and validate on Windows
 
 ```powershell
 ./scripts/build-native-windows.ps1
 ./scripts/package-native-windows.ps1
-# Explicit production signing of the validated payload:
+# Explicit production signing of the complete validated payload:
 ./scripts/package-native-windows.ps1 -Release
-# Opt-in release builder; the ordinary release still selects mygo on Windows:
+# Acceptance remains opt-in until the production checklist is complete:
 go run ./scripts/release -native-windows -platform windows/amd64 -release
 ```
 
-The `Windows NSH acceptance` workflow also builds and installs the per-user installer on a disposable Windows runner, renders shared Windows fixtures and the actual custom host, runs the real core/service smoke checks, checks a production-signed old-client upgrade, and tests `mygo 0.0.0 → NSH 0.0.1 → NSH 0.0.2` with temporary keys, including invalid-signature refusal. The first leg, invalid-signature refusal and old-profile HTTP traffic pass; the second restart and actual-host screenshot navigation remain blocking.
+The build verifies the pinned NSH SDK archive SHA-256, uses Rust 1.99.1 and the checked-in Cargo lock, and bundles Rust dependency notices. Go and Rust caches remain inside `.cache`. Runtime fixtures restrict PATH to the Windows system directory so developer toolchain DLLs cannot satisfy a missing runtime dependency.
 
-The build checks the pinned official SDK archive SHA-256 and uses Rust 1.99.1 with a checked-in Cargo lock. The locked `oxc_sourcemap` dependency requires Rust 1.95 or newer. Full shared business/UI Go regression runs in the regular CI workflow; the dedicated Windows acceptance job avoids duplicating that screenshot suite. Go and Rust caches live inside `.cache`. No command above publishes a GitHub release or changes a production feed.
+## Acceptance evidence
 
-## Required before switching production
+[Run 42485072850](https://github.com/csic21/Gopurr/actions/runs/42485072850) passed the real Win32 host, bridge DLL, backend and core. Its production-key check installs the signed archive through the old mygo updater. A separate disposable-key integration fixture drives `mygo 0.0.0 → NSH 0.0.1 → NSH 0.0.2` through real checks, downloads, verification, replacement and process restart. It retains seeded credentials/profiles/preferences, verifies real HTTP through the migrated mixed proxy after both upgrades, refuses an invalid signature without changing the frontend, and tests login registration, silent launch and activation.
 
-- [x] Real Windows x64 host compiles and starts on the disposable runner, including bridge DLL dependencies (42479343973).
-- [x] Private session ACL rejection/authentication and durable old-data snapshot tests pass on Windows (run 42473625744).
-- [ ] All eight pages, collapsed navigation, editors and dialogs are inspected at 1060×720 and 840×560 in both themes, including the actual custom host window.
-- [ ] First close, tray wake, silent start, light release/reopen and dirty-draft preservation pass.
-- [x] Real core traffic, Wintun/service management and proxy recovery pass on the ephemeral Windows runner (42479343973).
-- [x] A disposable old mygo installation verifies and installs the production-signed NSH archive. The actual Rust-host migration fixture separately retains seeded credentials/profiles and passes real HTTP traffic (42479343973).
-- [ ] An NSH installation updates again, exits both frontend and helper, restarts the new frontend and loads the retained data.
-- [ ] Tampered archive, wrong key and incomplete native payload are refused without changing the old installation.
-- [ ] Per-user installer, protocol handlers, autostart, registry identity and uninstall data retention pass.
-- [ ] Only after all preceding evidence is recorded, change the default Windows release builder and require these checks in the official Release workflow.
+Native window navigation is verified through Windows UI Automation before every screenshot. The 32 actual-host images, Windows SDK page renders, collapsed navigation, editors and dialogs were reviewed at 1060×720 and 840×560, light and dark. The minimum overview keeps system proxy, TUN, DNS and sniffing controls visible. Screenshots alone do not replace the real core/update checks.
 
-Remote validation needs the development branch pushed to `csic21/Gopurr`. The user authorized the push and [draft PR #1](https://github.com/csic21/Gopurr/pull/1) runs the acceptance workflow. Evidence above is partial; the failed second restart and actual-host navigation prevent production selection. Local verification alone does not clear the remaining Windows acceptance checkboxes above.
+- [x] Windows x64 host build, C ABI, clean runtime PATH and actual startup.
+- [x] Private ACL rejection, authenticated IPC, canonical-home locking and durable migration snapshots.
+- [x] Eight pages, collapsed navigation, long text, selected/disabled controls, editors and dialogs visually reviewed in both sizes/themes.
+- [x] First close, backend continuity, background activation, light-mode release/reopen, login entry and silent launch. Shared interaction tests also preserve hidden-page drafts and dirty transitions.
+- [x] Real core traffic, Wintun/service operations and proxy recovery.
+- [x] Production-key old-client signed update verification and seeded-data migration into the actual NSH frontend.
+- [x] NSH-to-NSH update exits both processes, starts the new frontend and retains the old data.
+- [x] Invalid signature leaves the installed frontend unchanged; wrong/malformed signing keys are rejected. The packager requires the full native payload before signing.
+- [x] Per-user installer, protocol commands, registry identity, graceful fresh-install uninstall and data retention.
+- [ ] Replacement uninstaller delivered by an in-app update gracefully uninstalls the running upgraded app and retains old data.
+- [ ] Final complete macOS/Windows/Android CI, including NSH type checking.
+- [ ] Only after all preceding evidence, select NSH as the Windows release default and gate the official Release workflow on this acceptance suite.
+
+The user authorized source push and [draft PR #1](https://github.com/csic21/Gopurr/pull/1). No acceptance command publishes a release or changes the production feed.
