@@ -1,6 +1,26 @@
 {
-  "icon": "internal/brand/logo.png",
+  "name": "Gopurr",
+  "slug": "gopurr",
   "identifier": "io.github.gopurr.app",
+  "version": "0.6.22",
+  "icon": "internal/brand/logo.png",
+  "out": "bin",
+  "publisher": "Gopurr",
+  "urlSchemes": [
+    "gopurr",
+    "clash"
+  ],
+  "updates": {
+    "publicKey": "ToB+ygOcp9k9Cftxlj/Vkj2iMNyy5hm3n2yNZLYvmdU=",
+    "github": "csic21/Gopurr",
+    "tagPrefix": "v",
+    "deltas": 0
+  },
+  "resources": [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
   "macos": {
     "infoPlist": {
       "CFBundleDevelopmentRegion": "en",
@@ -9,25 +29,5 @@
         "zh-Hans"
       ]
     }
-  },
-  "name": "Gopurr",
-  "out": "bin",
-  "publisher": "Gopurr",
-  "resources": [
-    "LICENSE",
-    "THIRD_PARTY_NOTICES.md",
-    "licenses"
-  ],
-  "slug": "gopurr",
-  "updates": {
-    "deltas": 0,
-    "github": "csic21/Gopurr",
-    "publicKey": "ToB+ygOcp9k9Cftxlj/Vkj2iMNyy5hm3n2yNZLYvmdU=",
-    "tagPrefix": "v"
-  },
-  "urlSchemes": [
-    "gopurr",
-    "clash"
-  ],
-  "version": "0.6.22"
+  }
 }
