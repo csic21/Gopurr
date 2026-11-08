@@ -7,3 +7,8 @@ void GopurrDesktopShowWindow(void);
 void GopurrDesktopHideWindow(void);
 void GopurrDesktopLayoutChrome(void);
 double GopurrDesktopTitlebarInset(void);
+
+// The foreground Catalyst process owns the menu-bar status item.
+int GopurrDesktopInstallTray(const char *imagePath, void (^action)(const char *));
+void GopurrDesktopShowTrayMenu(const char *json);
+int GopurrDesktopTrayVisible(void);

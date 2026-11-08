@@ -14,6 +14,7 @@ import (
 
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
+	"gopurr/internal/update"
 )
 
 func nativeDispatchFixture(t *testing.T) {
@@ -348,5 +349,23 @@ func TestNativeMalformedNetworkSwitchDoesNotTouchOS(t *testing.T) {
 		if _, err := a.NativeCall(context.Background(), "desktop.systemProxy.set", raw); err == nil {
 			t.Fatal("malformed network mutation accepted")
 		}
+	}
+}
+
+func TestNativeUpdateVisibilityIsSharedAcrossPages(t *testing.T) {
+	nativeDispatchFixture(t)
+	a, _, _ := proxyEditorTestApp(t)
+	fixtureSoftwareUpdate(t, a, update.Current)
+	snapshot, err := a.NativeSnapshot(context.Background(), "overview", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, ok := snapshot["update"].(map[string]any)
+	if !ok || state["visible"] != true || state["phase"] != string(update.Current) {
+		t.Fatal("update state missing outside settings", snapshot["update"])
+	}
+	nativeInvoke(t, a, "desktop.update.hide", map[string]any{})
+	if a.softwareUpdates.Snapshot().Visible {
+		t.Fatal("update dialog did not hide")
 	}
 }

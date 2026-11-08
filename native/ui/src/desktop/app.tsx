@@ -12,6 +12,7 @@ import { LogsPage } from "./logs";
 import { RulesPage } from "./rules";
 import { MeshPage } from "./mesh";
 import { SettingsPage } from "./settings";
+import { UpdateDialog } from "./updates";
 import type { Page, PageProps } from "./types";
 import { hasUnsavedDesktopDraft, watchDesktopDraft } from "./drafts";
 export { hasUnsavedDesktopDraft } from "./drafts";
@@ -37,7 +38,7 @@ export function DesktopApp(preview:{motionProgress?:number}={}) {
  const reload=()=>void refresh().then(()=>{if(!initial()){collapsed.set(!!state().prefs.sidebarCollapsed);if(preview.motionProgress===undefined)navProgress.set(collapsed()?1:0);initial.set(true);}}).catch(e=>error.set(e instanceof Error?e.message:String(e)));
  reload();
  listenDesktopEvents();
- const timer=setInterval(()=>{if(lifecycle()==="active"&&!busy())reload();},1000);cleanup(()=>clearInterval(timer));
+ const timer=setInterval(()=>{if(lifecycle()!=="background"&&!busy())reload();},1000);cleanup(()=>clearInterval(timer));
  nav.forEach((n,i)=>keymap.bind(`mod+${i+1}`,()=>goto(n.id)));
  keymap.bind("mod+shift+l",toggle);keymap.bind("mod+\\",toggle);keymap.bind("mod+r",reload);
  const titlebarInset=chromeInset;
@@ -60,6 +61,7 @@ export function DesktopApp(preview:{motionProgress?:number}={}) {
  <Button testID="desktop-toggle-sidebar" accessibilityLabel={tr("切换侧栏","Toggle sidebar")} onPress={toggle} style={{position:"absolute",left:lerp(Math.max(192,layout().leading)+4,layout().toggle),top:(titlebarHeight()-30)/2,width:30,height:30,alignItems:"center",justifyContent:"center",borderRadius:4}} hoverStyle={{backgroundColor:colors().hover}}><Icon name="panel" size={15}/></Button>
  <View style={{pointerEvents:"none",position:"absolute",left:16,bottom:16,gap:5,opacity:1-navProgress(),transform:[{translateX:lerp(0,-184)}]}}><Row gap={6}><View style={{width:5,height:5,borderRadius:3,backgroundColor:state().status.kernel?colors().success:colors().faint}}/><Label text={statusLabel()} size={11} muted/></Row><Label text={`${state().status.proxies??0} ${tr("代理","proxies")} · ${state().status.rules??0} ${tr("规则","rules")}`} size={10} muted/></View>
  </View>
+ <UpdateDialog {...p}/>
  <Modal title={tr("关闭窗口后继续代理","Keep running after closing")} open={closeRequested()} onClose={()=>{if(!closeBusy())closeRequested.set(false);}} error={closeError()} width={500} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} disabled={closeBusy()} onPress={()=>closeRequested.set(false)}/><Action testID="desktop-close-background" primary label={tr("继续后台运行","Continue in background")} disabled={closeBusy()} onPress={()=>void continueInBackground()}/></Row>}><Label text={tr("关闭窗口后，Gopurr 会继续在菜单栏或托盘运行，代理保持当前状态。要停止并退出，请使用菜单中的“退出 Gopurr”。","Closing the window keeps Gopurr and your proxy running in the menu bar or tray. To stop and exit, choose Quit Gopurr from the menu.")}/></Modal>
  <Canvas accessibilityElementsHidden style={{position:"absolute",left:-2,top:-2,width:1,height:1,pointerEvents:"none"}} draw={(cx)=>{cx.font="600 12.5px system-ui";const labels=nav.map(n=>cx.measureText(tr(n.zh,n.en)).width);cx.font="600 13px system-ui";const brand=cx.measureText("Gopurr").width;cx.font="400 11px system-ui";const status=Math.max(...[tr("内核运行中","Kernel running"),tr("内核已停止","Kernel stopped"),tr("正在启动…","Starting…")].map(v=>cx.measureText(v).width));const next={labels,brand,status};if(brand>0&&status>0&&labels.every(v=>v>0)&&JSON.stringify(next)!==JSON.stringify(measurements()))measurements.set(next);}}/>
  </View>;

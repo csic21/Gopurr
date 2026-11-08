@@ -51,6 +51,7 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 			Executable     string `json:"executable"`
 			Frontend       string `json:"frontend"`
 			ProductionHome bool   `json:"productionHome"`
+			FrontendTray   bool   `json:"frontendTray"`
 		}
 		if options == nil || json.Unmarshal([]byte(C.GoString(options)), &o) != nil || !filepath.IsAbs(o.Home) || !filepath.IsAbs(o.Executable) || !filepath.IsAbs(o.Frontend) {
 			return failure("invalid_params", "Absolute desktop paths are required")
@@ -91,6 +92,9 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		}
 		cmd := exec.Command(o.Executable, "--native-backend", "--home", o.Home, "--socket", socket, "--token-file", tokenFile, "--frontend", o.Frontend, "--parent", fmt.Sprint(os.Getpid()))
 		cmd.Args = append(cmd.Args, "--wait-for-frontend-exit")
+		if o.FrontendTray {
+			cmd.Args = append(cmd.Args, "--frontend-tray")
+		}
 		if o.ProductionHome {
 			cmd.Args = append(cmd.Args, "--production-home")
 		}

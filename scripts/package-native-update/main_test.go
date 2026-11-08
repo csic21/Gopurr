@@ -63,6 +63,7 @@ func fixture(t *testing.T) testRelease {
 		t.Fatal(err)
 	}
 	write("Contents/Resources/native-build.json", marker, 0o644)
+	write("Contents/Resources/TrayTemplate.png", []byte("tray fixture"), 0o644)
 	write("Contents/Resources/LICENSE", []byte("license"), 0o644)
 	write("Contents/Resources/THIRD_PARTY_NOTICES.md", []byte("third party"), 0o644)
 	b, err := json.Marshal(c)
@@ -215,7 +216,7 @@ func TestSignsCompleteBundleWithExistingTrustAndDoesNotChangeInput(t *testing.T)
 			t.Fatal("nonportable ownership")
 		}
 	}
-	for _, name := range []string{"Contents/MacOS/Gopurr Native", "Contents/Resources/gopurr-desktop", "Contents/Resources/nsh/bundle.nshc", "Contents/Resources/nsh/capabilities.json", "Contents/Info.plist"} {
+	for _, name := range []string{"Contents/Resources/TrayTemplate.png", "Contents/MacOS/Gopurr Native", "Contents/Resources/gopurr-desktop", "Contents/Resources/nsh/bundle.nshc", "Contents/Resources/nsh/capabilities.json", "Contents/Info.plist"} {
 		if seen["Gopurr Native.app/"+name] == nil {
 			t.Fatalf("incomplete update: %s", name)
 		}

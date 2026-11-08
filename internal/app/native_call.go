@@ -278,11 +278,15 @@ func (a *App) NativeCall(ctx context.Context, method string, raw json.RawMessage
 				return nil, errors.New(e)
 			}
 			return map[string]any{"accepted": busy}, nil
-		case "desktop.update.check", "desktop.update.install", "desktop.update.cancel", "desktop.update.restart":
+		case "desktop.update.check", "desktop.update.install", "desktop.update.cancel", "desktop.update.restart", "desktop.update.hide", "desktop.update.show":
 			if a.softwareUpdates == nil {
 				return nil, errors.New("application updater unavailable")
 			}
 			switch method {
+			case "desktop.update.hide":
+				a.softwareUpdates.Hide()
+			case "desktop.update.show":
+				a.softwareUpdates.Show()
 			case "desktop.update.check":
 				a.softwareUpdates.Check(true)
 			case "desktop.update.install":

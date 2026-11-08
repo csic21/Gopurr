@@ -176,6 +176,9 @@ func (a *App) NativeSnapshot(ctx context.Context, page, scopeID string) (map[str
 		if a.mgr != nil {
 			out["service"].(map[string]any)["needsUpdate"] = a.mgr.ServiceNeedsUpdate() || a.mgr.ServiceVersionSkew()
 		}
+		if a.softwareUpdates != nil {
+			out["update"] = nativeJSON(a.softwareUpdates.Snapshot())
+		}
 		profiles := []any{}
 		active := ""
 		if a.store != nil {
@@ -253,9 +256,6 @@ func (a *App) NativeSnapshot(ctx context.Context, page, scopeID string) (map[str
 			out["meshAccess"] = map[string]any{"ready": a.meshAccessReady(), "error": a.meshRouteError, "preparing": a.meshPreparePending, "prepareError": a.meshPrepareError}
 		}
 		if page == "settings" || page == "" {
-			if a.softwareUpdates != nil {
-				out["update"] = nativeJSON(a.softwareUpdates.Snapshot())
-			}
 			steps, running := a.diagnosticSnapshot()
 			out["diagnostics"] = map[string]any{"steps": nativeJSON(steps), "running": running, "url": a.diagURL, "error": a.diagError}
 			cfg := a.remoteConfigSnapshot()

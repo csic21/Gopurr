@@ -122,6 +122,7 @@ path, version, feed, key, home = sys.argv[1:]
 pathlib.Path(path).write_text(json.dumps(dict(schema=1,ui='nsh-desktop',backend='desktop-v2',version=version,updateFeed=feed,updatePublicKey=key,updateEnabled=bool(feed),dataDirectory=home),indent=2)+'\n')
 PY
 fi
+cp internal/brand/tray.png "$resource_dir/TrayTemplate.png"
 cp LICENSE THIRD_PARTY_NOTICES.md "$resource_dir/"
 cp -R licenses "$resource_dir/"
 if [[ "$target" == catalyst ]]; then
@@ -154,6 +155,8 @@ fi
 framework_dir="$sdk_root/embed/ios/NativeShell.xcframework/$framework_slice"
 "$cc_wrapper" -fobjc-arc -fmodules -fmodules-cache-path="$project_dir/.cache/clang" \
   -c native/apple/DesktopWindow.m -o "$build_dir/DesktopWindow.o"
+"$cc_wrapper" -fobjc-arc -fmodules -fmodules-cache-path="$project_dir/.cache/clang" \
+  -c native/apple/DesktopTray.m -o "$build_dir/DesktopTray.o"
 cat > "$build_dir/host.h" <<EOF
 #include "libgopurr.h"
 #include "$project_dir/native/apple/DesktopWindow.h"
@@ -175,7 +178,7 @@ if [[ "$target" == catalyst ]]; then
   )
 fi
 xcrun swiftc "${swift_args[@]}" native/apple/EngineBridge.swift native/apple/DesktopBridge.swift native/apple/App.swift \
-  "$build_dir/libgopurr.a" "$build_dir/DesktopWindow.o" -o "$executable_dir/$app_name"
+  "$build_dir/libgopurr.a" "$build_dir/DesktopWindow.o" "$build_dir/DesktopTray.o" -o "$executable_dir/$app_name"
 
 cat > "$plist_path" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

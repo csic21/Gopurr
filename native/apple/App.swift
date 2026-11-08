@@ -28,6 +28,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     private var releaseTimer: Timer?
     private var appliedInitialPrefs = false
     private var hasUnsavedDrafts = false
+    private var trayReady = false
     var lastPage = "overview"
 
     func application(_ application: UIApplication,
@@ -50,6 +51,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         #endif
         self.home = home
         if let desktop {
+            if let icon = Bundle.main.url(forResource: "TrayTemplate", withExtension: "png") {
+                trayReady = GopurrDesktopInstallTray(icon.path) { [weak self] action in
+                    guard let action else { return }
+                    self?.handleTrayAction(String(cString: action))
+                } != 0
+            }
             eventTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
                 desktop.poll { result in
                     DispatchQueue.main.async {
@@ -76,6 +83,28 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    private func handleTrayAction(_ action: String) {
+        guard let desktop else { return }
+        if action == "show" { showDesktop(); return }
+        let method = action == "menu" ? "host.tray.menu" : "host.tray.activate"
+        desktop.dispatch(method, action == "menu" ? [:] : ["command": action]) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                do {
+                    let value = try result.get() as? [String: Any] ?? [:]
+                    if let error = value["error"] as? [String: Any] { throw BridgeError(error["message"] as? String ?? "Menu operation failed") }
+                    if action == "menu", let items = value["result"] as? [[String: Any]] {
+                        let data = try JSONSerialization.data(withJSONObject: items)
+                        GopurrDesktopShowTrayMenu(String(decoding: data, as: UTF8.self))
+                    }
+                } catch {
+                    self.showDesktop()
+                    self.onDesktopEvent?(["kind": "error", "value": error.localizedDescription])
+                }
+            }
+        }
+    }
+
     func applyPreferences(_ prefs: [String: Any]) {
         let releaseChanged = (preferences["lightMode"] as? Bool) != (prefs["lightMode"] as? Bool) || (preferences["lightDelaySeconds"] as? Int) != (prefs["lightDelaySeconds"] as? Int)
         preferences = prefs
@@ -85,7 +114,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         GopurrDesktopLayoutChrome()
         if !appliedInitialPrefs {
             appliedInitialPrefs = true
-            if prefs["silentStart"] as? Bool == true { GopurrDesktopHideWindow(); setWindowVisible(false) }
+            if trayReady && prefs["silentStart"] as? Bool == true { GopurrDesktopHideWindow(); setWindowVisible(false) }
         }
         applyDockPolicy()
         scheduleRelease()
@@ -110,6 +139,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func closeDesktopWindow() {
+        guard trayReady else { return }
         GopurrDesktopHideWindow()
         setWindowVisible(false)
     }
@@ -122,7 +152,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     private func applyDockPolicy() {
         let policy = preferences["dockVisibility"] as? String ?? "show"
-        GopurrDesktopSetDock(policy == "hide" || (policy == "follow-window" && !windowVisible) ? 0 : 1)
+        GopurrDesktopSetDock(trayReady && (policy == "hide" || (policy == "follow-window" && !windowVisible)) ? 0 : 1)
     }
 
     private func scheduleRelease() {
@@ -275,6 +305,9 @@ final class GopurrController: UIViewController {
            ["overview", "profiles", "subs", "proxies", "conns", "mesh", "rules", "logs", "settings"].contains(page) {
             app.params["page"] = page
         }
+        // Catalyst uses desktop point sizes; the iOS 17pt body normalization
+        // otherwise shrinks Mac-idiom text before it reaches CoreText.
+        if desktop != nil { app.fontScale = 1 }
         app.limits = NshLimits(memoryMB: 128, callBudget: 2, maxNodes: 50_000)
         app.onError = { [weak self] message in self?.showFailure(message) }
         var channels = ["engine.dispatch"]
@@ -361,6 +394,7 @@ final class GopurrController: UIViewController {
     private func installWindowHooks(attempt: Int = 0) {
         if attempt == 0, ProcessInfo.processInfo.environment["GOPURR_NATIVE_GEOMETRY_LOG"] == "1" {
             NSLog("Gopurr desktop geometry: idiom=%ld view=%@ scale=%.2f", UIDevice.current.userInterfaceIdiom.rawValue, String(describing: view.bounds), view.traitCollection.displayScale)
+            NSLog("Gopurr desktop type: body=%.2f override=%.2f tray=%d", UIFont.preferredFont(forTextStyle: .body).pointSize, app.fontScale ?? 0, GopurrDesktopTrayVisible())
         }
         let installed = GopurrDesktopInstallWindowHooks { visible in
             let delegate = UIApplication.shared.delegate as? AppDelegate

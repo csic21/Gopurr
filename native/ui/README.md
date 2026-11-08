@@ -78,3 +78,10 @@ Run the real native AppKit renderer (one instance at a time):
 failed saves, explicit authorization of mesh ports, and animation reversal.
 `make native-desktop-smoke` verifies the shipped desktop helper with a real core,
 loopback traffic, rollback and backup validation in an isolated directory.
+
+The Catalyst host pins NSH's desktop font scale to 1.0: macOS's 13pt body
+must not be normalized against iOS's 17pt default. The host owns its status
+item; its fresh menu and commands come from the existing desktop model.
+`DesktopUpdatePreview.tsx` and `desktop-updates.steps.js` capture checking
+animation frames, release notes, download progress and ready-to-restart states.
+For the large matrix, replace the script's 840×560 viewport with 1060×720.

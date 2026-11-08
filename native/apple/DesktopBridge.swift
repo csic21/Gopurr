@@ -4,6 +4,7 @@ import Foundation
 /// Only JSON crosses the private socket; the helper never creates an old UI.
 final class DesktopBridge: @unchecked Sendable {
     private let queue = DispatchQueue(label: "io.github.gopurr.native.desktop", qos: .userInitiated)
+    private let trayQueue = DispatchQueue(label: "io.github.gopurr.native.tray", qos: .userInitiated)
     private let eventsQueue = DispatchQueue(label: "io.github.gopurr.native.events", qos: .userInitiated)
     private let lock = NSLock()
     private let home: URL
@@ -20,6 +21,17 @@ final class DesktopBridge: @unchecked Sendable {
     init(home: URL) { self.home = home }
 
     func dispatch(_ method: String, _ params: Any?, completion: @escaping (Result<Any, Error>) -> Void) {
+        // Menu queries must not wait behind an in-flight subscription download.
+        // Startup still uses the single serial queue so the helper opens once.
+        if method.hasPrefix("host.tray."), session().0 != 0 {
+            trayQueue.async { [self] in
+                let current = session()
+                guard !current.1, current.0 != 0 else { completion(.failure(BridgeError("The desktop service is closed"))); return }
+                do { completion(.success(try call(current.0, method, params))) }
+                catch { completion(.failure(error)) }
+            }
+            return
+        }
         queue.async { [self] in
             do {
                 guard !session().1 else { throw BridgeError("The desktop service is closed") }
@@ -65,7 +77,7 @@ final class DesktopBridge: @unchecked Sendable {
         guard let helper = Bundle.main.url(forResource: "gopurr-desktop", withExtension: nil),
               let frontend = Bundle.main.executableURL else { throw BridgeError("The desktop helper is missing") }
         let options: [String: Any] = ["home": home.path, "executable": helper.path, "frontend": frontend.path,
-            "productionHome": Bundle.main.object(forInfoDictionaryKey: "GopurrDataDirectory") as? String == "Gopurr"]
+            "frontendTray": true, "productionHome": Bundle.main.object(forInfoDictionaryKey: "GopurrDataDirectory") as? String == "Gopurr"]
         let json = String(decoding: try JSONSerialization.data(withJSONObject: options), as: UTF8.self)
         let result = try json.withCString { try decode(GopurrDesktopOpen(UnsafeMutablePointer(mutating: $0))) }
         if let failure = result["error"] as? [String: Any] { throw BridgeError(failure["message"] as? String ?? "Desktop startup failed") }

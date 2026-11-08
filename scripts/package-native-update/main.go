@@ -286,7 +286,7 @@ func validateBundle(o options, c config, inspect inspectors) error {
 	if !strings.Contains(string(js), "desktop-nav-") || !strings.Contains(string(js), "desktop.dispatch") {
 		return errors.New("NSH bundle is not the desktop UI")
 	}
-	for _, name := range []string{"Contents/Resources/nsh/bundle.nshc", "Contents/Resources/LICENSE", "Contents/Resources/THIRD_PARTY_NOTICES.md"} {
+	for _, name := range []string{"Contents/Resources/TrayTemplate.png", "Contents/Resources/nsh/bundle.nshc", "Contents/Resources/LICENSE", "Contents/Resources/THIRD_PARTY_NOTICES.md"} {
 		fi, e := os.Lstat(filepath.Join(o.app, name))
 		if e != nil || !fi.Mode().IsRegular() || fi.Size() == 0 {
 			return fmt.Errorf("missing native release resource: %s", name)

@@ -42,6 +42,7 @@ func runNativeBackend(args []string) error {
 	frontend := fs.String("frontend", "", "NSH application executable")
 	parent := fs.Int("parent", 0, "frontend PID")
 	waitForFrontend := fs.Bool("wait-for-frontend-exit", false, "keep the bundle alive until the NSH host exits")
+	frontendTray := fs.Bool("frontend-tray", false, "native frontend owns the macOS status item")
 	productionHome := fs.Bool("production-home", false, "reuse and snapshot the established desktop data")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -243,6 +244,7 @@ func runNativeBackend(args []string) error {
 			})
 		}()
 	})
+	trayMenu := app.NewNativeTrayMenu(func() *mygo.Menu { return a.TrayMenu(show) })
 	var server *nativehost.Server
 	defer func() {
 		if server != nil {
@@ -254,7 +256,9 @@ func runNativeBackend(args []string) error {
 		a.ConfigureShortcuts(mygo.GlobalShortcut, show)
 		mygo.App.OnQuit(a.CloseShortcuts)
 		a.StartBackground()
-		installTrayWithWindow(a, show)
+		if !*frontendTray || runtime.GOOS != "darwin" {
+			installTrayWithWindow(a, show)
+		}
 		var listenErr error
 		server, listenErr = nativehost.Listen(*socket, token, func(ctx context.Context, method string, params json.RawMessage) (any, error) {
 			if a.ShuttingDown() && method != "host.ping" && method != "host.events" && method != "host.shutdown" {
@@ -264,6 +268,16 @@ func runNativeBackend(args []string) error {
 				return nil, err
 			}
 			switch method {
+			case "host.tray.menu":
+				return trayMenu.Snapshot(ctx)
+			case "host.tray.activate":
+				var p struct {
+					Command string `json:"command"`
+				}
+				if err := json.Unmarshal(params, &p); err != nil {
+					return nil, err
+				}
+				return trayMenu.Activate(ctx, p.Command)
 			case "host.ping":
 				return map[string]any{"ready": true, "version": buildinfo.Version}, nil
 			case "host.importURL":
