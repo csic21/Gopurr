@@ -52,7 +52,9 @@ if ($LASTEXITCODE) { throw 'Build shared desktop UI failed' }
 if ($LASTEXITCODE) { throw 'Build Windows icon failed' }
 $env:CGO_ENABLED = '0'
 $flags = "-s -w -H=windowsgui -X gopurr/internal/buildinfo.Version=$Version -X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageName=Gopurr -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageURLSchemes=gopurr,clash -X github.com/egoist/mygo.packageVersion=$Version -X github.com/egoist/mygo.packageUpdateFeed=$UpdateFeed -X github.com/egoist/mygo.packageUpdateKey=$($config.updates.publicKey)"
-& go build -trimpath -ldflags $flags -o "$stage/gopurr-desktop.exe" .
+# Preserve Go linker provenance: -trimpath omits -ldflags from build info,
+# which prevents the packager from verifying the embedded updater feed/key.
+& go build -ldflags $flags -o "$stage/gopurr-desktop.exe" .
 if ($LASTEXITCODE) { throw 'Build desktop backend failed' }
 $gcc = @('C:/msys64/mingw64/bin/gcc.exe', 'C:/mingw64/bin/gcc.exe', 'C:/msys64/ucrt64/bin/gcc.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $gcc) { $gcc = (Get-Command gcc -ErrorAction Stop).Source }
