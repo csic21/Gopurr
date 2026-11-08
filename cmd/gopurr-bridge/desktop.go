@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,7 +95,8 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 			cmd.Args = append(cmd.Args, "--production-home")
 		}
 		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		startupLog := &desktopStartupLog{}
+		cmd.Stderr = startupLog
 		configureDesktopCommand(cmd)
 		if err = cmd.Start(); err != nil {
 			return failure("open_failed", err.Error())
@@ -133,7 +135,11 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 				} else if errors.Is(err, nativehost.ErrHomeInUse) {
 					return desktopAlreadyRunning(o.Home)
 				}
-				return failure("open_failed", "Desktop backend exited during startup")
+				message := "Desktop backend exited during startup"
+				if detail := startupLog.String(); detail != "" {
+					message += ": " + detail
+				}
+				return failure("open_failed", message)
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
@@ -150,6 +156,34 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		b, _ := json.Marshal(map[string]any{"handle": id, "socket": socket, "tokenFile": tokenFile, "backendPID": cmd.Process.Pid, "frontendPID": os.Getpid()})
 		return b
 	})
+}
+
+// GUI processes may have no stderr handle on Windows. Keep a bounded startup
+// diagnostic for the frontend and tolerate an unavailable inherited console.
+type desktopStartupLog struct {
+	sync.Mutex
+	text []byte
+}
+
+func (l *desktopStartupLog) Write(data []byte) (int, error) {
+	const limit = 8192
+	l.Lock()
+	if len(data) >= limit {
+		l.text = append(l.text[:0], data[len(data)-limit:]...)
+	} else {
+		if excess := len(l.text) + len(data) - limit; excess > 0 {
+			l.text = l.text[excess:]
+		}
+		l.text = append(l.text, data...)
+	}
+	l.Unlock()
+	_, _ = os.Stderr.Write(data)
+	return len(data), nil
+}
+func (l *desktopStartupLog) String() string {
+	l.Lock()
+	defer l.Unlock()
+	return strings.TrimSpace(string(l.text))
 }
 
 func desktopAlreadyRunning(home string) []byte {

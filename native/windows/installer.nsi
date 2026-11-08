@@ -58,16 +58,16 @@ Section
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "Publisher" "Gopurr"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "DisplayIcon" "$INSTDIR\Gopurr.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "QuietUninstallString" '$"$INSTDIR\Uninstall.exe$" /S'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.gopurr.app" "NoRepair" 1
   WriteRegStr HKCU "Software\Classes\gopurr" "" "URL:Gopurr"
   WriteRegStr HKCU "Software\Classes\gopurr" "URL Protocol" ""
-  WriteRegStr HKCU "Software\Classes\gopurr\shell\open\command" "" '$"$INSTDIR\Gopurr.exe$" $"%1$"'
+  WriteRegStr HKCU "Software\Classes\gopurr\shell\open\command" "" '"$INSTDIR\Gopurr.exe" "%1"'
   WriteRegStr HKCU "Software\Classes\clash" "" "URL:Gopurr"
   WriteRegStr HKCU "Software\Classes\clash" "URL Protocol" ""
-  WriteRegStr HKCU "Software\Classes\clash\shell\open\command" "" '$"$INSTDIR\Gopurr.exe$" $"%1$"'
+  WriteRegStr HKCU "Software\Classes\clash\shell\open\command" "" '"$INSTDIR\Gopurr.exe" "%1"'
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 SectionEnd
 Function CreateDesktopShortcut

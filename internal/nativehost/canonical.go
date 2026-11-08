@@ -13,10 +13,17 @@ func IsCanonicalHome(home string) bool {
 	if err != nil {
 		return false
 	}
-	current, err := os.Stat(home)
+	return sameDirectory(home, filepath.Join(config, "Gopurr"))
+}
+
+func sameDirectory(first, second string) bool {
+	if !filepath.IsAbs(first) || !filepath.IsAbs(second) {
+		return false
+	}
+	current, err := os.Stat(first)
 	if err != nil || !current.IsDir() {
 		return false
 	}
-	canonical, err := os.Stat(filepath.Join(config, "Gopurr"))
+	canonical, err := os.Stat(second)
 	return err == nil && canonical.IsDir() && os.SameFile(current, canonical)
 }

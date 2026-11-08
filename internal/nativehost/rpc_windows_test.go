@@ -93,4 +93,10 @@ func TestCanonicalWindowsHomeUsesDirectoryIdentity(t *testing.T) {
 	if IsCanonicalHome(t.TempDir()) {
 		t.Fatal("isolated home could activate the production instance")
 	}
+	if err := PrepareDesktopMigration(home); err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareDesktopMigration(strings.ToUpper(home)); err != nil {
+		t.Fatal("case alias rejected the existing migration snapshot", err)
+	}
 }

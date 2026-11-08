@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -533,14 +534,25 @@ func waitServicePID(manager *kernel.Manager, previous int) error {
 }
 
 func freeMixedPort() (int, error) {
-	for i := 0; i < 40; i++ {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+	var lastErr error
+	for i := 0; i < 128; i++ {
+		// Windows can reserve a whole UDP block inside TCP's ephemeral range.
+		// After probing port zero, sample below that range rather than walking
+		// sequentially through one excluded block on a hosted runner.
+		candidate := 0
+		if i >= 16 {
+			candidate = 10000 + rand.IntN(30000)
+		}
+		address := net.JoinHostPort("127.0.0.1", strconv.Itoa(candidate))
+		ln, err := net.Listen("tcp4", address)
 		if err != nil {
-			return 0, err
+			lastErr = err
+			continue
 		}
 		port := ln.Addr().(*net.TCPAddr).Port
-		udp, err := net.ListenPacket("udp", ln.Addr().String())
+		udp, err := net.ListenPacket("udp4", ln.Addr().String())
 		if err != nil {
+			lastErr = err
 			ln.Close()
 			continue
 		}
@@ -548,5 +560,5 @@ func freeMixedPort() (int, error) {
 		ln.Close()
 		return port, nil
 	}
-	return 0, errors.New("could not reserve a free TCP+UDP mixed port")
+	return 0, fmt.Errorf("could not reserve a free TCP+UDP mixed port: %w", lastErr)
 }

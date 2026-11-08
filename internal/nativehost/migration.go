@@ -40,7 +40,7 @@ func PrepareDesktopMigration(home string) error {
 		if err != nil {
 			return err
 		}
-		if json.Unmarshal(b, &m) != nil || m.Schema != 1 || m.Home != home || m.Files == nil {
+		if json.Unmarshal(b, &m) != nil || m.Schema != 1 || (m.Home != home && !sameDirectory(m.Home, home)) || m.Files == nil {
 			return errors.New("invalid desktop migration snapshot")
 		}
 		return nil

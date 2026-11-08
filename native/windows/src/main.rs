@@ -6,7 +6,15 @@ mod desktop;
 #[cfg(windows)]
 fn main() {
     if let Err(error) = desktop::run() {
-        nsh_platform_windows::fatal_error(&format!("Gopurr could not start: {error}"));
+        let message = format!("Gopurr could not start: {error}");
+        if let Ok(path) = std::env::var("GOPURR_NATIVE_SESSION_OUTPUT") {
+            let _ = std::fs::write(
+                std::path::PathBuf::from(path).with_extension("error.log"),
+                &message,
+            );
+        } else {
+            nsh_platform_windows::fatal_error(&message);
+        }
         std::process::exit(1);
     }
 }

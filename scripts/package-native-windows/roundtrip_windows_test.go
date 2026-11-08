@@ -9,8 +9,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	portRand "math/rand/v2"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,10 +55,10 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	}
 	seed := map[string]string{
 		"prefs.json":           `{"appearance":"dark","language":"en","systemProxyStartup":"off","restoreSystemProxy":false,"checkAppUpdates":false,"autoUpdateHours":0}`,
-		"local.yaml":           "mode: rule\nrules: [MATCH,DIRECT]\n",
+		"local.yaml":           "mode: rule\nrules: [\"MATCH,DIRECT\"]\n",
 		"profiles.json":        `{"active":"legacy","profiles":[{"id":"legacy","name":"Retained subscription","kind":"url","url":"https://example.invalid/sub?token=fixture-secret","file":"legacy.yaml"}]}`,
-		"profiles/legacy.yaml": "mode: rule\nproxies: [{name: retained-node, type: http, server: 127.0.0.1, port: 9, password: fixture-secret}]\nproxy-groups: [{name: Route, type: select, proxies: [DIRECT, REJECT]}]\nrules: [MATCH,Route]\n",
-		"overrides.json":       `{"mixedPort":17889,"mode":"rule","tunEnable":false}`,
+		"profiles/legacy.yaml": "mode: rule\nproxies: [{name: retained-node, type: http, server: 127.0.0.1, port: 9, password: fixture-secret}]\nproxy-groups: [{name: Route, type: select, proxies: [DIRECT, REJECT]}]\nrules: [\"MATCH,Route\"]\n",
+		"overrides.json":       fmt.Sprintf(`{"mixedPort":%d,"mode":"rule","tunEnable":false}`, fixtureMixedPort(t)),
 	}
 	for name, body := range seed {
 		if err := securefs.WriteFile(filepath.Join(home, name), []byte(body), 0600); err != nil {
@@ -172,6 +176,8 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 		if t.Failed() {
 			body, _ := os.ReadFile(filepath.Join(work, "host.log"))
 			t.Logf("updater log: %s", body)
+			failure, _ := os.ReadFile(filepath.Join(work, "session.error.log"))
+			t.Logf("native startup: %s", failure)
 		}
 	}()
 	done := make(chan error, 1)
@@ -321,6 +327,7 @@ func waitWindowsPhase(t *testing.T, s windowsSession, phase string) {
 	})
 }
 func assertWindowsData(t *testing.T, s windowsSession, home string, seed map[string]string) {
+	verifyWindowsCoreTraffic(t, s)
 	t.Helper()
 	body := windowsMust(t, s, "desktop.snapshot", map[string]any{"page": "subs"})
 	var v struct {
@@ -394,3 +401,57 @@ func main(){
  mygo.App.WhenReady(func(){go func(){ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel();release,err:= (update.Native{}).Check(ctx);if err!=nil||release==nil{fmt.Fprintln(os.Stderr,"check",err);os.Exit(1)};if err=release.Install(ctx,nil);err!=nil{fmt.Fprintln(os.Stderr,"install",err);os.Exit(1)};mygo.RunOnMain(mygo.App.Relaunch)}()})
  if err:=mygo.App.Run();err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
 }`
+
+func fixtureMixedPort(t *testing.T) int {
+	t.Helper()
+	for i := 0; i < 128; i++ {
+		candidate := 10000 + portRand.IntN(30000)
+		listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", candidate))
+		if err != nil {
+			continue
+		}
+		packet, err := net.ListenPacket("udp4", listener.Addr().String())
+		listener.Close()
+		if err == nil {
+			packet.Close()
+			return candidate
+		}
+	}
+	t.Fatal("no fixture TCP/UDP port available")
+	return 0
+}
+func verifyWindowsCoreTraffic(t *testing.T, s windowsSession) {
+	t.Helper()
+	var port int
+	waitWindows(t, 30*time.Second, func() bool {
+		body, err := s.request("desktop.snapshot", map[string]any{"page": "overview"})
+		var snapshot struct {
+			Status  struct{ Kernel bool }
+			Network struct{ MixedPort int }
+		}
+		_ = json.Unmarshal(body, &snapshot)
+		port = snapshot.Network.MixedPort
+		return err == nil && snapshot.Status.Kernel && port > 0
+	})
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "retained-profile-core-traffic")
+	}))
+	defer target.Close()
+	proxy, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{Proxy: http.ProxyURL(proxy)}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
+	response, err := client.Get(target.URL)
+	if err != nil {
+		t.Fatal("migrated profile could not proxy loopback traffic", err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != 200 || string(body) != "retained-profile-core-traffic" {
+		t.Fatalf("migrated core response: %s %v", body, err)
+	}
+	t.Log("retained legacy profile passed real HTTP through its actual mixed proxy")
+}
