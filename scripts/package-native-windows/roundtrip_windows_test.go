@@ -145,6 +145,9 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(installed, "Gopurr.exe")
+	if err := os.WriteFile(filepath.Join(installed, "Uninstall.exe"), []byte("legacy uninstaller to replace"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	sourcePath := filepath.Join(work, "legacy.go")
 	if err := os.WriteFile(sourcePath, []byte(windowsLegacyFixture), 0600); err != nil {
 		t.Fatal(err)
@@ -216,6 +219,11 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 		return false
 	})
 	assertWindowsData(t, session, home, seed)
+	installedUninstaller, err := os.ReadFile(filepath.Join(installed, "Uninstall.exe"))
+	expectedUninstaller, expectedErr := os.ReadFile(filepath.Join(source, "Uninstall.exe"))
+	if err != nil || expectedErr != nil || !bytes.Equal(installedUninstaller, expectedUninstaller) {
+		t.Fatal("old updater did not replace the legacy uninstaller with the graceful NSH uninstaller", err, expectedErr)
+	}
 	verifyWindowsAutoLaunch(t, session, binary)
 	verifyWindowsHostUI(t, session, repo)
 	t.Log("Old mygo updater installed the actual NSH host; private old-data snapshot and original credentials retained")
@@ -291,7 +299,15 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	}
 	windowsMust(t, session, "host.activate", nil)
 	waitWindows(t, 10*time.Second, func() bool { return windowsHostVisible(session.FrontendPID) })
-	windowsMust(t, session, "host.shutdown", nil)
+	// Exercise the uninstaller delivered by the in-app update while the
+	// actual frontend/backend/core are alive, rather than a fresh install.
+	uninstallContext, uninstallCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer uninstallCancel()
+	uninstall := exec.CommandContext(uninstallContext, filepath.Join(installed, "Uninstall.exe"), "/S")
+	uninstall.Env = old.Env
+	if output, err := uninstall.CombinedOutput(); err != nil {
+		t.Fatalf("updated NSH uninstaller: %s %v", output, err)
+	}
 	quietDone := make(chan error, 1)
 	go func() { quietDone <- quiet.Wait() }()
 	select {
@@ -302,7 +318,14 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("silent-launch frontend did not exit gracefully")
 	}
-	t.Log("Frontend login entry, silent launch and background activation passed")
+	waitWindows(t, 30*time.Second, func() bool { _, err := os.Stat(installed); return os.IsNotExist(err) })
+	for name, body := range seed {
+		preserved, err := os.ReadFile(filepath.Join(home, nativehost.DesktopMigration, name))
+		if err != nil || string(preserved) != body {
+			t.Fatalf("updated uninstaller changed original data snapshot: %s %v", name, err)
+		}
+	}
+	t.Log("Frontend login entry, silent launch, activation and updated graceful uninstaller passed; old data retained")
 	session = windowsSession{}
 	t.Log("NSH -> NSH passed: invalid signature refused, mapped EXE/DLL replaced, new Rust frontend relaunched and old data retained")
 }

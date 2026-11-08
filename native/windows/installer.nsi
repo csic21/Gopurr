@@ -48,6 +48,17 @@ FunctionEnd
 !insertmacro CloseApp "un."
 
 Section
+!ifdef EMIT_UNINSTALLER
+  ; Build-time generator: writes only the replacement uninstaller, without
+  ; installing files or changing this builder's registry/shortcuts.
+  ClearErrors
+  WriteUninstaller "${EMIT_UNINSTALLER}"
+  IfErrors 0 +3
+  SetErrorLevel 1
+  Quit
+  SetErrorLevel 0
+  Quit
+!else
   Call CloseApp
   SetOutPath "$INSTDIR"
   File /r "${PAYLOAD}\*"
@@ -69,6 +80,7 @@ Section
   WriteRegStr HKCU "Software\Classes\clash" "URL Protocol" ""
   WriteRegStr HKCU "Software\Classes\clash\shell\open\command" "" '"$INSTDIR\Gopurr.exe" "%1"'
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+!endif
 SectionEnd
 Function CreateDesktopShortcut
   SetOutPath "$INSTDIR"

@@ -170,7 +170,7 @@ func validate(root string, c config) error {
 	if !info.IsDir() {
 		return errors.New("installation must be a real directory")
 	}
-	required := []string{"Gopurr.exe", "gopurr-desktop.exe", "GopurrBridge.dll", "Gopurr.ico", "native-build.json", "nsh/bundle.nshc", "nsh/app.json", "nsh/capabilities.json", "LICENSE", "THIRD_PARTY_NOTICES.md"}
+	required := []string{"Gopurr.exe", "gopurr-desktop.exe", "GopurrBridge.dll", "Uninstall.exe", "Gopurr.ico", "native-build.json", "nsh/bundle.nshc", "nsh/app.json", "nsh/capabilities.json", "LICENSE", "THIRD_PARTY_NOTICES.md"}
 	for _, name := range required {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil {
@@ -202,6 +202,15 @@ func validate(root string, c config) error {
 		if machine != pe.IMAGE_FILE_MACHINE_AMD64 || isDLL != (strings.HasSuffix(name, ".dll")) {
 			return fmt.Errorf("invalid Windows amd64 executable: %s", name)
 		}
+	}
+	uninstaller, err := pe.Open(filepath.Join(root, "Uninstall.exe"))
+	if err != nil {
+		return err
+	}
+	validUninstaller := uninstaller.FileHeader.Machine == pe.IMAGE_FILE_MACHINE_I386 && uninstaller.FileHeader.Characteristics&pe.IMAGE_FILE_DLL == 0
+	uninstaller.Close()
+	if !validUninstaller {
+		return errors.New("missing executable NSIS uninstaller in the complete update")
 	}
 	host, err := os.ReadFile(filepath.Join(root, "Gopurr.exe"))
 	if err != nil {

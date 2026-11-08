@@ -26,7 +26,7 @@ func TestCompleteArchiveUsesExistingTrustAndIdenticalFeeds(t *testing.T) {
 	c.Updates.TagPrefix = "v"
 	c.Updates.PublicKey = base64.StdEncoding.EncodeToString(public)
 	root, out := t.TempDir(), t.TempDir()
-	files := map[string]string{"Gopurr.exe": "NSH host", "GopurrBridge.dll": "bridge", "gopurr-desktop.exe": "backend", "nsh/bundle.nshc": "UI"}
+	files := map[string]string{"Gopurr.exe": "NSH host", "GopurrBridge.dll": "bridge", "gopurr-desktop.exe": "backend", "Uninstall.exe": "graceful NSH uninstaller", "nsh/bundle.nshc": "UI"}
 	for name, body := range files {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

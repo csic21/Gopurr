@@ -6,8 +6,6 @@ Set-Location $root
 $appPath = [IO.Path]::GetFullPath($App)
 $outPath = [IO.Path]::GetFullPath($Output)
 $config = Get-Content mygo.json -Raw | ConvertFrom-Json
-& go run ./scripts/package-native-windows -app $appPath
-if ($LASTEXITCODE) { throw 'NSH Windows payload validation failed' }
 New-Item $outPath -ItemType Directory -Force | Out-Null
 $compiler = @('C:/Program Files (x86)/NSIS/makensis.exe','C:/Program Files/NSIS/makensis.exe',"$env:LOCALAPPDATA/mygo/nsis-3.13/Bin/makensis.exe","$env:LOCALAPPDATA/mygo/nsis-3.13/makensis.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $compiler) {
@@ -23,6 +21,19 @@ $installer = Join-Path $outPath "gopurr-setup-$($config.version)-amd64.exe"
 $checkScript = [IO.Path]::GetFullPath((Join-Path $root 'native/windows/check-installer-processes.ps1'))
 $installerScript = [IO.Path]::GetFullPath((Join-Path $root 'native/windows/installer.nsi'))
 if (Test-Path $installer) { throw "Refusing to overwrite installer: $installer" }
+# An in-app update must replace the old mygo uninstaller too: that one can
+# force-stop every process in the directory. Generate the graceful NSH
+# uninstaller without installing anything on this builder.
+$generator = Join-Path $outPath 'emit-native-uninstaller.exe'
+$uninstaller = Join-Path $appPath 'Uninstall.exe'
+& $compiler /V2 "/DPAYLOAD=$appPath" "/DOUTPUT=$generator" "/DVERSION=$($config.version)" "/DCHECK_SCRIPT=$checkScript" "/DEMIT_UNINSTALLER=$uninstaller" $installerScript
+if ($LASTEXITCODE) { throw 'Build NSH uninstaller generator failed' }
+try {
+    $emitted = Start-Process $generator -ArgumentList '/S' -PassThru -Wait
+    if ($emitted.ExitCode -ne 0 -or -not (Test-Path $uninstaller)) { throw 'Generate NSH update uninstaller failed' }
+} finally { Remove-Item $generator -Force -ErrorAction SilentlyContinue }
+& go run ./scripts/package-native-windows -app $appPath
+if ($LASTEXITCODE) { throw 'NSH Windows payload validation failed' }
 & $compiler /V2 "/DPAYLOAD=$appPath" "/DOUTPUT=$installer" "/DVERSION=$($config.version)" "/DCHECK_SCRIPT=$checkScript" $installerScript
 if ($LASTEXITCODE) { throw 'Build NSH Windows installer failed' }
 if ($Release) {
