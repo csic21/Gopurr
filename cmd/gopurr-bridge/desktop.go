@@ -214,7 +214,13 @@ func GopurrDesktopCall(handle C.uint64_t, request *C.char) *C.char {
 		if request == nil || json.Unmarshal([]byte(C.GoString(request)), &r) != nil || r.Method == "" {
 			return failure("invalid_request", "A desktop request is required")
 		}
-		ctx, cancel := context.WithTimeout(p.ctx, 155*time.Second)
+		timeout := 155 * time.Second
+		if r.Method == "host.events" {
+			// Polling never waits for UI/network work in the backend. Bound a
+			// stalled transport so activation and graceful quit can retry.
+			timeout = 2 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(p.ctx, timeout)
 		defer cancel()
 		b, err := nativehost.Call(ctx, p.socket, p.token, r.Method, r.Params)
 		if err != nil {

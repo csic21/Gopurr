@@ -10,6 +10,7 @@ $install = Join-Path $work 'application'
 $fixtureAppData = Join-Path $work 'appdata'
 $fixtureHome = Join-Path $fixtureAppData 'Gopurr'
 $session = Join-Path $work 'session.json'
+$previousPath = $env:PATH
 $previousAppData = $env:APPDATA
 $previousSessionOutput = $env:GOPURR_NATIVE_SESSION_OUTPUT
 $started = $null
@@ -48,6 +49,9 @@ try {
             throw "Invalid NSH protocol command for ${scheme}: $command (expected $expectedExecutable)"
         }
     }
+    # Runtime may use only the OS DLLs and its complete installed payload.
+    # A development toolchain on the runner must not satisfy a missing DLL.
+    $env:PATH = Join-Path $env:SystemRoot 'System32'
     $started = Start-Process (Join-Path $install 'Gopurr.exe') -RedirectStandardError (Join-Path $work 'host-stderr.log') -RedirectStandardOutput (Join-Path $work 'host-stdout.log') -PassThru
     $deadline = (Get-Date).AddSeconds(50)
     while (-not (Test-Path $session) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
@@ -76,6 +80,7 @@ try {
         Stop-Process -Id $started.Id -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 3
     }
+    $env:PATH = $previousPath
     $env:APPDATA = $previousAppData
     $env:GOPURR_NATIVE_SESSION_OUTPUT = $previousSessionOutput
     if (Test-Path $work) { Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue }

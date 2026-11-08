@@ -104,6 +104,7 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	}))
 	defer server.Close()
 	for _, version := range []string{"0.0.1", "0.0.2"} {
+		t.Logf("Building isolated Windows update fixture %s", version)
 		app := filepath.Join(work, "build-"+version)
 		copyFixtureTree(t, source, app)
 		var c config
@@ -152,7 +153,7 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	fixtureCommand(t, repo, nil, "go", "build", "-ldflags", flags, "-o", binary, sourcePath)
 	sessionPath := filepath.Join(work, "session.json")
 	old := exec.Command(binary, "--gopurr-home", home)
-	old.Env = append(os.Environ(), "APPDATA="+fixtureAppData, "GOPURR_NATIVE_SESSION_OUTPUT="+sessionPath, "GOPURR_AUTOSTART=1", "GOPURR_TUN=0")
+	old.Env = append(os.Environ(), "PATH="+filepath.Join(os.Getenv("SystemRoot"), "System32"), "APPDATA="+fixtureAppData, "GOPURR_NATIVE_SESSION_OUTPUT="+sessionPath, "GOPURR_AUTOSTART=1", "GOPURR_TUN=0")
 	logFile, err := os.Create(filepath.Join(work, "host.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -165,8 +166,8 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	defer old.Process.Kill()
 	var session windowsSession
 	defer func() {
-		if session.Socket == "" {
-			session, _ = readWindowsSession(sessionPath)
+		if latest, err := readWindowsSession(sessionPath); err == nil {
+			session = latest
 		}
 		if session.Socket != "" {
 			_, _ = session.request("host.shutdown", nil)
@@ -215,6 +216,7 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 		return false
 	})
 	assertWindowsData(t, session, home, seed)
+	verifyWindowsAutoLaunch(t, session, binary)
 	verifyWindowsHostUI(t, session, repo)
 	t.Log("Old mygo updater installed the actual NSH host; private old-data snapshot and original credentials retained")
 	hostBefore, err := os.ReadFile(binary)
@@ -262,8 +264,45 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(output)) != "Gopurr 0.0.2" {
 		t.Fatalf("new Rust frontend was not installed: %s %v", output, err)
 	}
+	windowsMust(t, session, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"silentStart": true}})
 	windowsMust(t, session, "host.shutdown", nil)
 	waitWindows(t, 20*time.Second, func() bool { _, err := session.request("host.ping", nil); return err != nil })
+	previousPID = session.BackendPID
+	quiet := exec.Command(binary, "--autostart")
+	quiet.Env, quiet.Stdout, quiet.Stderr = old.Env, logFile, logFile
+	if err := quiet.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer quiet.Process.Kill()
+	waitWindows(t, 45*time.Second, func() bool {
+		s, err := readWindowsSession(sessionPath)
+		if err != nil || s.BackendPID == previousPID {
+			return false
+		}
+		if _, err = s.request("host.ping", nil); err != nil {
+			return false
+		}
+		session = s
+		return hostWindow(s.FrontendPID) != 0
+	})
+	time.Sleep(time.Second)
+	if windowsHostVisible(session.FrontendPID) {
+		t.Fatal("silent login launch displayed its window")
+	}
+	windowsMust(t, session, "host.activate", nil)
+	waitWindows(t, 10*time.Second, func() bool { return windowsHostVisible(session.FrontendPID) })
+	windowsMust(t, session, "host.shutdown", nil)
+	quietDone := make(chan error, 1)
+	go func() { quietDone <- quiet.Wait() }()
+	select {
+	case err := <-quietDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("silent-launch frontend did not exit gracefully")
+	}
+	t.Log("Frontend login entry, silent launch and background activation passed")
 	session = windowsSession{}
 	t.Log("NSH -> NSH passed: invalid signature refused, mapped EXE/DLL replaced, new Rust frontend relaunched and old data retained")
 }

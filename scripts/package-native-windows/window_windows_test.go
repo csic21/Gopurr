@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 var user32 = windows.NewLazySystemDLL("user32.dll")
@@ -131,10 +134,57 @@ func captureHost(t *testing.T, hwnd uintptr, path string) {
 		t.Fatal(err)
 	}
 }
+func assertWindowsPage(t *testing.T, hwnd uintptr, page, repo string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(repo, "scripts/assert-native-windows-page.ps1"))
+	cmd.Env = append(os.Environ(), fmt.Sprintf("GOPURR_ACCEPTANCE_HWND=%d", hwnd), "GOPURR_ACCEPTANCE_PAGE="+page)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("native UI navigation: %s %v", output, err)
+	}
+}
+
+func verifyWindowsAutoLaunch(t *testing.T, s windowsSession, frontend string) {
+	t.Helper()
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Close()
+	if _, _, err := key.GetStringValue("Gopurr"); err != registry.ErrNotExist {
+		t.Fatal("autostart acceptance requires a disposable user without an existing Gopurr login item")
+	}
+	defer func() { _ = key.DeleteValue("Gopurr") }()
+	windowsMust(t, s, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"autoLaunch": true}})
+	value, _, err := key.GetStringValue("Gopurr")
+	if err != nil || value != `"`+frontend+`" --autostart` {
+		t.Fatalf("login entry did not select the Rust frontend: %q %v", value, err)
+	}
+	windowsMust(t, s, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"autoLaunch": false}})
+	if _, _, err := key.GetStringValue("Gopurr"); err != registry.ErrNotExist {
+		t.Fatalf("login entry was not removed: %v", err)
+	}
+}
+
 func verifyWindowsHostUI(t *testing.T, s windowsSession, repo string) {
 	t.Helper()
 	waitWindows(t, 20*time.Second, func() bool { return windowsHostVisible(s.FrontendPID) })
 	hwnd := hostWindow(s.FrontendPID)
+	for _, size := range [][2]int32{{1060, 720}, {840, 560}} {
+		resizeHost(t, hwnd, size[0], size[1])
+		for _, theme := range []string{"light", "dark"} {
+			windowsMust(t, s, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"appearance": theme}})
+			for _, page := range []string{"overview", "subs", "proxies", "conns", "mesh", "rules", "logs", "settings"} {
+				windowsMust(t, s, "desktop.page.set", map[string]any{"page": page})
+				windowsMust(t, s, "host.activate", nil)
+				time.Sleep(900 * time.Millisecond)
+				assertWindowsPage(t, hwnd, page, repo)
+				captureHost(t, hwnd, filepath.Join(repo, "native/ui/screenshots", fmt.Sprintf("windows-host-%s-%s-%dx%d.png", page, theme, size[0], size[1])))
+			}
+		}
+	}
+	windowsMust(t, s, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"appearance": "dark"}})
 	// First-close confirmation stays in the real UI. The subsequent acknowledged
 	// close must hide the NSH window while leaving the same Go backend alive.
 	_, _, _ = user32.NewProc("SendMessageW").Call(hwnd, 0x0010, 0, 0)
@@ -150,18 +200,5 @@ func verifyWindowsHostUI(t *testing.T, s windowsSession, repo string) {
 	windowsMust(t, s, "host.ping", nil)
 	windowsMust(t, s, "host.activate", nil)
 	waitWindows(t, 10*time.Second, func() bool { return windowsHostVisible(s.FrontendPID) })
-	for _, size := range [][2]int32{{1060, 720}, {840, 560}} {
-		resizeHost(t, hwnd, size[0], size[1])
-		for _, theme := range []string{"light", "dark"} {
-			windowsMust(t, s, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"appearance": theme}})
-			for _, page := range []string{"overview", "subs", "proxies", "conns", "mesh", "rules", "logs", "settings"} {
-				windowsMust(t, s, "desktop.page.set", map[string]any{"page": page})
-				windowsMust(t, s, "host.activate", nil)
-				time.Sleep(900 * time.Millisecond)
-				captureHost(t, hwnd, filepath.Join(repo, "native/ui/screenshots", fmt.Sprintf("windows-host-%s-%s-%dx%d.png", page, theme, size[0], size[1])))
-			}
-		}
-	}
-	windowsMust(t, s, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"appearance": "dark"}})
 	t.Log("Actual NSH Win32 host: first-close confirmation, background hide, backend continuity, light-mode reopen and 32 native-window screenshots generated; screenshots require visual review")
 }

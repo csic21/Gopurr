@@ -42,16 +42,34 @@ fn trace(message: &str) {
     use std::io::Write;
     if let Ok(path) = std::env::var("GOPURR_NATIVE_SESSION_OUTPUT") {
         let path = PathBuf::from(path).with_extension("host.log");
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "pid={} {:?} {message}", std::process::id(), std::time::SystemTime::now());
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(
+                file,
+                "pid={} {:?} {message}",
+                std::process::id(),
+                std::time::SystemTime::now()
+            );
         }
     }
 }
 struct DiagnosticLogger;
 impl log::Log for DiagnosticLogger {
-    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool { metadata.level() <= log::Level::Warn }
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
     fn log(&self, record: &log::Record<'_>) {
-        if self.enabled(record.metadata()) { trace(&format!("{} {}: {}", record.level(), record.target(), record.args())); }
+        if self.enabled(record.metadata()) {
+            trace(&format!(
+                "{} {}: {}",
+                record.level(),
+                record.target(),
+                record.args()
+            ));
+        }
     }
     fn flush(&self) {}
 }
@@ -191,7 +209,10 @@ impl Window {
     }
     fn event(&self, event: Value) {
         if event["kind"] != "snapshot" {
-            trace(&format!("event {} page={}", event["kind"], event["value"]["page"]));
+            trace(&format!(
+                "event {} page={}",
+                event["kind"], event["value"]["page"]
+            ));
         }
         match event["kind"].as_str().unwrap_or("") {
             "quit" => {
@@ -199,6 +220,7 @@ impl Window {
                 // Only the backend initiates process exit, after restoring the
                 // proxy/core state. It waits for us before restarting updates.
                 unsafe {
+                    let _ = AllowSetForegroundWindow(self.bridge.pid);
                     trace("destroying window");
                     let _ = DestroyWindow(self.view.hwnd());
                     trace("window destroyed");
@@ -314,8 +336,10 @@ unsafe extern "system" fn subclass(
                         .unwrap_or(60)
                         .max(1)
             {
+                trace("light-mode view release begin");
                 state.view.stop();
                 state.loaded.set(false);
+                trace("light-mode view release complete");
             }
             return LRESULT(0);
         }
@@ -589,10 +613,15 @@ fn run_on_ui_thread() -> Result<(), String> {
                     failures = 0;
                     for event in events.as_array().into_iter().flatten() {
                         after = after.max(event["id"].as_u64().unwrap_or(0));
+                        trace(&format!(
+                            "poll event {} kind={}",
+                            event["id"], event["kind"]
+                        ));
                         post(hwnd, event.clone());
                     }
                 }
                 Err(error) => {
+                    trace(&format!("event poll failed: {error}"));
                     failures += 1;
                     post(hwnd, json!({"kind":"error","value":error}));
                     if failures >= 3 {

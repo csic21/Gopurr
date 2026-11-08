@@ -164,14 +164,23 @@ func Call(ctx context.Context, path, token, method string, params json.RawMessag
 		}
 		return nil, err
 	}
-	b, err := io.ReadAll(io.LimitReader(c, MaxMessage+1))
+	// A response is one JSON value, just like the request. Do not wait for
+	// socket EOF after receiving it: teardown of a Windows Unix socket can
+	// lag the response and must not stall the next tray/quit event poll.
+	limited := &io.LimitedReader{R: c, N: MaxMessage + 1}
+	decoder := json.NewDecoder(limited)
+	var b json.RawMessage
+	err = decoder.Decode(&b)
+	if limited.N == 0 && (err != nil || decoder.InputOffset() > MaxMessage) {
+		return nil, fmt.Errorf("native response exceeds %d bytes", MaxMessage)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		return nil, err
 	}
-	if len(b) > MaxMessage {
+	if len(b) > MaxMessage || decoder.InputOffset() > MaxMessage {
 		return nil, fmt.Errorf("native response exceeds %d bytes", MaxMessage)
 	}
 	if !json.Valid(b) {
