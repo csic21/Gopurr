@@ -100,7 +100,14 @@ func GopurrDesktopOpen(options *C.char) *C.char {
 		}
 		cmd.Stdout = os.Stdout
 		startupLog := &desktopStartupLog{}
-		cmd.Stderr = startupLog
+		// On macOS the helper outlives the frontend during update/relaunch.
+		// A writer makes os/exec insert a pipe owned by this frontend; once it
+		// exits, the helper's next stderr write receives SIGPIPE before it can
+		// mark the staged update for relaunch. Inherit the descriptor instead.
+		cmd.Stderr = os.Stderr
+		if runtime.GOOS == "windows" {
+			cmd.Stderr = startupLog
+		}
 		configureDesktopCommand(cmd)
 		if err = cmd.Start(); err != nil {
 			return failure("open_failed", err.Error())
