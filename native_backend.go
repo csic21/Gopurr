@@ -159,6 +159,7 @@ func runNativeBackend(args []string) error {
 			// then mygo marks the staged update for relaunch and exits. Its
 			// installer opens the new bundle only after the atomic replacement.
 			relaunch := a.RelaunchRequested()
+			log.Printf("native shutdown ready; frontend=%d relaunch=%v", *parent, relaunch)
 			events.Add("quit", map[string]bool{"relaunch": false})
 			go func() {
 				if *waitForFrontend {
@@ -169,6 +170,7 @@ func runNativeBackend(args []string) error {
 					time.Sleep(500 * time.Millisecond)
 				}
 				mygo.RunOnMain(func() {
+					log.Printf("native frontend exited; finishing shutdown (relaunch=%v)", relaunch)
 					finalQuitRequested = true
 					if relaunch {
 						nativeRelaunch(*frontend, *home)

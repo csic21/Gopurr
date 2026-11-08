@@ -178,6 +178,13 @@ func (l *desktopStartupLog) Write(data []byte) (int, error) {
 	}
 	l.Unlock()
 	_, _ = os.Stderr.Write(data)
+	if path := os.Getenv("GOPURR_NATIVE_SESSION_OUTPUT"); path != "" {
+		path = strings.TrimSuffix(path, filepath.Ext(path)) + ".backend.log"
+		if file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
+			_, _ = file.Write(data)
+			_ = file.Close()
+		}
+	}
 	return len(data), nil
 }
 func (l *desktopStartupLog) String() string {

@@ -30,6 +30,7 @@ func nativeParentAlive(pid int) bool {
 // for this helper to exit before loading its new DLL or taking any data lock.
 func nativeRelaunch(frontend, home string) {
 	mygo.App.OnQuit(func() {
+		log.Printf("native relaunch: starting frontend after backend %d", os.Getpid())
 		cmd := exec.Command(frontend, "--gopurr-home", home, "--wait-for-process", strconv.Itoa(os.Getpid()))
 		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
 		if err := cmd.Start(); err != nil {

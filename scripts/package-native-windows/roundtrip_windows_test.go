@@ -112,7 +112,7 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 		c.Updates.PublicKey = base64.StdEncoding.EncodeToString(pub)
 		flags := "-H=windowsgui -X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageName=Gopurr -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageVersion=" + version + " -X gopurr/internal/buildinfo.Version=" + version + " -X github.com/egoist/mygo.packageUpdateFeed=" + feed(c) + " -X github.com/egoist/mygo.packageUpdateKey=" + c.Updates.PublicKey
 		fixtureCommand(t, repo, nil, "go", "build", "-ldflags", flags, "-o", filepath.Join(app, "gopurr-desktop.exe"), ".")
-		env := append(os.Environ(), "GOPURR_VERSION="+version, "GOPURR_WINDOWS_ICON="+filepath.Join(app, "Gopurr.ico"), "RUSTFLAGS=-C target-feature=+crt-static")
+		env := append(os.Environ(), "GOPURR_VERSION="+version, "GOPURR_WINDOWS_ICON="+filepath.Join(app, "Gopurr.ico"), "RUSTFLAGS=-C target-feature=+crt-static", "LIBCLANG_PATH=C:/Program Files/LLVM/bin")
 		fixtureCommand(t, repo, env, "cargo", "+1.99.1", "build", "--locked", "--release", "--manifest-path", "native/windows/Cargo.toml")
 		cargoTarget := os.Getenv("CARGO_TARGET_DIR")
 		if cargoTarget == "" {
@@ -178,6 +178,18 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 			t.Logf("updater log: %s", body)
 			failure, _ := os.ReadFile(filepath.Join(work, "session.error.log"))
 			t.Logf("native startup: %s", failure)
+			for _, name := range []string{"session.host.log", "session.backend.log"} {
+				body, _ := os.ReadFile(filepath.Join(work, name))
+				t.Logf("%s: %s", name, body)
+			}
+			body, _ = os.ReadFile(sessionPath)
+			t.Logf("last session: %s", body)
+			diagnostic, _ := session.request("host.events", nil)
+			t.Logf("last backend events: %s", diagnostic)
+			output, _ := exec.Command("tasklist", "/FI", "IMAGENAME eq Gopurr.exe").CombinedOutput()
+			t.Logf("remaining frontends: %s", output)
+			output, _ = exec.Command("tasklist", "/FI", "IMAGENAME eq gopurr-desktop.exe").CombinedOutput()
+			t.Logf("remaining backends: %s", output)
 		}
 	}()
 	done := make(chan error, 1)

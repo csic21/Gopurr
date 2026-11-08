@@ -24,6 +24,7 @@ jobs:
       GOFLAGS: -tags=with_gvisor
       CARGO_HOME: ${{ github.workspace }}/.cache/cargo
       CARGO_TARGET_DIR: ${{ github.workspace }}/.cache/cargo-target
+      LIBCLANG_PATH: C:/Program Files/LLVM/bin
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff

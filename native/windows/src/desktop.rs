@@ -36,6 +36,27 @@ use windows::{
     core::{HSTRING, PCWSTR},
 };
 
+// Enabled only for a disposable acceptance session. Never record RPC payloads
+// or credentials: lifecycle, page names and engine failures are sufficient.
+fn trace(message: &str) {
+    use std::io::Write;
+    if let Ok(path) = std::env::var("GOPURR_NATIVE_SESSION_OUTPUT") {
+        let path = PathBuf::from(path).with_extension("host.log");
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "pid={} {:?} {message}", std::process::id(), std::time::SystemTime::now());
+        }
+    }
+}
+struct DiagnosticLogger;
+impl log::Log for DiagnosticLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool { metadata.level() <= log::Level::Warn }
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) { trace(&format!("{} {}: {}", record.level(), record.target(), record.args())); }
+    }
+    fn flush(&self) {}
+}
+static LOGGER: DiagnosticLogger = DiagnosticLogger;
+
 const EVENT: u32 = WM_APP + 0x47;
 const TIMER: usize = 0x4750;
 const CHANNELS: &[&str] = &[
@@ -169,13 +190,18 @@ impl Window {
         }
     }
     fn event(&self, event: Value) {
+        if event["kind"] != "snapshot" {
+            trace(&format!("event {} page={}", event["kind"], event["value"]["page"]));
+        }
         match event["kind"].as_str().unwrap_or("") {
             "quit" => {
                 self.running.store(false, Ordering::Release);
                 // Only the backend initiates process exit, after restoring the
                 // proxy/core state. It waits for us before restarting updates.
                 unsafe {
+                    trace("destroying window");
                     let _ = DestroyWindow(self.view.hwnd());
+                    trace("window destroyed");
                 }
                 return;
             }
@@ -334,6 +360,11 @@ pub fn run() -> Result<(), String> {
 }
 
 fn run_on_ui_thread() -> Result<(), String> {
+    if std::env::var_os("GOPURR_NATIVE_SESSION_OUTPUT").is_some() {
+        let _ = log::set_logger(&LOGGER);
+        log::set_max_level(log::LevelFilter::Warn);
+    }
+    trace("starting frontend");
     let args: Vec<String> = std::env::args().collect();
     if args.len() == 2 && args[1] == "--version" {
         println!("Gopurr {}", env!("GOPURR_VERSION"));
@@ -403,6 +434,7 @@ fn run_on_ui_thread() -> Result<(), String> {
         std::fs::write(path, session.to_string()).map_err(|e| e.to_string())?;
     }
     let page = argument(&args, "--gopurr-page").unwrap_or_else(|| "overview".into());
+    trace("backend ready");
     let snapshot = bridge.result("desktop.snapshot", json!({"page":page}))?;
     let prefs = snapshot["prefs"].clone();
     let channel = HostChannel::new();
@@ -586,8 +618,10 @@ fn run_on_ui_thread() -> Result<(), String> {
             DispatchMessageW(&message);
         }
     }
+    trace("message loop exited");
     running.store(false, Ordering::Release);
     view.stop();
+    trace("view stopped");
     drop(state);
     drop(view);
     unsafe {
