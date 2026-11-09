@@ -11,6 +11,9 @@ for(const scheme of ['light','dark']) {
  await app.waitFor('text:发现新版本');
  await app.wait(300);
  await app.screenshot(`native/ui/screenshots/desktop-update-available-${scheme}-${width}x${height}.png`);
+ // Cross multiple one-second snapshots: the native dialog must stay mounted.
+ await app.wait(2200);
+ await app.screenshot(`native/ui/screenshots/desktop-update-available-after-poll-${scheme}-${width}x${height}.png`);
  await app.press('text:下载并安装');
  await app.waitFor('text:正在下载更新');
  await app.screenshot(`native/ui/screenshots/desktop-update-downloading-${scheme}-${width}x${height}.png`);

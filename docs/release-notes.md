@@ -1,18 +1,17 @@
-Gopurr 0.6.30 为 Android 正式版加入应用内更新。
+Gopurr 0.6.31 修复桌面软件更新弹窗持续闪烁。
 
-- Android 设置页新增应用更新：检查 GitHub Releases、查看版本说明、下载进度、取消下载、安装确认和失败重试。
-- Release 发布流程生成并上传 `update-android.json`，按 ARM64／x86_64 提供 APK 地址、大小和 SHA-256，并纳入 `SHA256SUMS`。
-- APK 安装前校验 SHA-256、应用 ID、版本号、版本名和当前签名证书，再交给 Android 系统 `PackageInstaller`；需要时引导开启“安装未知应用”。
-- 调试包不执行应用内更新，正式签名包才显示可用的检查与安装操作。
-- 包含 0.6.29 的桌面选择菜单、实时流量动画和搜索空状态修复。
+- 修复状态每秒刷新时更新弹窗被反复重建、持续播放淡入动画的问题；弹窗显示状态未改变时保持原生弹层稳定。
+- 更新说明和下载进度继续实时刷新，保留检查、取消、稍后、下载、重试与重启操作。
+- 增加跨桌面平台的连续刷新、关闭及重新打开回归，并验证长版本说明、1060×720／840×560 窗口和明暗主题。
+- 保留 0.6.30 的 Android 正式版应用内更新及安装前校验、桌面选择菜单、实时流量动画和搜索空状态修复。
 - 保留订阅、偏好、组网身份及既有更新公钥。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.30-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.30-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.30-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.30-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.31-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.31-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.31-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.31-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

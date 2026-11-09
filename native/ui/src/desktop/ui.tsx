@@ -1,4 +1,4 @@
-import { Image, Scroll, Text, View, windowSize } from "nsh";
+import { computed, Image, Scroll, Text, View, windowSize } from "nsh";
 import type { JSX, ImageAsset } from "nsh";
 import { Button, Dialog, Input, Switch, Tabs as NativeTabs, Tab } from "nsh/base";
 import { colors } from "./theme";
@@ -42,7 +42,12 @@ export function Tabs(p:{items:{id:string;label:string}[];value:string;onChange:(
 export { Select } from "./select";
 export function Feedback(p:{text:string;danger?:boolean}) {return <View role="alert" style={{padding:10,borderWidth:1,borderColor:p.danger?colors().danger:colors().border,borderRadius:8,backgroundColor:colors().surface}}><Label text={p.text} color={p.danger?colors().danger:colors().muted} size={12}/></View>;}
 export function Empty(p:{title:string;description?:string;action?:()=>JSX.Element;icon?:string}) {return <View style={{padding:32,gap:12,alignItems:"center",justifyContent:"center"}}><If when={!!p.icon}><View style={{width:44,height:44,alignItems:"center",justifyContent:"center",borderRadius:12,backgroundColor:colors().hover}}><Icon name={p.icon??"circle"} size={22}/></View></If><Label text={p.title} size={16} bold/><If when={!!p.description}><Text style={{fontSize:13,color:colors().muted,maxWidth:420,textAlign:"center",lineHeight:19}}>{p.description}</Text></If>{p.action?.()}</View>;}
-export function Modal(p:{title:string;open:boolean;onClose:()=>void;children?:JSX.Element;footer?:()=>JSX.Element;width?:number;height?:number;error?:string;testID?:string}) {return <Dialog testID={p.testID} open={p.open} onOpenChange={({open})=>{if(!open)p.onClose();}} onCancel={p.onClose} animation="fade" style={{marginLeft:(windowSize().width-Math.min(p.width??560,windowSize().width-48))/2,marginTop:24,width:Math.min(p.width??560,windowSize().width-48),maxHeight:windowSize().height-48,padding:20,gap:14,backgroundColor:colors().surface,borderRadius:12,borderWidth:1,borderColor:colors().border}} backdropStyle={{backgroundColor:"#00000066"}}><Row justify="space-between"><Label text={p.title} size={18} bold/><Action label={tr("关闭","Close")} onPress={p.onClose}/></Row><Scroll style={{maxHeight:p.height??windowSize().height-210}} contentStyle={{gap:12}}>{p.children}</Scroll><If when={!!p.error}><Feedback text={p.error??""} danger/></If>{p.footer?.()}</Dialog>;}
+export function Modal(p:{title:string;open:boolean;onClose:()=>void;children?:JSX.Element;footer?:()=>JSX.Element;width?:number;height?:number;error?:string;testID?:string}) {
+  // Dialog recreates its native layer whenever its open dependency changes.
+  // Deduplicate visibility so fresh snapshots update content without reopening.
+  const open=computed(()=>p.open);
+  return <Dialog testID={p.testID} open={open()} onOpenChange={({open})=>{if(!open)p.onClose();}} onCancel={p.onClose} animation="fade" style={{marginLeft:(windowSize().width-Math.min(p.width??560,windowSize().width-48))/2,marginTop:24,width:Math.min(p.width??560,windowSize().width-48),maxHeight:windowSize().height-48,padding:20,gap:14,backgroundColor:colors().surface,borderRadius:12,borderWidth:1,borderColor:colors().border}} backdropStyle={{backgroundColor:"#00000066"}}><Row justify="space-between"><Label text={p.title} size={18} bold/><Action label={tr("关闭","Close")} onPress={p.onClose}/></Row><Scroll style={{maxHeight:p.height??windowSize().height-210}} contentStyle={{gap:12}}>{p.children}</Scroll><If when={!!p.error}><Feedback text={p.error??""} danger/></If>{p.footer?.()}</Dialog>;
+}
 export function Stat(p:{label:string;value:string}) {return <Row gap={5}><Label text={p.label} muted size={11}/><Label text={p.value} size={11} weight={500}/></Row>;}
 export function fmtBytes(value:number):string {let n=Math.max(0,value||0),i=0;const units=["B","KB","MB","GB","TB"];while(n>=1024&&i<4){n/=1024;i++;}return `${n.toFixed(i?1:0)} ${units[i]}`;}
 export function fmtRate(value:number):string {return `${fmtBytes(value)}/s`;}
