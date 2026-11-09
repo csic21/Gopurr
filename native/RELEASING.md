@@ -16,6 +16,24 @@ The APKs target Android 9/API 28 and later. Release waits for Android, macOS
 and Windows to succeed, requires both APKs, and includes them in `SHA256SUMS`
 before publishing. Already-public releases retain their assets.
 
+The publish job also writes `update-android.json`, the Android in-app update
+feed, and uploads it with the release. It contains the release version, the
+same `versionCode` used by both APKs, the summary from
+`docs/release-notes.md`, and per-ABI URL, size and SHA-256 values. Its stable
+address is:
+
+```text
+https://github.com/csic21/Gopurr/releases/latest/download/update-android.json
+```
+
+Installed release builds read this feed from the Settings update panel. They
+accept only HTTPS GitHub release URLs, download the APK for the device ABI,
+and verify its manifest SHA-256, application ID, version code, version name
+and signing certificate before opening the system `PackageInstaller` prompt.
+Debug builds show the update panel as unavailable and never install a release
+APK. The release job validates the feed before creating `SHA256SUMS`; its
+regressions run with `python3 scripts/test-android-update.py`.
+
 ### Signing configuration
 
 Set these repository Actions secrets before the first release:

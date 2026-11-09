@@ -17,6 +17,8 @@ public final class MainActivity extends Activity {
     private NshView app;
     private SessionController controller;
     private NativeActions actions;
+    private UpdateManager updates;
+    private UpdateManager.Listener updateListener;
     private final Map<Integer, Long> permissionRequests = new HashMap<>();
     private int nextPermissionCode = 1024;
     private SessionController.Listener listener;
@@ -40,13 +42,14 @@ public final class MainActivity extends Activity {
         app.setLimits(128, 0, 10_000, 2_000, 50_000);
         app.setErrorListener(this::showFailure);
         actions = new NativeActions(this);
+        updates = UpdateManager.get(this);
         try {
             JSONObject params = new JSONObject().put("nativeHost", true).put("android", true).put("mobileHost", true)
                     .put("engine", new JSONObject().put("transport", "native").put("vpnAvailable", true));
             String page = getIntent().getStringExtra("page");
             if ("overview".equals(page) || "profiles".equals(page) || "proxies".equals(page) || "settings".equals(page)) params.put("page", page);
             app.setParams(params);
-            if (!app.setGrantedCapabilities("{\"host\":[\"engine.dispatch\",\"android.session\",\"android.connect\",\"android.disconnect\",\"android.apps\",\"android.scope.get\",\"android.scope.set\",\"android.file.pick\",\"android.notifications\",\"android.notifications.request\",\"android.notifications.settings\",\"android.notifications.configure\",\"android.appearance\"],\"statusBar\":true}")) {
+            if (!app.setGrantedCapabilities("{\"host\":[\"engine.dispatch\",\"android.session\",\"android.connect\",\"android.disconnect\",\"android.apps\",\"android.scope.get\",\"android.scope.set\",\"android.file.pick\",\"android.notifications\",\"android.notifications.request\",\"android.notifications.settings\",\"android.notifications.configure\",\"android.appearance\",\"android.update\",\"android.update.check\",\"android.update.download\",\"android.update.cancel\",\"android.update.install\"],\"statusBar\":true}")) {
                 throw new IllegalStateException("The native host permissions could not be configured.");
             }
             app.handle("android.session", (data, reply) -> reply.resolve(controller.snapshot()));
@@ -64,6 +67,11 @@ public final class MainActivity extends Activity {
                 try { reply.resolve(actions.configureNotifications(object(data))); }
                 catch (Exception error) { reply.reject(SessionController.message(error)); }
             });
+            app.handle("android.update", (data, reply) -> reply.resolve(updates.snapshot()));
+            app.handle("android.update.check", (data, reply) -> reply.resolve(updates.check()));
+            app.handle("android.update.download", (data, reply) -> reply.resolve(updates.download()));
+            app.handle("android.update.cancel", (data, reply) -> reply.resolve(updates.cancel()));
+            app.handle("android.update.install", (data, reply) -> reply.resolve(updates.install()));
             app.handle("android.appearance", (data, reply) -> {
                 try { reply.resolve(actions.appearance(object(data))); }
                 catch (Exception error) { reply.reject(SessionController.message(error)); }
@@ -95,6 +103,9 @@ public final class MainActivity extends Activity {
             controller.addListener(listener);
             setContentView(app);
             if (!app.loadAssetBundle("nsh")) showFailure("The Gopurr interface bundle could not be loaded.");
+            updateListener = snapshot -> { if (app != null) app.send("android.update", snapshot); };
+            updates.setListener(updateListener);
+            updates.autoCheck();
         } catch (Exception error) { showFailure(SessionController.message(error)); }
     }
 
@@ -167,6 +178,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         resumed = true;
         if (actions != null) { actions.applyAppearance(); actions.refreshNotifications(); }
+        if (updates != null) updates.refreshPermission();
         // The SDK publishes its active lifecycle after Activity.onResume.
         // Deliver navigation on the next main-loop turn, after that transition.
         getWindow().getDecorView().post(this::deliverNavigation);
@@ -196,6 +208,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         if (listener != null) controller.removeListener(listener);
+        if (updateListener != null) updates.clearListener(updateListener);
         if (actions != null) actions.close();
         if (isFinishing()) for (long ticket : permissionRequests.values()) controller.releasePermission(ticket);
         if (app != null) { app.destroy(); app = null; }

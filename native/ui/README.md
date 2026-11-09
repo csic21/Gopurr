@@ -2,6 +2,15 @@
 
 `AndroidPreview.tsx` adds fixture Android notification settings for native visual review. Run `.cache/nsh/nsh/bin/nsh test native/ui/AndroidPreview.tsx --target macos < native/ui/android-notifications.steps.js` to refresh the light/dark notification settings captures at 1060×720, 840×560 and 390×844. The real `App.tsx` never installs preview transports.
 
+The Android update panel has its own fixture path because the real host only
+offers it in signed release builds. Refresh the available/downloading states
+at phone and tablet widths with:
+
+```sh
+.cache/nsh/nsh/bin/nsh test native/ui/AndroidPreview.tsx --target macos < native/ui/android-update.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/AndroidPreview.tsx --target macos < native/ui/android-update-progress.steps.js
+```
+
 The UI targets **NSH v0.4.0**. `Desktop.tsx` is the full eight-page desktop
 entry; it uses `desktop.dispatch` and the existing desktop business model in a
 private helper process. `App.tsx` is the four-page mobile entry. It calls the native host's `engine.dispatch` handler and never

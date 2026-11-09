@@ -1,17 +1,18 @@
-Gopurr 0.6.29 修复桌面选择菜单的底部弹出和闪烁，并优化实时流量动画。
+Gopurr 0.6.30 为 Android 正式版加入应用内更新。
 
-- 桌面下拉菜单贴着按钮展开，空间不足时自动向上弹出；每秒刷新保留菜单和当前高亮，支持键盘选择与取消。
-- 实时流量历史平稳左移，新采样从右侧接入；曲线平滑且不制造额外峰值，纵轴保持稳定，面积与阴影更轻。
-- 速率和单位同步淡化；减少动态效果时直接更新，离开前台或过渡结束后停止动画，最新值为零时隐藏采样光点。
-- 统一连接、代理、组网、规则和日志的搜索、图标与空状态，完善连接详情和策略组操作，保留小窗口与深浅主题适配。
+- Android 设置页新增应用更新：检查 GitHub Releases、查看版本说明、下载进度、取消下载、安装确认和失败重试。
+- Release 发布流程生成并上传 `update-android.json`，按 ARM64／x86_64 提供 APK 地址、大小和 SHA-256，并纳入 `SHA256SUMS`。
+- APK 安装前校验 SHA-256、应用 ID、版本号、版本名和当前签名证书，再交给 Android 系统 `PackageInstaller`；需要时引导开启“安装未知应用”。
+- 调试包不执行应用内更新，正式签名包才显示可用的检查与安装操作。
+- 包含 0.6.29 的桌面选择菜单、实时流量动画和搜索空状态修复。
 - 保留订阅、偏好、组网身份及既有更新公钥。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.29-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.29-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.29-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.29-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.30-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.30-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.30-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.30-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

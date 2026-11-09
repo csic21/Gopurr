@@ -12,6 +12,20 @@ export interface AndroidSession {
 }
 export interface InstalledApp { packageName: string; name: string; system: boolean }
 export interface NotificationSettings { granted: boolean; enabled: boolean; canRequest: boolean; traffic: boolean }
+export type AppUpdatePhase = "unsupported" | "idle" | "checking" | "current" | "available" | "downloading" | "ready" | "installing" | "installed" | "failed";
+export interface AppUpdate {
+  supported: boolean;
+  phase: AppUpdatePhase;
+  currentVersion: string;
+  currentVersionCode: number;
+  version: string;
+  notes: string;
+  downloaded: number;
+  total: number;
+  error: string;
+  detail: string;
+  canInstall: boolean;
+}
 type PreviewTransport = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 let previewTransport: PreviewTransport | undefined;
 // Only AndroidPreview.tsx installs this fixture; the real app requires its host.

@@ -1,13 +1,13 @@
 import { cleanup, colorScheme, effect, host, Image, lifecycle, List, reduceMotion, Scroll, setColorScheme, signal, Storage, Text, View } from "nsh";
 import { BackHandler } from "nsh/mobile";
-import { Button, Input } from "nsh/base";
+import { Button, Input, Progress } from "nsh/base";
 import { call } from "./client";
 import type { Profile } from "./client";
 import { colors } from "./theme";
 import { language, tr } from "./i18n";
-import { action, activate, activeProfile, busy, changeMode, connected, connecting, error, groupName, groupsIncomplete, loaded, members, message, mutationBusy, page, profiles, query, refresh, selectedGroup, session, startMobileStore, status, tasks, testMember, toggleEngine, visibleGroups } from "./mobile/store";
+import { action, activate, activeProfile, appUpdate, busy, changeMode, connected, connecting, error, groupName, groupsIncomplete, loaded, members, message, mutationBusy, page, profiles, query, refresh, selectedGroup, session, startMobileStore, status, tasks, testMember, toggleEngine, visibleGroups } from "./mobile/store";
 import { androidCall, androidHost } from "./mobile/platform";
-import type { AppScope, InstalledApp, NotificationSettings } from "./mobile/platform";
+import type { AppScope, AppUpdate, InstalledApp, NotificationSettings } from "./mobile/platform";
 import { Action, bytes, compact, Empty, Field, Heading, Icon, Label, Panel } from "./mobile/ui";
 import logo from "../assets/sidebar.png";
 import overviewIcon from "../assets/icons/layout-dashboard.svg";
@@ -198,6 +198,58 @@ function NotificationPanel() {
   </Panel>;
 }
 
+function updateSummary(value: AppUpdate): string {
+  if (!value.supported) return tr("当前为开发构建；正式签名版本支持应用内更新。", "Debug builds cannot install release updates. Use a signed release to enable in-app updates.");
+  switch (value.phase) {
+    case "idle": return tr("检查 GitHub Releases 上的新版本。", "Check GitHub Releases for a new version.");
+    case "checking": return tr("正在检查新版本…", "Checking for a new version…");
+    case "current": return tr("当前已是最新版本。", "You are up to date.");
+    case "available": return tr(`发现 Gopurr ${value.version}`, `Gopurr ${value.version} is available`);
+    case "downloading": return tr(`正在下载 Gopurr ${value.version}`, `Downloading Gopurr ${value.version}`);
+    case "ready": return value.canInstall ? tr(`Gopurr ${value.version} 已下载并校验。`, `Gopurr ${value.version} is downloaded and verified.`) : tr(`Gopurr ${value.version} 已下载；允许安装未知应用后继续。`, `Gopurr ${value.version} is downloaded. Allow app installs to continue.`);
+    case "installing": return tr("正在等待系统安装程序…", "Waiting for the system installer…");
+    case "installed": return tr("更新已安装，重新打开应用后生效。", "The update was installed. Reopen the app to use it.");
+    case "failed": return tr("检查更新失败。", "Could not check for updates.");
+    default: return "";
+  }
+}
+function updateAction(method: string) {
+  void androidCall<AppUpdate>(`android.update.${method}`).then(value => appUpdate.set(value)).catch(value => error.set(message(value)));
+}
+function UpdatePanel() {
+  const value = appUpdate;
+  return <Panel>
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <Label text="Gopurr" bold size={16} />
+      <Label text={tr(`当前版本 ${value()?.currentVersion ?? "—"}`, `Version ${value()?.currentVersion ?? "—"}`)} muted size={12} />
+    </View>
+    <Label text={tr("让连接简单一点。", "Connections, simplified.")} muted size={12} />
+    <If when={!value()}><Label text={tr("此版本未提供应用内更新。", "This build does not provide in-app updates.")} muted size={12} /></If>
+    <If when={!!value()}>
+      <Label text={updateSummary(value()!)} size={13} />
+      <If when={!!value()?.detail}><Label text={value()?.detail ?? ""} muted size={12} /></If>
+      <If when={!!value()?.error}><Label text={value()?.error ?? ""} size={12} /></If>
+      <If when={!!value()?.notes && value()?.phase === "available"}><View selectable><Text style={{ fontSize: 12, lineHeight: 18, color: colors().muted, numberOfLines: 8 }}>{value()?.notes ?? ""}</Text></View></If>
+      <If when={value()?.phase === "checking" || value()?.phase === "downloading"}>
+        <Progress testID="update-progress" value={value()?.phase === "checking" ? 0 : Math.min(100, ((value()?.downloaded ?? 0) / Math.max(1, value()?.total ?? 0)) * 100)} indeterminate={value()?.phase === "checking"} accessibilityLabel={tr("更新进度", "Update progress")}
+          trackStyle={{ height: 5, borderRadius: 3, backgroundColor: colors().border, overflow: "hidden" }} indicatorStyle={{ height: 5, borderRadius: 3, backgroundColor: colors().accent }} />
+      </If>
+      <If when={value()?.phase === "downloading"}><Label text={`${bytes(value()?.downloaded ?? 0)} / ${(value()?.total ?? 0) > 0 ? bytes(value()?.total ?? 0) : tr("大小待确认", "Size unknown")}`} muted size={11} /></If>
+      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <If when={!value()?.supported}><Action label={tr("仅正式版可用", "Release builds only")} disabled onPress={() => {}} /></If>
+        <If when={!!value()?.supported && (value()?.phase === "idle" || value()?.phase === "current" || value()?.phase === "failed" || value()?.phase === "installed")}>
+          <Action testID="update-check" primary={value()?.phase !== "installed"} label={value()?.phase === "current" ? tr("重新检查", "Check again") : tr("检查更新", "Check for updates")} disabled={false} onPress={() => updateAction("check")} />
+        </If>
+        <If when={value()?.phase === "checking"}><Action label={tr("正在检查…", "Checking…")} disabled onPress={() => {}} /></If>
+        <If when={value()?.phase === "available"}><Action testID="update-download" primary label={tr("下载更新", "Download update")} disabled={false} onPress={() => updateAction("download")} /></If>
+        <If when={value()?.phase === "downloading"}><Action testID="update-cancel" label={tr("取消下载", "Cancel download")} disabled={false} onPress={() => updateAction("cancel")} /></If>
+        <If when={value()?.phase === "ready"}><Action testID="update-install" primary label={value()?.canInstall ? tr("安装更新", "Install update") : tr("允许安装", "Allow install")} disabled={false} onPress={() => updateAction("install")} /></If>
+        <If when={value()?.phase === "installing"}><Action label={tr("等待确认", "Waiting for confirmation")} disabled onPress={() => {}} /></If>
+      </View>
+    </If>
+  </Panel>;
+}
+
 function Settings() {
   const changeAppearance = (value: "system" | "light" | "dark") => { appearance.set(value); setColorScheme(value); void Storage.setItem("appearance", value).catch(e => error.set(message(e))); };
   const changeLanguage = (value: "system" | "zh-Hans" | "en") => { language.set(value); void Storage.setItem("language", value).catch(e => error.set(message(e))); };
@@ -206,7 +258,8 @@ function Settings() {
     <Panel><Label text={tr("外观", "Appearance")} size={16} bold /><View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}><Action label={tr("跟随系统", "System")} primary={appearance() === "system"} disabled={false} onPress={() => changeAppearance("system")} /><Action label={tr("浅色", "Light")} primary={appearance() === "light"} disabled={false} onPress={() => changeAppearance("light")} /><Action label={tr("深色", "Dark")} primary={appearance() === "dark"} disabled={false} onPress={() => changeAppearance("dark")} /></View></Panel>
     <Panel><Label text={tr("语言", "Language")} size={16} bold /><View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}><Action label={tr("跟随系统", "System")} primary={language() === "system"} disabled={false} onPress={() => changeLanguage("system")} /><Action label="简体中文" primary={language() === "zh-Hans"} disabled={false} onPress={() => changeLanguage("zh-Hans")} /><Action label="English" primary={language() === "en"} disabled={false} onPress={() => changeLanguage("en")} /></View></Panel>
     <Panel><Label text={tr("诊断", "Diagnostics")} size={16} bold /><Action testID="open-logs" label={tr("查看日志", "View logs")} disabled={false} onPress={() => subpage.set("logs")} /><Label text={tr("查看最近的连接与内核事件。", "Review recent connection and engine events.")} muted size={12} /></Panel>
-    <Panel><Label text="Gopurr" size={16} bold /><Label text={tr("让连接简单一点。", "Connections, simplified.")} muted /></Panel>
+    <If when={androidHost()}><UpdatePanel /></If>
+    <If when={!androidHost()}><Panel><Label text="Gopurr" size={16} bold /><Label text={tr("让连接简单一点。", "Connections, simplified.")} muted /></Panel></If>
   </Scroll>;
 }
 export function GopurrApp(props: { preview?: boolean } = {}) {

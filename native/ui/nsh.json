@@ -1,7 +1,7 @@
 {
   "name": "Gopurr",
   "id": "io.github.gopurr.nsh.preview",
-  "version": "0.6.29",
+  "version": "0.6.30",
   "build": 1,
   "icon": "assets/icon-master.png",
   "statusBar": {
@@ -29,7 +29,12 @@
       "android.notifications.request",
       "android.notifications.settings",
       "android.notifications.configure",
-      "android.appearance"
+      "android.appearance",
+      "android.update",
+      "android.update.check",
+      "android.update.download",
+      "android.update.cancel",
+      "android.update.install"
     ],
     "statusBar": true
   }

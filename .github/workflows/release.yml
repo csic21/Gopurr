@@ -166,6 +166,14 @@ jobs:
           test -s update-windows-amd64.json
           test -s update-native-darwin-arm64.json
           test -s update-native-windows-amd64.json
+          python3 ../scripts/package-android-update.py \
+            --tag "$RELEASE_TAG" \
+            --version-code "$((1000000 + GITHUB_RUN_NUMBER))" \
+            --dir . \
+            --notes ../docs/release-notes.md \
+            --repository "$GITHUB_REPOSITORY" \
+            --out update-android.json
+          test -s update-android.json
           cmp -s update-darwin-arm64.json update-native-darwin-arm64.json
           cmp -s update-windows-amd64.json update-native-windows-amd64.json
           sha256sum -- *.dmg *.exe *.apk *.tar.gz *.json > SHA256SUMS

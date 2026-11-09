@@ -3,7 +3,7 @@ import { fixtureTransport } from "./src/fixture";
 
 function host(empty = false) {
   const dispatch = fixtureTransport(empty);
-  return { handlers: { "android.notifications": { granted: false, enabled: false, canRequest: true, traffic: true }, "engine.dispatch": async (data: unknown) => {
+  return { handlers: { "android.notifications": { granted: false, enabled: false, canRequest: true, traffic: true }, "android.update": { supported: false, phase: "unsupported", currentVersion: "0.0.0", currentVersionCode: 0, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true }, "engine.dispatch": async (data: unknown) => {
     const request = data as { method: string; params: Record<string, unknown> };
     return { result: await dispatch(request.method, request.params) };
   } } };
@@ -401,4 +401,62 @@ test("Android window chrome follows the effective appearance", async () => {
   await app.press("text:Dark");
   await app.waitUntil(() => app.host.calls().some(c => c.name === "android.appearance" && (c.data as { scheme: string }).scheme === "dark"));
   expect(app.storage().appearance).toBe("dark");
+});
+
+test("Android update checks, downloads and installs only through explicit actions", async () => {
+  const bridge = host();
+  let state = { supported: true, phase: "idle", currentVersion: "0.6.27", currentVersionCode: 1000060, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true };
+  const app = await open("./App.tsx", { locale: "en-US", platform: "android", width: 390, height: 844, host: {
+    params: { android: true }, handlers: {
+      ...bridge.handlers,
+      "android.session": { phase: "idle", generation: 0, busy: false, connected: false, scope: { mode: "all", packages: [], excludeSelf: true } },
+      "android.update": () => state,
+      "android.update.check": () => state = { ...state, phase: "available", version: "0.6.28", notes: "Mobile update notes.", total: 1000 },
+      "android.update.download": () => state = { ...state, phase: "downloading", downloaded: 100 },
+      "android.update.cancel": () => state = { ...state, phase: "available", downloaded: 0 },
+      "android.update.install": () => state = { ...state, phase: "installing", detail: "Confirm in the system installer." },
+    },
+  } });
+  await app.press("id:nav-settings");
+  await app.scroll("id:settings-scroll", 2000);
+  await app.waitFor("id:update-check");
+  expect(app.texts()).toContain("Version 0.6.27");
+  await app.press("id:update-check");
+  await app.waitFor("id:update-download");
+  expect(app.texts()).toContain("Gopurr 0.6.28 is available");
+  expect(app.host.calls().some(c => c.name === "android.update.download")).toBe(false);
+  await app.press("id:update-download");
+  await app.waitFor("id:update-cancel");
+  expect(app.texts()).toContain("Downloading Gopurr 0.6.28");
+  expect(app.host.calls().filter(c => c.name === "android.update.download").length).toBe(1);
+  await app.host.send("android.update", { ...state, phase: "ready", downloaded: 1000, total: 1000, canInstall: true });
+  await app.waitFor("id:update-install");
+  await app.press("id:update-install");
+  expect(app.host.calls().filter(c => c.name === "android.update.install").length).toBe(1);
+});
+
+test("Android update explains install permission and keeps a failed check retryable", async () => {
+  const bridge = host();
+  let state = { supported: true, phase: "ready", currentVersion: "0.6.27", currentVersionCode: 1000060, version: "0.6.28", notes: "", downloaded: 1000, total: 1000, error: "", detail: "", canInstall: false };
+  const app = await open("./App.tsx", { locale: "en-US", platform: "android", width: 390, height: 844, host: {
+    params: { android: true }, handlers: {
+      ...bridge.handlers,
+      "android.session": { phase: "idle", generation: 0, busy: false, connected: false, scope: { mode: "all", packages: [], excludeSelf: true } },
+      "android.update": () => state,
+      "android.update.install": () => state,
+      "android.update.check": () => state = { ...state, phase: "checking", error: "", detail: "" },
+    },
+  } });
+  await app.press("id:nav-settings");
+  await app.scroll("id:settings-scroll", 2000);
+  await app.waitFor("id:update-install");
+  expect(app.texts()).toContain("Gopurr 0.6.28 is downloaded. Allow app installs to continue.");
+  expect(app.texts()).toContain("Allow install");
+  await app.press("id:update-install");
+  expect(app.host.calls().filter(c => c.name === "android.update.install").length).toBe(1);
+  await app.host.send("android.update", { ...state, phase: "failed", error: "The update server is unavailable.", canInstall: true });
+  await app.waitFor("text:The update server is unavailable.");
+  await app.waitFor("id:update-check");
+  await app.press("id:update-check");
+  expect(app.host.calls().filter(c => c.name === "android.update.check").length).toBe(1);
 });

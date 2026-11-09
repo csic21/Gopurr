@@ -3,12 +3,13 @@ import { bridgeAvailable, call } from "../client";
 import type { Group, Profile, Status } from "../client";
 import { tr } from "../i18n";
 import { androidCall, androidHost } from "./platform";
-import type { AndroidSession } from "./platform";
+import type { AndroidSession, AppUpdate } from "./platform";
 
 export type Page = "overview" | "profiles" | "proxies" | "settings";
 export const page = signal<Page>(["overview", "profiles", "proxies", "settings"].includes(String(host.params.page)) ? host.params.page as Page : "overview");
 export const status = signal<Status | null>(null);
 export const session = signal<AndroidSession | null>(null);
+export const appUpdate = signal<AppUpdate | null>(null);
 export const profiles = signal<Profile[]>([]);
 export const groups = signal<Group[]>([]);
 export const groupsIncomplete = signal(false);
@@ -126,8 +127,14 @@ export async function testMember(name: string) {
 export function startMobileStore() {
   if (androidHost()) {
     cleanup(host.on("android.session", value => acceptSession(value as unknown as AndroidSession)));
+    cleanup(host.on("android.update", value => appUpdate.set(value as unknown as AppUpdate)));
     void androidCall<AndroidSession>("android.session").then(acceptSession).catch(e => error.set(message(e)));
+    void androidCall<AppUpdate>("android.update").then(value => appUpdate.set(value)).catch(() => {});
   }
+  effect(() => {
+    if (!androidHost() || lifecycle() !== "active") return;
+    void androidCall<AppUpdate>("android.update").then(value => appUpdate.set(value)).catch(() => {});
+  });
   effect(() => {
     // Remove timers when hidden, rather than repeatedly waking JS to skip work.
     // Returning to the app refreshes immediately, including background changes.

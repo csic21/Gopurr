@@ -65,6 +65,7 @@ Android 集成测试要求已经启动的**专用临时模拟器**，默认 `emu
 - 手选节点按订阅分别持久化，路由模式也会在进程重启后恢复；重开应用仍须明确连接。断开/重连及 VPN 启动恢复该订阅的选择，新配置移除成员时回默认并清理旧选择，删除订阅会清理记忆。保存失败时保留原模式或恢复原节点。
 - Android 提供系统文件选择导入、可选通知权限，以及所有应用/仅选中/排除选中的 VPN 应用范围。仅选中列表为空时拒绝保存/接入，Gopurr 自身始终排除；这不是为各应用分配代理组的功能。
 - Android 使用自适应启动器图标，猫形前景按安全区域放大；VPN 常驻通知可选择实时上下行流量或仅连接状态，两行速率分别附带累计流量，断开按钮放在右侧同行，正文点击返回连接页。设置页提供通知授权和系统通知设置入口。亮屏每 2 秒更新，省电模式 10 秒；熄屏暂停速率更新，亮屏立即恢复。
+- Android 正式签名版本在设置页提供应用内更新：从固定的 GitHub Releases 地址读取 `update-android.json`，按当前 ABI 下载 APK，校验 SHA-256、应用 ID、版本号及当前签名证书后，通过系统 `PackageInstaller` 打开安装确认。调试包不执行更新；通知权限与“安装未知应用”授权分别引导。
 - Mac Catalyst 使用完整八页桌面：概览、订阅、代理、连接、组网、规则、日志、设置；支持原业务的聚合、节点/策略组编辑、应用分流、YAML、覆写库、DNS/嗅探、备份、诊断、远程 Web 与快捷键。系统代理和 TUN 继续调用原桌面恢复/授权协议。
 - 桌面支持 320ms 单套导航几何过渡、400ms 真实流量历史插值与光轨，遵循系统减少动态效果；侧栏切换和切页保留筛选/草稿。
 - iOS Simulator 保留手机入口，尚未接入 iOS Packet Tunnel Extension。Android 的四页入口暂不包含新增桌面编辑器。
@@ -124,6 +125,8 @@ void GopurrFree(char *response_json);
 Android 宿主拦截 `engine.start` / `engine.stop` 来执行系统授权与 VPN 生命周期；其他请求使用同一 JSON 协议。VPN 接通期间禁止激活其他配置，先断开后切换。
 
 Android 手机界面优先使用独立宿主方法 `android.connect` / `android.disconnect`（立即返回会话快照），通过 `android.session` 同名事件观察进度。`android.apps`、`android.scope.get/set`、`android.file.pick` 和 `android.notifications` / `android.notifications.request` 和 `android.appearance` 处理平台能力；状态栏与导航栏图标跟随实际外观。业务协议仍为 v1，新增状态 `busy`、`operation`、`reconnectRequired`；`profiles.import` 保留直接返回订阅摘要，新 mutation 返回保存/应用结果与状态。普通 JSON 调用不能传入 VPN FD。
+
+Android 应用更新使用独立宿主方法 `android.update`、`android.update.check`、`android.update.download`、`android.update.cancel` 和 `android.update.install`。更新清单只接受 HTTPS GitHub Releases 地址，APK 必须与当前安装包同包名、同版本号且同一签名证书；下载文件放在应用私有缓存，安装由系统确认，不能静默覆盖。
 
 ## 界面验收
 
