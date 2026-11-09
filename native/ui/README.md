@@ -92,3 +92,21 @@ item; its fresh menu and commands come from the existing desktop model.
 `DesktopUpdatePreview.tsx` and `desktop-updates.steps.js` capture checking
 animation frames, release notes, download progress and ready-to-restart states.
 For the large matrix, replace the script's 840×560 viewport with 1060×720.
+
+`DesktopSelect.test.tsx` replays fresh snapshot objects every second and checks
+that open menus retain keyboard selection on Catalyst's iOS platform, macOS and
+Windows. The shared desktop selector uses an anchored native `Popover` and
+`Command` list instead of NSH's mobile Select sheet. Refresh its two-size,
+light/dark captures with:
+
+```sh
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopSelectPreview.tsx --target macos < native/ui/desktop-select.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopSelectPreview.tsx --target macos < native/ui/desktop-select-dialog.steps.js
+```
+
+`Traffic.test.tsx` covers sliding and growing histories, skipped samples, reset
+histories, interrupted motion, stable scaling and curves without false peaks.
+`DesktopTrafficPreview.tsx` is an isolated visual replay that settles at zero;
+`desktop-traffic.steps.js` records native intermediate frames in
+`.cache/traffic-frames/` and a zero-rate screenshot. Production data is never
+replaced with this fixture.

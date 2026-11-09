@@ -4,13 +4,19 @@ import { mergeDiff } from "./src/desktop/proxies";
 import { navigationLayout } from "./src/desktop/navigation";
 function host(reject=false) { const dispatch=desktopFixtureTransport();return {handlers:{"desktop.window.dirty":()=>{},"desktop.dispatch":async(value:unknown)=>{const v=value as {method:string;params:any};if(reject&&v.method==="desktop.profiles.import")return {error:{message:"Download failed; draft retained."}};return {result:await dispatch(v.method,v.params)};}}}; }
 test("desktop proxy latency testing never switches selection",async()=>{
- const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-proxies");await app.waitFor("id:proxy-香港 01");await app.press("text:42 ms");expect(app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.select")).toBe(false);await app.press("id:proxy-新加坡 03");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.select"));
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-proxies");await app.waitFor("id:proxy-香港 01");await app.press("id:test-proxy-香港 01");expect(app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.select")).toBe(false);await app.press("id:proxy-新加坡 03");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.select"));
+});
+test("desktop proxy mode and bulk testing stay explicit",async()=>{
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-proxies");await app.waitFor("id:group-节点选择");await app.press("id:proxy-mode-global");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.mode.set"&&(c.data as any)?.params?.mode==="global"));await app.waitFor("id:group-GLOBAL");await app.press("text:测试全部");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.delay"&&(c.data as any)?.params?.names?.includes("香港 01")));await app.press("id:proxy-mode-direct");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.mode.set"&&(c.data as any)?.params?.mode==="direct"));await app.waitFor("text:当前为直连模式");
 });
 test("failed desktop subscription imports preserve editable draft",async()=>{
  const app=await open("./Desktop.tsx",{host:host(true),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-subs");await app.press("id:add-profile");await app.type("id:profile-url","https://example.invalid/bad.yaml");await app.press("text:添加");await app.waitFor("text:Download failed; draft retained.");expect(app.value("id:profile-url")).toBe("https://example.invalid/bad.yaml");
 });
 test("connection search and closing a connection use its stable id",async()=>{
- const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-conns");await app.type("id:connections-search","youtube");await app.press("id:connection-conn-1");await app.press("text:关闭连接");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.connections.close"&&(c.data as any)?.params?.id==="conn-1"));
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-conns");await app.type("id:connections-search","youtube");await app.press("id:connection-conn-1");await app.press("text:断开连接");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.connections.close"&&(c.data as any)?.params?.id==="conn-1"));
+});
+test("desktop search clear restores the full connection list",async()=>{
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-conns");await app.type("id:connections-search","youtube");expect(app.texts()).not.toContain("download.example.com");await app.press("id:connections-search-clear");await app.waitFor("text:download.example.com");expect(app.value("id:connections-search")).toBe("");
 });
 test("proxy diff does not freeze credentials and marks explicit removals",()=>{expect(mergeDiff({password:"old",tls:{enabled:true,sni:"before"}},{password:"old",tls:{enabled:true}})).toEqual({tls:{sni:null}});});
 test("desktop navigation retains searches and an unfinished import draft",async()=>{
@@ -60,6 +66,6 @@ test("the host receives only boolean dirty transitions and retains a hidden-page
 });
 test("native tab lists support focused arrows and Home and End",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,platform:"macos",locale:"zh-CN"});
- await app.keyboard.press("tab");await app.keyboard.press("right");await app.waitFor("text:所有请求使用全局策略");await app.keyboard.press("end");await app.waitFor("text:所有请求直接连接");await app.keyboard.press("home");await app.waitFor("text:节点选择 · Selector");
+ await app.keyboard.press("tab");await app.keyboard.press("right");await app.waitFor("text:所有请求使用全局策略");await app.keyboard.press("end");await app.waitFor("text:所有请求直接连接");await app.keyboard.press("home");await app.waitFor("text:节点选择 · 手动选择");
  await app.keyboard.press("shift+tab");await app.keyboard.press("shift+tab");await app.keyboard.press("down");await app.waitFor("id:desktop-profiles");await app.keyboard.press("end");await app.waitFor("text:偏好自动保存；网络与测试设置确认后应用");await app.keyboard.press("home");await app.waitFor("id:desktop-overview");
 });

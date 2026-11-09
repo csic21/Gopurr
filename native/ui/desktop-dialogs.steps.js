@@ -9,7 +9,7 @@ await app.waitFor('text:订阅下载失败，请检查链接后重试。 / Subsc
 await app.screenshot('native/ui/screenshots/desktop-profile-error-light-840x560.png');
 await app.press('text:取消');
 await app.press('id:desktop-nav-proxies');
-await app.press('text:编辑节点与策略组…');
+await app.press('text:管理节点…');
 await app.screenshot('native/ui/screenshots/desktop-proxy-editor-light-840x560.png');
 await app.press('text:取消');
 await app.press('id:desktop-nav-conns');

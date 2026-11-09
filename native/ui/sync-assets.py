@@ -51,6 +51,7 @@ for icon in (
     "circle-check.svg", "check.svg", "circle.svg", "arrow-up-right.svg", "arrow-down-left.svg",
     "shield-check.svg", "LICENSE",
     "cable.svg", "layers-2.svg", "list-filter.svg", "network.svg",
-    "panel-left.svg", "square-terminal.svg",
+    "panel-left.svg", "square-terminal.svg", "search.svg", "x.svg",
+    "chevron-down.svg", "chevron-right.svg", "refresh-cw.svg",
 ):
     shutil.copyfile(ROOT / "internal/app/icons" / icon, assets / "icons" / icon)

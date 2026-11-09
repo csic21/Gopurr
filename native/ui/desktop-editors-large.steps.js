@@ -16,6 +16,6 @@ for(const size of [{width:1060,height:720}]) {
   await app.press('id:desktop-nav-conns');
   await app.press('id:connection-conn-0');
   await app.screenshot(`native/ui/screenshots/desktop-connection-detail-${scheme}-${size.width}x${size.height}.png`);
-  await app.press('text:关闭');
+  await app.press('id:connection-detail-close');
  }
 }
