@@ -53,3 +53,23 @@ test('Escape closes a selector inside an editor while retaining the editor',asyn
   await app.keyboard.press('escape');
   await app.waitFor('id:dns-source-options',{state:'gone'});expect(app.shows('id:dns-source')).toBe(true);
 });
+
+for(const platform of ['ios','macos','windows'] as const) {
+  test(`late initialization preserves current keyboard input on ${platform}`,async()=>{
+    const app=await open('./SelectInitializationPreview.tsx',{platform,width:840,height:560,clock:{}});
+    await app.press('id:delayed-select');
+    await app.keyboard.press('down');
+    await app.clock!.runFor(250);
+    await app.keyboard.press('enter');
+    expect(app.shows('text:choice:true')).toBe(true);
+    await app.press('id:delayed-select');
+    await app.keyboard.press('down');
+    await app.clock!.runFor(250);
+    await app.keyboard.press('enter');
+    expect(app.shows('text:choice:false')).toBe(true);
+    await app.press('id:delayed-select');
+    await app.clock!.runFor(250);
+    await app.keyboard.press('up');await app.keyboard.press('enter');
+    expect(app.shows('text:choice:true')).toBe(true);
+  });
+}

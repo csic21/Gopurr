@@ -1,7 +1,7 @@
 {
   "name": "Gopurr",
   "id": "io.github.gopurr.nsh.preview",
-  "version": "0.6.28",
+  "version": "0.6.29",
   "build": 1,
   "icon": "assets/icon-master.png",
   "statusBar": {

@@ -95,7 +95,9 @@ For the large matrix, replace the script's 840×560 viewport with 1060×720.
 
 `DesktopSelect.test.tsx` replays fresh snapshot objects every second and checks
 that open menus retain keyboard selection on Catalyst's iOS platform, macOS and
-Windows. The shared desktop selector uses an anchored native `Popover` and
+Windows. `SelectInitializationPreview.tsx` delays frame initialization to verify
+that an early direction key is retained, including when reopening a selection.
+The shared desktop selector uses an anchored native `Popover` and
 `Command` list instead of NSH's mobile Select sheet. Refresh its two-size,
 light/dark captures with:
 

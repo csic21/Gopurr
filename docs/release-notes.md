@@ -1,4 +1,4 @@
-Gopurr 0.6.28 修复桌面选择菜单的底部弹出和闪烁，并优化实时流量动画。
+Gopurr 0.6.29 修复桌面选择菜单的底部弹出和闪烁，并优化实时流量动画。
 
 - 桌面下拉菜单贴着按钮展开，空间不足时自动向上弹出；每秒刷新保留菜单和当前高亮，支持键盘选择与取消。
 - 实时流量历史平稳左移，新采样从右侧接入；曲线平滑且不制造额外峰值，纵轴保持稳定，面积与阴影更轻。
@@ -8,10 +8,10 @@ Gopurr 0.6.28 修复桌面选择菜单的底部弹出和闪烁，并优化实时
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.28-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.28-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.28-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.28-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.29-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.29-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.29-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.29-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

@@ -37,8 +37,10 @@ export function Select(p:{items:{value:string;title:string}[];value:string;onCha
 
 
 function SelectOptions(p:{items:()=>CommandItem[];value:string;label?:string;testID?:string;onChoose:(id:string)=>void;onClose:()=>void}) {
-  let list:CommandRef|undefined,current=p.value,focusFrame=0,prefix='',typedAt=0;
+  let list:CommandRef|undefined,current=p.value,focusFrame=0,prefix='',typedAt=0,ready=false;
   cleanup(()=>cancelAnimationFrame(focusFrame));
+  // Initial native highlight events can arrive before the first display frame.
+  // Keep the latest keyboard choice, including input received before setup.
   const highlight=(id:string)=>{current=id;list?.highlight(id);};
   const move=(delta:number)=>{const rows=p.items();if(!rows.length)return;const at=Math.max(0,rows.findIndex(v=>v.id===current));highlight(rows[(at+delta+rows.length)%rows.length].id);};
   // Native focus on a generic view is unavailable on Catalyst. Bind only for
@@ -50,7 +52,7 @@ function SelectOptions(p:{items:()=>CommandItem[];value:string;label?:string;tes
   keymap.bind('escape',p.onClose);
   for(const key of 'abcdefghijklmnopqrstuvwxyz0123456789')keymap.bind(key,()=>{const now=Date.now();prefix=(now-typedAt<600?prefix:'')+key;typedAt=now;const row=p.items().find(v=>v.label.toLowerCase().startsWith(prefix));if(row)highlight(row.id);});
   return (
-<Command testID={p.testID?`${p.testID}-options`:undefined} ref={node=>{list=node;focusFrame=requestAnimationFrame(()=>{list?.highlight(p.value);if(platform.os==='macos'||platform.os==='web')list?.focus();});}} items={p.items()} searchable={false} accessibilityLabel={p.label} onHighlightChange={({highlighted})=>{if(highlighted)current=highlighted;}}
+<Command testID={p.testID?`${p.testID}-options`:undefined} ref={node=>{list=node;cancelAnimationFrame(focusFrame);focusFrame=requestAnimationFrame(()=>{const id=current;if(platform.os==='macos'||platform.os==='web')list?.focus();ready=true;highlight(id);});}} items={p.items()} searchable={false} accessibilityLabel={p.label} onHighlightChange={({highlighted})=>{if(ready&&highlighted)current=highlighted;}}
       listStyle={{maxHeight:Math.min(264,windowSize().height-80)}}
       itemClass={`focus:bg-[${colors().hover}] checked:bg-[${colors().selected}]`}
       itemStyle={{color:colors().text,fontSize:12.5,paddingHorizontal:8,paddingVertical:7,borderRadius:5}}
