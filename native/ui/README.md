@@ -79,6 +79,13 @@ failed saves, explicit authorization of mesh ports, and animation reversal.
 `make native-desktop-smoke` verifies the shipped desktop helper with a real core,
 loopback traffic, rollback and backup validation in an isolated directory.
 
+`DesktopMesh.test.tsx` covers connection tabs, draft parameters, preparation
+cancellation and client errors. Run `nsh test native/ui/DesktopMeshPreview.tsx
+--target macos < native/ui/desktop-mesh.steps.js` (and
+`DesktopMeshEnglishPreview.tsx`) to refresh both sizes and themes for SSH, RDP,
+VNC, long device names, unprepared access and connection feedback. These
+fixtures never change system settings or open real clients.
+
 The Catalyst host pins NSH's desktop font scale to 1.0: macOS's 13pt body
 must not be normalized against iOS's 17pt default. The host owns its status
 item; its fresh menu and commands come from the existing desktop model.

@@ -48,7 +48,7 @@ shutil.copyfile(ROOT / "internal/brand/icon-master.png", assets / "icon-master.p
 shutil.copyfile(ROOT / "internal/brand/sidebar.png", assets / "sidebar.png")
 for icon in (
     "layout-dashboard.svg", "file-text.svg", "globe.svg", "settings-2.svg",
-    "circle-check.svg", "circle.svg", "arrow-up-right.svg", "arrow-down-left.svg",
+    "circle-check.svg", "check.svg", "circle.svg", "arrow-up-right.svg", "arrow-down-left.svg",
     "shield-check.svg", "LICENSE",
     "cable.svg", "layers-2.svg", "list-filter.svg", "network.svg",
     "panel-left.svg", "square-terminal.svg",
