@@ -81,6 +81,13 @@ Run the real native AppKit renderer (one instance at a time):
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-render.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-dialogs.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-editors.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-editors-large.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-collapsed-pages.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-titlebar.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopEmptyPreview.tsx --target macos < native/ui/desktop-empty.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-settings-tabs.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-settings-more.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-rules-tabs.steps.js
 ```
 
 `Desktop.test.tsx` and `DesktopEditors.test.tsx` exercise draft preservation,

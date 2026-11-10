@@ -8,7 +8,7 @@
 
 Gopurr 是基于 [mihomo](https://github.com/MetaCubeX/mihomo) 的原生桌面代理客户端，支持 macOS Apple Silicon 和 Windows x64。提供订阅管理、策略组与节点切换、延迟测试、系统代理、TUN、规则编辑和 YAML 覆写，界面支持跟随系统、浅色与深色外观。
 
-![概览](docs/render-overview-live.png)
+![概览](native/ui/screenshots/desktop-overview-dark-1060x720.png)
 
 ## 安装
 
@@ -60,7 +60,7 @@ macOS 已安装系统服务时，系统代理与 TUN 共用已有授权，日常
 
 手动策略组中，点击节点圆圈、名称、延迟或同行空白均可选择节点，也可用 Enter／空格操作；右侧测速按钮独立测试，不会切换节点。自动策略组展示内核调度的当前出口。延迟测试支持去重、并发、取消、延迟排序、名称排序和仅显示可用节点；结果反映响应延迟与连通性。
 
-![代理与节点](docs/render-proxies.png)
+![代理与节点](native/ui/screenshots/desktop-proxies-light-1060x720.png)
 
 在订阅卡片点击「编辑…」可修改名称、订阅链接与 User-Agent，并选择跟随全局、关闭或自定义自动更新周期。开启「使用 Gopurr 代理更新」后，通过正在运行的 Gopurr 内核下载；关闭时直接下载。保存来源设置不会替换缓存内容，点击「更新」成功后才使用新内容。本地配置只支持编辑名称及手动重新读取。
 
