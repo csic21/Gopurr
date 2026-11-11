@@ -369,3 +369,17 @@ func TestNativeUpdateVisibilityIsSharedAcrossPages(t *testing.T) {
 		t.Fatal("update dialog did not hide")
 	}
 }
+
+func TestNativeSnapshotReportsExplicitRelaunchWindow(t *testing.T) {
+	nativeDispatchFixture(t)
+	a, _, _ := proxyEditorTestApp(t)
+	a.SetNativeShowWindowOnLaunch(true)
+	snapshot, err := a.NativeSnapshot(context.Background(), "overview", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	startup, ok := snapshot["startup"].(map[string]any)
+	if !ok || startup["showWindow"] != true {
+		t.Fatal("explicit relaunch window intent missing", snapshot["startup"])
+	}
+}

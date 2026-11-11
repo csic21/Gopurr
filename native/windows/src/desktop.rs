@@ -390,6 +390,11 @@ fn run_on_ui_thread() -> Result<(), String> {
     }
     trace("starting frontend");
     let args: Vec<String> = std::env::args().collect();
+    // Update relaunches carry the explicit data directory, while login
+    // launches use --autostart. This also covers the first restart from a
+    // version that predates the one-shot relaunch marker.
+    let explicit_relaunch = args.iter().any(|arg| arg == "--gopurr-home")
+        && !args.iter().any(|arg| arg == "--autostart");
     if args.len() == 2 && args[1] == "--version" {
         println!("Gopurr {}", env!("GOPURR_VERSION"));
         return Ok(());
@@ -461,6 +466,7 @@ fn run_on_ui_thread() -> Result<(), String> {
     trace("backend ready");
     let snapshot = bridge.result("desktop.snapshot", json!({"page":page}))?;
     let prefs = snapshot["prefs"].clone();
+    let show_window_on_launch = snapshot["startup"]["showWindow"].as_bool().unwrap_or(false);
     let channel = HostChannel::new();
     params(&channel, &page);
     unsafe {
@@ -596,7 +602,10 @@ fn run_on_ui_thread() -> Result<(), String> {
         }
     }
     view.load(App::Js(bundle));
-    if state.prefs.borrow()["silentStart"].as_bool() == Some(true) {
+    if state.prefs.borrow()["silentStart"].as_bool() == Some(true)
+        && !show_window_on_launch
+        && !explicit_relaunch
+    {
         state.hide();
     } else {
         view.show();

@@ -173,6 +173,7 @@ func (a *App) NativeSnapshot(ctx context.Context, page, scopeID string) (map[str
 		installed, busy, serviceErr := a.svcState()
 		status.TunInstalled = installed
 		out := map[string]any{"apiVersion": 2, "desktop": true, "page": a.page, "status": status, "prefs": a.Prefs(), "network": a.ov, "service": map[string]any{"installed": installed, "busy": busy, "error": serviceErr, "needsUpdate": false}, "capabilities": map[string]any{"desktop": true, "systemProxy": systemProxyAvailable(), "tun": a.k != nil && a.k.IsRoot()}}
+		out["startup"] = map[string]any{"showWindow": a.nativeShow}
 		if a.mgr != nil {
 			out["service"].(map[string]any)["needsUpdate"] = a.mgr.ServiceNeedsUpdate() || a.mgr.ServiceVersionSkew()
 		}
@@ -343,4 +344,11 @@ func (a *App) NativeSnapshot(ctx context.Context, page, scopeID string) (map[str
 	var detached map[string]any
 	e = json.Unmarshal(body, &detached)
 	return detached, e
+}
+
+// SetNativeShowWindowOnLaunch tells the desktop host to keep the first window
+// visible after an explicit update restart. It is intentionally per-process:
+// normal launches still follow the persisted silent-start preference.
+func (a *App) SetNativeShowWindowOnLaunch(show bool) {
+	a.nativeShow = show
 }

@@ -1,15 +1,15 @@
-Gopurr 0.6.36 修复桌面开关的选中态显示与过渡动画。
+Gopurr 0.6.37 修复启用静默启动时，更新重启后窗口转入后台的问题。
 
-- 开关开启后，滑块现在会移动到轨道右侧，不再只改变轨道颜色。
-- 轨道与滑块共用 240 ms 过渡；快速连续切换从当前画面继续，减少动态效果时直接显示最终状态。
-- 设置、概览、组网等页面共用同一修复，并补充滑块位移回归测试和双尺寸明暗截图。
+- 点击「立即重启」安装更新后，新版本窗口会保持显示，不再闪一下后隐藏。
+- 主动更新重启与日常登录静默启动分开处理；登录启动仍遵循「静默启动」设置。
+- 同时兼容从 0.6.36 及更早版本升级后的第一次重启，macOS 与 Windows 均已适配。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.36-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.36-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.36-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.36-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.37-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.37-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.37-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.37-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

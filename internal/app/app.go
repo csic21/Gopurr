@@ -88,6 +88,7 @@ type App struct {
 
 	initErr    string
 	page       string
+	nativeShow bool
 	proxyQuery string
 	modeToken  string
 	modePick   string

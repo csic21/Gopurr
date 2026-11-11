@@ -29,12 +29,17 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     private var appliedInitialPrefs = false
     private var hasUnsavedDrafts = false
     private var trayReady = false
+    private var showWindowOnLaunch = false
     var lastPage = "overview"
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let home: URL
         let args = CommandLine.arguments
+        // Update relaunches carry the explicit data directory, while login
+        // launches use --autostart. This also covers the first restart from a
+        // version that predates the one-shot relaunch marker.
+        showWindowOnLaunch = args.contains("--gopurr-home") && !args.contains("--autostart")
         let homeIndex = args.firstIndex(of: "--gopurr-home")
         let argumentHome = homeIndex.flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
         if let override = argumentHome ?? ProcessInfo.processInfo.environment["GOPURR_NATIVE_HOME"] ?? ProcessInfo.processInfo.environment["GOPURR_HOME"],
@@ -114,10 +119,20 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         GopurrDesktopLayoutChrome()
         if !appliedInitialPrefs {
             appliedInitialPrefs = true
-            if trayReady && prefs["silentStart"] as? Bool == true { GopurrDesktopHideWindow(); setWindowVisible(false) }
+            if trayReady && prefs["silentStart"] as? Bool == true && !showWindowOnLaunch { GopurrDesktopHideWindow(); setWindowVisible(false) }
         }
         applyDockPolicy()
         scheduleRelease()
+    }
+
+    func applySnapshot(_ snapshot: [String: Any]) {
+        if let startup = snapshot["startup"] as? [String: Any],
+           startup["showWindow"] as? Bool == true {
+            showWindowOnLaunch = true
+        }
+        if let prefs = snapshot["prefs"] as? [String: Any] {
+            applyPreferences(prefs)
+        }
     }
 
     func setWindowVisible(_ visible: Bool) {
@@ -341,7 +356,7 @@ final class GopurrController: UIViewController {
                                 DispatchQueue.main.async {
                                     let delegate = UIApplication.shared.delegate as? AppDelegate
                                     if let page = snapshot["page"] as? String { delegate?.lastPage = page }
-                                    if let prefs = snapshot["prefs"] as? [String: Any] { delegate?.applyPreferences(prefs) }
+                                    delegate?.applySnapshot(snapshot)
                                 }
                             }
                             if channel == "desktop.dispatch" { reply.resolve(value) }

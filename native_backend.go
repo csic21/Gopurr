@@ -88,6 +88,7 @@ func runNativeBackend(args []string) error {
 	if err != nil {
 		return err
 	}
+	showWindowOnLaunch := nativehost.ConsumeRelaunchShow(*home)
 	if err = os.Setenv("GOPURR_HOME", *home); err != nil {
 		return err
 	}
@@ -95,6 +96,7 @@ func runNativeBackend(args []string) error {
 	mygo.App.SetVersion(buildinfo.Version)
 	mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory)
 	a := app.New()
+	a.SetNativeShowWindowOnLaunch(showWindowOnLaunch)
 	a.NativeSetAutoLaunchHandler(func(enabled bool) error { return autostart.SetExecutable(enabled, *frontend) })
 	app.ConfigureLanguages(a.Prefs())
 	mygo.Theme.SetSource(mygo.ThemeSource(a.Prefs().Appearance))
@@ -161,6 +163,11 @@ func runNativeBackend(args []string) error {
 			// installer opens the new bundle only after the atomic replacement.
 			relaunch := a.RelaunchRequested()
 			log.Printf("native shutdown ready; frontend=%d relaunch=%v", *parent, relaunch)
+			if relaunch {
+				if err := nativehost.MarkRelaunchShow(*home); err != nil {
+					log.Printf("native relaunch: remember visible window: %v", err)
+				}
+			}
 			events.Add("quit", map[string]bool{"relaunch": false})
 			go func() {
 				if *waitForFrontend {
