@@ -5,7 +5,7 @@ SHELL := /bin/bash
 export GOPATH := $(CURDIR)/.cache/go
 export GOMODCACHE := $(CURDIR)/.cache/mod
 export GOCACHE := $(CURDIR)/.cache/build
-export GOTOOLCHAIN := go1.27.3
+export GOTOOLCHAIN := go1.27.4
 # mixed/gvisor TUN stacks require this feature in mihomo.
 export GOFLAGS ?= -tags=with_gvisor
 

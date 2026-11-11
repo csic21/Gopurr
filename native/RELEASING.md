@@ -281,7 +281,7 @@ Use the workspace Go cache settings from `Makefile`:
 
 ```sh
 GOPATH="$PWD/.cache/go" GOMODCACHE="$PWD/.cache/mod" \
-GOCACHE="$PWD/.cache/build" GOTOOLCHAIN=go1.27.3 \
+GOCACHE="$PWD/.cache/build" GOTOOLCHAIN=go1.27.4 \
 GOFLAGS=-tags=with_gvisor go test ./scripts/package-native-update
 ```
 

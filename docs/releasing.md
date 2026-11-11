@@ -39,7 +39,7 @@ make build bundle
 
 # 完整 DMG 和签名更新产物（本机有 .secrets 私钥时）。
 GOPATH="$PWD/.cache/go" GOMODCACHE="$PWD/.cache/mod" \
-GOCACHE="$PWD/.cache/build" GOTOOLCHAIN=go1.27.3 \
+GOCACHE="$PWD/.cache/build" GOTOOLCHAIN=go1.27.4 \
 go run ./scripts/release -release -version v0.2.0 -platform darwin/arm64
 ```
 

@@ -80,7 +80,7 @@ NSH 是界面运行时，不代表手机 VPN 已经完成能耗优化。当前 A
 
 ```sh
 GOPATH="$PWD/.cache/go" GOMODCACHE="$PWD/.cache/mod" \
-GOCACHE="$PWD/.cache/build" GOTOOLCHAIN=go1.27.3 GOFLAGS=-tags=with_gvisor \
+GOCACHE="$PWD/.cache/build" GOTOOLCHAIN=go1.27.4 GOFLAGS=-tags=with_gvisor \
 rtk go test ./sdk/engine -run TestLogBuffer -bench BenchmarkLogRetention -benchmem
 ```
 

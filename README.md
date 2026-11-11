@@ -187,7 +187,7 @@ Android 在「设置 → Gopurr」提供应用内更新。正式签名版本从 
 
 macOS 的 `make bundle` 与正式发布入口使用 NSH 八页桌面，保留原应用身份、数据目录和更新公钥；首次接管旧数据前保存私有快照，旧版与 NSH 更新入口下载同一个完整应用包。Windows 正式构建同样使用 NSH 八页桌面，Android 使用四入口原生客户端。独立预览仍通过 `make native-bundle` 构建。详见 [NSH 客户端说明](native/README.md)、[macOS 迁移验收记录](native/MACOS_MIGRATION.md) 与 [Windows 迁移验收记录](native/WINDOWS_MIGRATION.md)。
 
-使用 Go 1.27.3。macOS 窗口由 NSH / Mac Catalyst 渲染，后台沿用 mygo 的菜单栏、快捷键与更新模块；Windows 窗口由 NSH / Win32 渲染，后台同样沿用 [mygo](https://github.com/egoist/mygo) 的托盘、快捷键与更新模块。mihomo 内核在独立进程中运行，应用通过本地控制器 socket 与内核通信。远程 Web 前端使用 Node.js 20+、Vite、React 与 TypeScript 构建，运行时不需要 Node。
+使用 Go 1.27.4。macOS 窗口由 NSH / Mac Catalyst 渲染，后台沿用 mygo 的菜单栏、快捷键与更新模块；Windows 窗口由 NSH / Win32 渲染，后台同样沿用 [mygo](https://github.com/egoist/mygo) 的托盘、快捷键与更新模块。mihomo 内核在独立进程中运行，应用通过本地控制器 socket 与内核通信。远程 Web 前端使用 Node.js 20+、Vite、React 与 TypeScript 构建，运行时不需要 Node。
 
 离线数据库的来源提交与校验和记录在 `internal/geodata/data/manifest.json`；`make update-geodata` 从 MetaCubeX 的最新 release 分支刷新快照。正式发布会自动执行刷新，已安装应用的数据库更新独立于软件发布。
 

@@ -49,7 +49,7 @@ Swift 宿主先退出，Go 后台等待宿主消失后再结束；mygo 安装器
 
 ```sh
 GOPATH="$PWD/.cache/go" GOMODCACHE="$PWD/.cache/mod" \
-GOCACHE="$PWD/.cache/build" GOTOOLCHAIN=go1.27.3 GOFLAGS=-tags=with_gvisor \
+GOCACHE="$PWD/.cache/build" GOTOOLCHAIN=go1.27.4 GOFLAGS=-tags=with_gvisor \
 GOPURR_NATIVE_PACKAGE_TEST_APP="$PWD/bin/darwin-arm64/Gopurr.app" \
 go test -v ./scripts/package-native-update \
   -run '^TestNativeDesktopMigrationRoundtrip$' -count=1 -timeout=12m
