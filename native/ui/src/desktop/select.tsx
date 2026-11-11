@@ -1,8 +1,9 @@
-import { cleanup, effect, Image, keymap, platform, signal, Text, View, windowSize } from 'nsh';
+import { cleanup, colorScheme, effect, Image, keymap, platform, signal, Text, View, windowSize } from 'nsh';
 import type { ViewRef } from 'nsh';
 import { Command, Popover } from 'nsh/base';
 import type { CommandItem, CommandRef } from 'nsh/base';
 import { colors } from './theme';
+import { elevation, tint } from './ui';
 import chevron from '../../assets/icons/chevron-down.svg';
 import check from '../../assets/icons/check.svg';
 
@@ -22,12 +23,12 @@ export function Select(p:{items:{value:string;title:string}[];value:string;onCha
   effect(()=>{if(p.disabled)open.set(false);});
   const close=()=>open.set(false);
   return <Popover open={open()} onOpenChange={({open:next})=>open.set(next&&!p.disabled)} placement="bottom" align="end" offset={4} margin={12}
-    popupStyle={{minWidth:Math.max(148,width()),maxWidth:Math.min(340,windowSize().width-32),padding:4,borderWidth:1,borderColor:colors().border,borderRadius:8,backgroundColor:colors().surface,boxShadow:[{x:0,y:6,blur:18,color:"#00000040"}]}}
+    popupStyle={{minWidth:Math.max(150,width()),maxWidth:Math.min(340,windowSize().width-32),padding:5,borderWidth:1,borderColor:colors().border,borderRadius:10,backgroundColor:colors().surface,boxShadow:elevation("popover")}}
     onClose={()=>{if(alive&&!p.disabled&&(platform.os==='macos'||platform.os==='web'))trigger?.focus();}}
     trigger={<View testID={p.testID} ref={node=>{trigger=node;}} role="combobox" accessibilityLabel={p.label} accessibilityValue={{text:p.items.find(i=>i.value===p.value)?.title??p.value}} accessibilityState={{expanded:open(),disabled:!!p.disabled}} disabled={p.disabled}
       onLayout={({bounds})=>{if(bounds.size.width>0&&Math.abs(width()-bounds.size.width)>.5)width.set(bounds.size.width);}}
-      style={{minHeight:28,minWidth:104,maxWidth:Math.min(320,windowSize().width-64),paddingHorizontal:9,paddingVertical:4,borderRadius:6,borderWidth:1,borderColor:open()?colors().selectedBorder:colors().border,backgroundColor:colors().bg,flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10,opacity:p.disabled ? .4 : 1}}
-      hoverStyle={{backgroundColor:colors().hover}} focusStyle={{outlineWidth:2,outlineColor:colors().accent,outlineOffset:2}}>
+      style={{height:30,minHeight:30,minWidth:104,maxWidth:Math.min(320,windowSize().width-64),paddingHorizontal:10,paddingVertical:4,borderRadius:8,borderWidth:1,borderColor:open()?colors().accent:colors().border,backgroundColor:colorScheme()==='dark'?colors().bg:colors().surface,flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10,opacity:p.disabled ? .4 : 1,transitionProperty:'border-color, background-color',transitionDuration:140}}
+      hoverStyle={{backgroundColor:colors().hover,borderColor:open()?colors().accent:colors().selectedBorder}} focusStyle={{outlineWidth:2,outlineColor:colors().accent,outlineOffset:2}}>
       <Text style={{fontSize:12.5,color:colors().text,numberOfLines:1,flexShrink:1}}>{p.items.find(i=>i.value===p.value)?.title??p.value}</Text>
       <Image src={chevron} style={{width:12,height:12,tintColor:colors().muted}}/>
     </View>}>
@@ -53,9 +54,9 @@ function SelectOptions(p:{items:()=>CommandItem[];value:string;label?:string;tes
   for(const key of 'abcdefghijklmnopqrstuvwxyz0123456789')keymap.bind(key,()=>{const now=Date.now();prefix=(now-typedAt<600?prefix:'')+key;typedAt=now;const row=p.items().find(v=>v.label.toLowerCase().startsWith(prefix));if(row)highlight(row.id);});
   return (
 <Command testID={p.testID?`${p.testID}-options`:undefined} ref={node=>{list=node;cancelAnimationFrame(focusFrame);focusFrame=requestAnimationFrame(()=>{const id=current;if(platform.os==='macos'||platform.os==='web')list?.focus();ready=true;highlight(id);});}} items={p.items()} searchable={false} accessibilityLabel={p.label} onHighlightChange={({highlighted})=>{if(ready&&highlighted)current=highlighted;}}
-      listStyle={{maxHeight:Math.min(264,windowSize().height-80)}}
+      listStyle={{maxHeight:Math.min(264,windowSize().height-96)}}
       itemClass={`focus:bg-[${colors().hover}] checked:bg-[${colors().selected}]`}
-      itemStyle={{color:colors().text,fontSize:12.5,paddingHorizontal:8,paddingVertical:6,borderRadius:5}}
+      itemStyle={{color:colors().text,fontSize:12.5,paddingHorizontal:9,paddingVertical:7,borderRadius:6}}
       renderItem={item=><View style={{flexDirection:'row',alignItems:'center',gap:12}}><Text tooltip={item.label} style={{flex:1,minWidth:0,fontSize:12.5,color:item.checked?colors().accent:colors().text,numberOfLines:1}}>{item.label}</Text><View style={{width:14,height:14}}><If when={item.checked}><Image src={check} style={{width:14,height:14,tintColor:colors().accent}}/></If></View></View>}
       onSelect={({id})=>p.onChoose(id)} onCancel={p.onClose}/>
   );

@@ -2,16 +2,25 @@ import { Scroll, Text, View, signal, windowSize, effect } from "nsh";
 import { colors } from "./theme";
 import { tr } from "./i18n";
 import { nativeCall, pendingImport } from "./client";
-import { Action, Empty, Field, Group, GroupRow, Heading, Label, Modal, Panel, Row, Section, Tag, Toggle, fmtBytes, fmtTime } from "./ui";
+import { Action, Empty, Field, Group, GroupRow, Heading, Icon, Label, Modal, RADIUS, Row, Section, Tag, Toggle, elevation, fmtBytes, fmtTime } from "./ui";
 import { watchDesktopDraft } from "./drafts";
 import type { PageProps } from "./types";
 
 export function profileSource(value:any):string {const raw=value.source??value.url??value.path??"";try{return new URL(raw).hostname;}catch{return raw.split(/[\\/]/).pop()??raw;}}
+// One glyph per profile kind keeps the list scannable without a second label.
+function profileIcon(value:any):string {return value?.kind==="file"?"profiles":value?.kind==="aggregate"?"mesh":"subs";}
  const adding=signal(false), editing=signal<any|null>(null), deleting=signal<any|null>(null), aggregate=signal(false);
  const name=signal(""),url=signal(""),draft=signal<any>({}),content=signal(""),localError=signal(""),aggId=signal(""),sources=signal<Record<string,boolean>>({}),prefixes=signal<Record<string,string>>({}),include=signal(""),exclude=signal(""),dedupe=signal(true);
 export function ProfilesPage(p:PageProps) {
  watchDesktopDraft("profiles",()=>!!(adding()&&(name().trim()||url().trim())||editing()&&JSON.stringify(draft())!==JSON.stringify(editing())||aggregate()));
  const rows=()=>p.snapshot().profiles??[];
+ const activeRows=()=>rows().filter(v=>!!v.active);
+ const otherRows=()=>rows().filter(v=>!v.active);
+ const compact=()=>windowSize().height<660;
+ const narrow=()=>windowSize().width<960;
+ const padX=()=>compact()||narrow()?16:24;
+ const padY=()=>compact()?12:20;
+ const gap=()=>compact()?12:16;
  const close=()=>{adding.set(false);editing.set(null);aggregate.set(false);localError.set("");};
  const perform=async(key:string,fn:()=>Promise<any>)=>{localError.set("");await p.run(key,async()=>{try{await fn();close();}catch(e){localError.set(String(e instanceof Error?e.message:e));throw e;}});};
  const openAdd=()=>{name.set("");url.set("");adding.set(true);localError.set("");};
@@ -20,13 +29,60 @@ export function ProfilesPage(p:PageProps) {
  const importFile=()=>void p.run("import-file",async()=>{const result=await nativeCall("desktop.file.open",{kind:"profile"});if(result.path)await p.call("desktop.profiles.import",{path:result.path});});
  const change=(key:string,v:any)=>draft.set({...draft(),[key]:v});
  effect(()=>{const incoming=pendingImport();if(!incoming)return;pendingImport.set(null);if(adding()&&(url().trim()||name().trim())||editing()||aggregate()){localError.set(tr("收到新的导入链接，当前编辑草稿已保留。关闭编辑器后重新打开该链接即可导入。","A new import link arrived. Your current draft is preserved. Open the link again after closing the editor."));return;}name.set(incoming.name??"");url.set(incoming.url);adding.set(true);});
- return <Scroll testID="desktop-profiles" style={{flex:1}} contentStyle={{paddingHorizontal:20,paddingVertical:windowSize().height<660?16:20,gap:12}}>
- <Heading title={tr("订阅","Profiles")} description={tr(`${rows().length} 个配置 · 选择当前使用的订阅`,`${rows().length} profiles · choose your active configuration`)} action={()=><Row gap={6}><Action label={tr("从文件导入…","Import file…")} onPress={importFile} disabled={!!p.busy()}/><Action testID="add-aggregate" label={tr("新建聚合…","New aggregate…")} onPress={()=>openAgg()} disabled={!rows().length||!!p.busy()}/><Action testID="add-profile" primary label={tr("添加订阅","Add profile")} onPress={openAdd}/></Row>}/>
- <If when={!rows().length}><Panel><Empty icon="subs" title={tr("添加第一个配置","Add your first profile")} description={tr("支持订阅链接、Clash YAML 文件和多个本地订阅聚合。","Import a subscription URL or Clash YAML file, or combine cached profiles.")} action={()=><Row><Action label={tr("导入文件…","Import file…")} onPress={importFile}/><Action primary label={tr("添加订阅","Add profile")} onPress={openAdd}/></Row>}/></Panel></If>
- <Each of={[true,false]}>{active=><If when={rows().some(v=>!!v.active===active())}><View style={{gap:8}}><Section title={active()?tr("当前配置","Current profile"):tr("其他配置","Other profiles")}/><Group><Each of={rows().filter(v=>!!v.active===active())} key={(item:any)=>item.id}>{item=><GroupRow style={{minHeight:66,gap:12}}><View style={{width:2.5,height:34,alignSelf:"center",borderRadius:2,backgroundColor:item().active?colors().accent:"transparent"}}/><View style={{flex:1,minWidth:0,gap:3}}><Row gap={8}><Text style={{fontSize:14,fontWeight:"600",color:colors().text,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1}}>{item().name}</Text><If when={!!item().active}><Tag text={tr("使用中","Active")} tone="accent"/></If></Row><Label lines={1} text={[item().kind==="aggregate"?tr("聚合配置 · 本地来源","Aggregate · cached sources"):profileSource(item()),item().info?.total?`${fmtBytes((item().info.upload??0)+(item().info.download??0))} / ${fmtBytes(item().info.total)}`:tr("无流量信息","No usage information"),`${tr("更新于","Updated")} ${fmtTime(item().updated)}`,item().info?.expire?`${tr("到期","Expires")} ${fmtTime(item().info.expire*1000)}`:""].filter(Boolean).join(" · ")} muted size={11.5}/></View><Row gap={4}><Action quiet label={tr("更新","Update")} disabled={!!p.busy()} onPress={()=>void p.run("profile-update",()=>p.call("desktop.profiles.update",{id:item().id}))}/><Action quiet testID={`edit-profile-${item().id}`} label={tr("编辑…","Edit…")} disabled={!!p.busy()} onPress={()=>edit(item().id)}/><If when={!item().active}><Action primary label={tr("启用","Activate")} disabled={!!p.busy()} onPress={()=>void p.run("profile-activate",()=>p.call("desktop.profiles.activate",{id:item().id}))}/></If><Action quiet danger label={tr("删除…","Delete…")} disabled={!!p.busy()||!!item().active} onPress={()=>deleting.set(item())}/></Row></GroupRow>}</Each></Group></View></If>}</Each>
+ // Source, quota, freshness and expiry in one quiet line; the tooltip keeps
+ // the whole sentence readable when a narrow window elides it.
+ const meta=(item:any):string=>[item.kind==="aggregate"?tr("聚合配置 · 本地来源","Aggregate · cached sources"):profileSource(item),item.info?.total?fmtBytes((item.info.upload??0)+(item.info.download??0))+" / "+fmtBytes(item.info.total):tr("无流量信息","No usage information"),tr("更新于","Updated")+" "+fmtTime(item.updated),item.info?.expire?tr("到期","Expires")+" "+fmtTime(item.info.expire*1000):""].filter(Boolean).join(" · ");
+ const iconTile=(icon:string,size:number)=> <View style={{width:size,height:size,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:colors().hover,borderWidth:1,borderColor:colors().border,flexShrink:0}}><Icon name={icon} size={size>28?16:15} color={colors().muted}/></View>;
+ const rowActions=(item:any)=> <Row gap={6} style={{flexShrink:0}}>
+   <Action quiet label={tr("更新","Update")} disabled={!!p.busy()} onPress={()=>void p.run("profile-update",()=>p.call("desktop.profiles.update",{id:item.id}))}/>
+   <Action quiet testID={"edit-profile-"+item.id} label={tr("编辑…","Edit…")} disabled={!!p.busy()} onPress={()=>edit(item.id)}/>
+   <If when={!item.active}><Action label={tr("启用","Activate")} disabled={!!p.busy()} onPress={()=>void p.run("profile-activate",()=>p.call("desktop.profiles.activate",{id:item.id}))}/></If>
+   <Action quiet danger label={tr("删除…","Delete…")} disabled={!!p.busy()||!!item.active} onPress={()=>deleting.set(item)}/>
+ </Row>;
+ const heading=()=> <Heading title={tr("订阅","Profiles")} description={tr(`${rows().length} 个配置 · 选择当前使用的订阅`,`${rows().length} profiles · choose your active configuration`)} action={()=><Row gap={8} style={{flexShrink:0}}><Action label={tr("从文件导入…","Import file…")} onPress={importFile} disabled={!!p.busy()}/><Action testID="add-aggregate" label={tr("新建聚合…","New aggregate…")} onPress={()=>openAgg()} disabled={!rows().length||!!p.busy()}/><Action testID="add-profile" primary label={tr("添加订阅","Add profile")} onPress={openAdd}/></Row>}/>
+ const currentCard=(item:any)=> <View style={{flexDirection:"row",borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface"),overflow:"hidden"}}>
+   <View style={{width:3,backgroundColor:colors().accent}}/>
+   <View style={{flex:1,minWidth:0,paddingHorizontal:20,paddingVertical:16,gap:8}}>
+     <Row gap={12} style={{minWidth:0}}>
+       {iconTile(profileIcon(item),32)}
+       <Row gap={8} style={{flex:1,minWidth:0}}>
+         <Text style={{fontSize:16,fontWeight:"600",letterSpacing:-0.2,color:colors().text,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0}} tooltip={item.name}>{item.name}</Text>
+         <Tag text={tr("使用中","Active")} tone="accent"/>
+         <View style={{flex:1,minWidth:0}}/>
+       </Row>
+       {rowActions(item)}
+     </Row>
+     <View style={{paddingLeft:44,minWidth:0}}><Text style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={meta(item)}>{meta(item)}</Text></View>
+   </View>
+ </View>;
+ const emptyState=()=> <View style={{flex:1,minHeight:220,borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface")}}>
+   <Empty icon="subs" title={tr("添加第一个配置","Add your first profile")} description={tr("支持订阅链接、Clash YAML 文件和多个本地订阅聚合。","Import a subscription URL or Clash YAML file, or combine cached profiles.")} action={()=><Row gap={8}><Action label={tr("导入文件…","Import file…")} onPress={importFile}/><Action primary label={tr("添加订阅","Add profile")} onPress={openAdd}/></Row>}/>
+ </View>;
+ return <View testID="desktop-profiles" style={{flex:1}}>
+ <If when={!rows().length}><View style={{flex:1,paddingHorizontal:padX(),paddingTop:padY(),paddingBottom:padY(),gap:gap()}}>{heading()}{emptyState()}</View></If>
+ <If when={!!rows().length}><Scroll style={{flex:1}} contentStyle={{paddingHorizontal:padX(),paddingTop:padY(),paddingBottom:padY(),gap:gap()}}>
+  {heading()}
+  <If when={!!activeRows().length}><View style={{gap:8}}>
+   <Section title={tr("当前配置","Current profile")}/>
+   <Each of={activeRows()} key={(item:any)=>item.id}>{item=><View>{currentCard(item())}</View>}</Each>
+  </View></If>
+  <If when={!!otherRows().length}><View style={{gap:8}}>
+   <Section title={tr("其他配置","Other profiles")}/>
+   <Group>
+    <Each of={otherRows()} key={(item:any)=>item.id}>{item=><GroupRow hover gap={12} style={{paddingHorizontal:20,paddingVertical:12,minHeight:62}}>
+      {iconTile(profileIcon(item()),30)}
+      <View style={{flex:1,minWidth:0,gap:4}}>
+        <Text style={{fontSize:13.5,fontWeight:"500",color:colors().text,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={item().name}>{item().name}</Text>
+        <Text style={{fontSize:11.5,color:colors().faint,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={meta(item())}>{meta(item())}</Text>
+      </View>
+      {rowActions(item())}
+    </GroupRow>}</Each>
+   </Group>
+  </View></If>
+ </Scroll></If>
  <Modal testID="profile-add-dialog" title={tr("添加订阅","Add profile")} open={adding()} onClose={close} error={localError()} width={520} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} onPress={close}/><Action primary label={tr("添加","Add")} disabled={!url().trim()||!!p.busy()} onPress={()=>void perform("profile-import",()=>p.call("desktop.profiles.import",{name:name().trim(),url:url().trim()}))}/></Row>}><Field label={tr("订阅链接","Subscription URL")} value={url()} onChange={v=>url.set(v)} placeholder="https://" testID="profile-url"/><Field label={tr("名称（可选）","Name (optional)")} value={name()} onChange={v=>name.set(v)} placeholder={tr("例如：日常使用","For example: Everyday")}/><Label text={tr("下载失败会保留填写内容。导入后可单独选择启用。","Failed downloads preserve your draft. Activate the profile after importing.")} muted size={12}/></Modal>
- <Modal testID="profile-edit-dialog" title={tr("编辑订阅","Edit profile")} open={!!editing()} onClose={close} error={localError()} width={620} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} onPress={close}/><Action primary label={tr("保存","Save")} disabled={!!p.busy()||!draft().name?.trim()} onPress={()=>void perform("profile-edit",()=>p.call("desktop.profiles.edit",{profile:{...draft(),content:content()}}))}/></Row>}><Field label={tr("名称","Name")} value={draft().name??""} onChange={v=>change("name",v)}/><Field label={draft().kind==="file"?tr("文件路径","File path"):tr("订阅链接","Subscription URL")} value={draft().kind==="file"?draft().path??"":draft().url??""} onChange={v=>change(draft().kind==="file"?"path":"url",v)}/><Row><View style={{flex:1}}><Field label={tr("更新间隔（小时，0 为关闭）","Update interval (hours; 0 disables)")} value={String(draft().updateHours??"")} onChange={v=>change("updateHours",v===""?null:Number(v))}/></View><Toggle label={tr("通过代理下载","Download through proxy")} checked={!!draft().useProxy} onChange={v=>change("useProxy",v)}/></Row><Field label="User-Agent" value={draft().userAgent??""} onChange={v=>change("userAgent",v)}/><Field label={tr("当前缓存配置（只读）","Cached configuration (read-only)")} readonly multiline height={180} value={content()} onChange={v=>content.set(v)}/></Modal>
- <Modal testID="aggregate-dialog" title={aggId()?tr("编辑聚合配置","Edit aggregate"):tr("新建聚合配置","New aggregate")} open={aggregate()} onClose={close} width={620} error={localError()} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} onPress={close}/><Action primary label={tr("保存聚合","Save aggregate")} disabled={!!p.busy()||!name().trim()||!Object.values(sources()).some(Boolean)} onPress={()=>void perform("aggregate",()=>p.call("desktop.profiles.aggregate",{id:aggId()||undefined,name:name().trim(),spec:{sources:rows().filter(v=>sources()[v.id]).map(v=>({id:v.id,prefix:prefixes()[v.id]??""})),include:include(),exclude:exclude(),dedupe:dedupe()}}))}/></Row>}><Field label={tr("名称","Name")} value={name()} onChange={v=>name.set(v)}/><Label text={tr("来源使用本地缓存；保存不会自动下载来源。","Sources use cached configurations. Saving does not download them.")} muted size={12}/><Each of={rows().filter(v=>v.id!==aggId()&&v.kind!=="aggregate")} key={(item:any)=>item.id}>{item=><Row><View style={{flex:1,minWidth:120}}><Toggle label={item().name} checked={!!sources()[item().id]} onChange={v=>sources.set({...sources(),[item().id]:v})}/></View><View style={{width:180}}><Field value={prefixes()[item().id]??""} placeholder={tr("名称前缀（可选）","Name prefix (optional)")} onChange={v=>prefixes.set({...prefixes(),[item().id]:v})}/></View></Row>}</Each><Field label={tr("包含（正则表达式）","Include (regular expression)")} value={include()} onChange={v=>include.set(v)}/><Field label={tr("排除（正则表达式）","Exclude (regular expression)")} value={exclude()} onChange={v=>exclude.set(v)}/><Toggle label={tr("合并重复节点","Deduplicate proxies")} checked={dedupe()} onChange={v=>dedupe.set(v)}/></Modal>
+ <Modal testID="profile-edit-dialog" title={tr("编辑订阅","Edit profile")} open={!!editing()} onClose={close} error={localError()} width={620} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} onPress={close}/><Action primary label={tr("保存","Save")} disabled={!!p.busy()||!draft().name?.trim()} onPress={()=>void perform("profile-edit",()=>p.call("desktop.profiles.edit",{profile:{...draft(),content:content()}}))}/></Row>}><Field label={tr("名称","Name")} value={draft().name??""} onChange={v=>change("name",v)}/><Field label={draft().kind==="file"?tr("文件路径","File path"):tr("订阅链接","Subscription URL")} value={draft().kind==="file"?draft().path??"":draft().url??""} onChange={v=>change(draft().kind==="file"?"path":"url",v)}/><Row gap={16} style={{alignItems:"flex-end"}}><View style={{flex:1}}><Field label={tr("更新间隔（小时，0 为关闭）","Update interval (hours; 0 disables)")} value={String(draft().updateHours??"")} onChange={v=>change("updateHours",v===""?null:Number(v))}/></View><View style={{height:32,justifyContent:"center"}}><Toggle label={tr("通过代理下载","Download through proxy")} checked={!!draft().useProxy} onChange={v=>change("useProxy",v)}/></View></Row><Field label="User-Agent" value={draft().userAgent??""} onChange={v=>change("userAgent",v)}/><Field label={tr("当前缓存配置（只读）","Cached configuration (read-only)")} readonly multiline height={170} value={content()} onChange={v=>content.set(v)}/></Modal>
+ <Modal testID="aggregate-dialog" title={aggId()?tr("编辑聚合配置","Edit aggregate"):tr("新建聚合配置","New aggregate")} open={aggregate()} onClose={close} width={620} error={localError()} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} onPress={close}/><Action primary label={tr("保存聚合","Save aggregate")} disabled={!!p.busy()||!name().trim()||!Object.values(sources()).some(Boolean)} onPress={()=>void perform("aggregate",()=>p.call("desktop.profiles.aggregate",{id:aggId()||undefined,name:name().trim(),spec:{sources:rows().filter(v=>sources()[v.id]).map(v=>({id:v.id,prefix:prefixes()[v.id]??""})),include:include(),exclude:exclude(),dedupe:dedupe()}}))}/></Row>}><Field label={tr("名称","Name")} value={name()} onChange={v=>name.set(v)}/><Label text={tr("来源使用本地缓存；保存不会自动下载来源。","Sources use cached configurations. Saving does not download them.")} muted size={12}/><Group><Each of={rows().filter(v=>v.id!==aggId()&&v.kind!=="aggregate")} key={(item:any)=>item.id}>{item=><GroupRow gap={12} style={{paddingHorizontal:14,paddingVertical:10,minHeight:54}}><Toggle showLabel={false} label={item().name} checked={!!sources()[item().id]} onChange={v=>sources.set({...sources(),[item().id]:v})}/><Text style={{flex:1,minWidth:0,fontSize:13,color:colors().text,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={item().name}>{item().name}</Text><View style={{width:168,flexShrink:0}}><Field value={prefixes()[item().id]??""} placeholder={tr("名称前缀（可选）","Name prefix (optional)")} onChange={v=>prefixes.set({...prefixes(),[item().id]:v})}/></View></GroupRow>}</Each></Group><Row gap={12}><View style={{flex:1}}><Field label={tr("包含（正则表达式）","Include (regular expression)")} value={include()} onChange={v=>include.set(v)}/></View><View style={{flex:1}}><Field label={tr("排除（正则表达式）","Exclude (regular expression)")} value={exclude()} onChange={v=>exclude.set(v)}/></View></Row><Toggle label={tr("合并重复节点","Deduplicate proxies")} checked={dedupe()} onChange={v=>dedupe.set(v)}/></Modal>
  <Modal title={tr("删除配置？","Delete profile?")} open={!!deleting()} onClose={()=>deleting.set(null)} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} onPress={()=>deleting.set(null)}/><Action danger label={tr("删除","Delete")} disabled={!!p.busy()} onPress={()=>void p.run("delete-profile",async()=>{await p.call("desktop.profiles.delete",{id:deleting().id});deleting.set(null);})}/></Row>}><Label text={tr(`将删除“${deleting()?.name??""}”。此操作不会删除原始订阅服务器上的内容。`,`Delete “${deleting()?.name??""}”? The original subscription remains on its server.`)}/></Modal>
- </Scroll>;
+ </View>;
 }

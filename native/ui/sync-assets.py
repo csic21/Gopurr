@@ -53,5 +53,7 @@ for icon in (
     "cable.svg", "layers-2.svg", "list-filter.svg", "network.svg",
     "panel-left.svg", "square-terminal.svg", "search.svg", "x.svg",
     "chevron-down.svg", "chevron-right.svg", "refresh-cw.svg",
+    "activity.svg", "server.svg", "radar.svg", "route.svg",
+    "arrow-left-right.svg", "power.svg",
 ):
     shutil.copyfile(ROOT / "internal/app/icons" / icon, assets / "icons" / icon)
