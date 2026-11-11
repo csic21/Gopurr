@@ -2,6 +2,7 @@ import { test, open, expect } from "nsh/test";
 import { desktopFixtureTransport } from "./src/desktop/fixture";
 import { mergeDiff } from "./src/desktop/proxies";
 import { navigationLayout } from "./src/desktop/navigation";
+import { switchThumbTransform } from "./src/desktop/ui";
 function host(reject=false) { const dispatch=desktopFixtureTransport();return {handlers:{"desktop.window.dirty":()=>{},"desktop.dispatch":async(value:unknown)=>{const v=value as {method:string;params:any};if(reject&&v.method==="desktop.profiles.import")return {error:{message:"Download failed; draft retained."}};return {result:await dispatch(v.method,v.params)};}}}; }
 test("desktop proxy latency testing never switches selection",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-proxies");await app.waitFor("id:proxy-香港 01");await app.press("id:test-proxy-香港 01");expect(app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.select")).toBe(false);await app.press("id:proxy-新加坡 03");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.select"));
@@ -36,6 +37,10 @@ test("native titlebar controls, brand, navigation and status never overlap",()=>
   expect(l.left+l.width+8).toBeLessThan(l.statusLeft);
   expect(l.statusLeft+11+76).toBeLessThan(width);
  }
+});
+test("switch thumbs travel across their tracks",()=>{
+ expect(switchThumbTransform(false)).toBe("none");
+ expect(switchThumbTransform(true)).toBe("translateX(16px)");
 });
 test("first close cancels without hiding and persists acknowledgment before backgrounding",async()=>{
  const h=host();(h.handlers as Record<string,any>)["desktop.window.close"]=()=>({ok:true});

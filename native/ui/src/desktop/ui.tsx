@@ -1,4 +1,4 @@
-import { colorScheme, computed, Image, Scroll, Text, View, windowSize } from "nsh";
+import { colorScheme, computed, Image, reduceMotion, Scroll, Text, View, windowSize } from "nsh";
 import type { JSX, ImageAsset } from "nsh";
 import { Button, Dialog, Input, Switch, Tabs as NativeTabs, Tab } from "nsh/base";
 import { colors } from "./theme";
@@ -160,11 +160,16 @@ export function SearchField(p: { value: string; onChange: (value: string) => voi
   </View>;
 }
 
+export function switchThumbTransform(checked: boolean): string {
+  return checked ? "translateX(16px)" : "none";
+}
+
 export function Toggle(p: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; testID?: string; showLabel?: boolean }) {
+  const duration = reduceMotion() ? 0 : 240;
   return <Row><If when={!!p.label && p.showLabel !== false}><Label text={p.label ?? ""} /></If>
     <Switch testID={p.testID} checked={p.checked} disabled={p.disabled} accessibilityLabel={p.label} onChange={({ checked }) => p.onChange(checked)} style={{ width: 36, height: 20, opacity: p.disabled ? 0.38 : 1 }}
-      trackStyle={{ width: 36, height: 20, padding: 2, backgroundColor: p.checked ? colors().accent : (colorScheme() === "dark" ? colors().border : colors().border), borderRadius: 10, borderWidth: 1, borderColor: p.checked ? colors().accent : (colorScheme() === "dark" ? tint(colors().faint, "4d") : tint(colors().faint, "2e")), boxShadow: p.checked ? [{ x: 0, y: 1, blur: 4, color: tint(colors().accent, "3d") }] : [{ x: 0, y: 1, blur: 1, color: "#0000000f", inset: true }] }}
-      thumbStyle={{ width: 14, height: 14, borderRadius: 7, backgroundColor: "#ffffff", boxShadow: [{ x: 0, y: 1, blur: 2.5, color: "#1018283d" }] }} /></Row>;
+      trackStyle={{ width: 36, height: 20, padding: 2, backgroundColor: p.checked ? colors().accent : colors().border, borderRadius: 10, borderWidth: 1, borderColor: p.checked ? colors().accent : (colorScheme() === "dark" ? tint(colors().faint, "4d") : tint(colors().faint, "2e")), boxShadow: p.checked ? [{ x: 0, y: 1, blur: 4, color: tint(colors().accent, "3d") }] : [{ x: 0, y: 1, blur: 1, color: "#0000000f", inset: true }], transitionProperty: "background-color, border-color, box-shadow", transitionDuration: duration, transitionTimingFunction: "ease-out" }}
+      thumbStyle={{ width: 14, height: 14, borderRadius: 7, backgroundColor: "#ffffff", boxShadow: [{ x: 0, y: 1, blur: 2.5, color: "#1018283d" }], transform: switchThumbTransform(p.checked), transitionProperty: "transform", transitionDuration: duration, transitionTimingFunction: "ease-out" }} /></Row>;
 }
 
 /**
