@@ -58,7 +58,7 @@ done
 export GOPATH="$project_dir/.cache/go"
 export GOMODCACHE="$project_dir/.cache/mod"
 export GOCACHE="$project_dir/.cache/build"
-export GOTOOLCHAIN=go1.27.3
+export GOTOOLCHAIN=go1.27.4
 # Upstream's cmfa mode delegates Android UID/package routing to VpnService.
 # The standalone Android mode tries to read root-only /data/system/packages.xml.
 # Keep this flag specific to the native Android host, never desktop releases.

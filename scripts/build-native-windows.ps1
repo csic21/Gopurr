@@ -14,7 +14,7 @@ New-Item $stage -ItemType Directory -Force | Out-Null
 $env:GOPATH = "$root/.cache/go"
 $env:GOMODCACHE = "$root/.cache/mod"
 $env:GOCACHE = "$root/.cache/build"
-$env:GOTOOLCHAIN = 'go1.27.3'
+$env:GOTOOLCHAIN = 'go1.27.4'
 $env:GOFLAGS = '-tags=with_gvisor'
 $env:CARGO_HOME = "$root/.cache/cargo"
 $env:CARGO_TARGET_DIR = "$root/.cache/cargo-target"

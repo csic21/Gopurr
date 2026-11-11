@@ -36,7 +36,7 @@ nsh="$sdk_root/bin/nsh"
 export GOPATH="$project_dir/.cache/go"
 export GOMODCACHE="$project_dir/.cache/mod"
 export GOCACHE="$project_dir/.cache/build"
-export GOTOOLCHAIN=go1.27.3
+export GOTOOLCHAIN=go1.27.4
 export GOFLAGS="${GOFLAGS:--tags=with_gvisor}"
 export CGO_ENABLED=1
 export GOOS=ios
