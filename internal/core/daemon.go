@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -201,6 +202,13 @@ func RunDaemon(opts DaemonOptions) error {
 	done := make(chan struct{})
 	defer close(done)
 
+	// The controller publishes its socket as a symlink into a private
+	// temporary directory. If system cleanup removes that directory, the
+	// symlink dangles: every client fails while this process still looks
+	// healthy to launchd. Exit so launchd (KeepAlive) or the app's watchdog
+	// starts a clean copy with fresh sockets.
+	go watchControllerSockets(done, sig, controller, backend)
+
 	if opts.ParentPID > 0 {
 		// A daemon spawned by the app must not outlive it, even if the app
 		// crashes and never gets to send SIGTERM.
@@ -232,6 +240,49 @@ func RunDaemon(opts DaemonOptions) error {
 		_ = os.Remove(opts.StatusPath)
 	}
 	return nil
+}
+
+// watchControllerSockets restarts the daemon when its published sockets stop
+// resolving. A daemon that cannot be reached must not keep a TUN device, the
+// mixed port and launchd's idea of a healthy process while the UI shows
+// "core stopped".
+//
+// The interval is a variable so tests do not wait seconds for the first check.
+var controllerWatchInterval = 5 * time.Second
+
+func watchControllerSockets(done <-chan struct{}, stop chan<- os.Signal, controller *controllerServer, backend string) {
+	ticker := time.NewTicker(controllerWatchInterval)
+	defer ticker.Stop()
+	// A config reload recreates mihomo's unix controller and unlinks its path
+	// for a moment, so only a failure that survives two checks proves loss.
+	misses := 0
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			reason := ""
+			if _, err := os.Stat(backend); err != nil {
+				reason = "private controller socket disappeared"
+			} else if !controller.Intact() {
+				reason = "published controller socket no longer resolves"
+			}
+			if reason == "" {
+				misses = 0
+				continue
+			}
+			misses++
+			if misses < 2 {
+				continue
+			}
+			log.Printf("gopurr: %s; restarting kernel", reason)
+			select {
+			case stop <- os.Interrupt:
+			default:
+			}
+			return
+		}
+	}
 }
 
 func mixedPortFromDoc(doc map[string]any) int {

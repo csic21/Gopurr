@@ -217,3 +217,35 @@ func TestEnsureKeepsSlowButAliveCore(t *testing.T) {
 		t.Fatalf("slow core health after Ensure = %v", got)
 	}
 }
+
+// An installed service from an older controller interface can never serve this
+// build: report the repair path at once instead of waiting for a timeout and
+// blaming the TUN configuration.
+func TestWaitServiceReadyRejectsOutdatedInterface(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(core.DaemonStatus{
+		SecurityVersion:   core.SecurityVersion,
+		ControllerVersion: core.ControllerVersion - 1,
+		PID:               os.Getpid(),
+		UID:               0,
+		Socket:            m.socket,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.statusPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	err = m.waitServiceReady(5 * time.Second)
+	if err == nil || !strings.Contains(err.Error(), "接口版本过旧") {
+		t.Fatalf("outdated service interface not reported: %v", err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("outdated interface took %v to report", took)
+	}
+}

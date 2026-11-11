@@ -371,6 +371,10 @@ func (m *Manager) Ensure() error {
 
 const serviceReadyWait = 30 * time.Second
 
+// A copied service log older than this cannot describe the start that is
+// failing now; the installer only refreshes it when the service is installed.
+const staleServiceLog = 10 * time.Minute
+
 // waitServiceReady polls an already-installed system service. Unlike a child
 // spawn, waiting longer rarely helps: the service is either coming up quickly
 // or needs a reinstall.
@@ -379,17 +383,72 @@ func (m *Manager) waitServiceReady(timeout time.Duration) error {
 	if m.answersWithin(slowProbeTimeout) {
 		return nil
 	}
+	// The recorded daemon is alive but cannot be reached: its published
+	// controller link points at a directory that system cleanup removed.
+	if m.controllerLinkLost() {
+		return m.controllerLostError()
+	}
+	// An installed service from an older controller interface can never serve
+	// this build. Say so immediately instead of timing out and blaming the TUN
+	// configuration.
+	if m.serviceInterfaceOutdated() {
+		return errors.New(localize.Text("系统服务接口版本过旧：请先在网络详情点「修复服务…」更新服务，订阅与设置不受影响"))
+	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if m.healthy() {
 			return nil
 		}
+		if m.controllerLinkLost() {
+			return m.controllerLostError()
+		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	if tail := service.LogTail(m.dir); tail != "" {
-		return fmt.Errorf(localize.Text("系统服务已安装，但内核没有启动：%s"), tail)
+	if m.controllerLinkLost() {
+		return m.controllerLostError()
+	}
+	entry := service.LogTail(m.dir)
+	if !entry.At.IsZero() && time.Since(entry.At) > staleServiceLog {
+		return fmt.Errorf(localize.Text("系统服务已安装，但内核没有启动（服务日志最后更新于 %s，早于本次启动）：请确认服务状态，仍失败时点「修复服务…」"), entry.At.Local().Format("2006-01-02 15:04"))
+	}
+	if entry.Text != "" {
+		return fmt.Errorf(localize.Text("系统服务已安装，但内核没有启动：%s"), entry.Text)
 	}
 	return errors.New(localize.Text("系统服务已安装但暂未响应：请先重试或重启服务，仍失败时再修复服务"))
+}
+
+// serviceInterfaceOutdated reports a recorded daemon of this data directory
+// whose controller API is older than this build. It is authoritative only when
+// the recorded process still exists; the status file alone can be a leftover.
+func (m *Manager) serviceInterfaceOutdated() bool {
+	st, err := m.Status()
+	if err != nil || st.UID != 0 || st.Socket != m.socket {
+		return false
+	}
+	if st.PID > 0 && !process.Alive(st.PID) {
+		return false
+	}
+	return serviceUpdateRequired(st)
+}
+
+// controllerLinkLost reports a published controller link that dangles while the
+// daemon recorded in core.json is still alive. Such a process cannot be reached
+// and will not repair itself (system cleanup removed its temporary directory).
+// A missing link is a normal fresh start, not a failure.
+func (m *Manager) controllerLinkLost() bool {
+	info, err := os.Lstat(m.socket)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	if _, err := os.Stat(m.socket); err == nil {
+		return false
+	}
+	st, err := m.Status()
+	return err == nil && st.PID > 0 && st.Socket == m.socket && process.Alive(st.PID)
+}
+
+func (m *Manager) controllerLostError() error {
+	return errors.New(localize.Text("系统服务的内核仍在运行，但控制套接字已失效（临时目录被系统清理）：请在网络详情点「修复服务…」重新注册服务"))
 }
 
 // reapStaleLocked stops an unowned daemon recorded in core.json and clears the

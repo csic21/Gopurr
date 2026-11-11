@@ -133,8 +133,8 @@ rules:
 			err = cleanupErr
 		}
 		if err != nil {
-			if logs := service.LogTail(dir); logs != "" {
-				fmt.Fprintln(os.Stderr, logs)
+			if logs := service.LogTail(dir); logs.Text != "" {
+				fmt.Fprintln(os.Stderr, logs.Text)
 			}
 		}
 	}()

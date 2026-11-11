@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -83,22 +84,53 @@ func listenController(path, _ string) (net.Listener, error) {
 		return nil, err
 	}
 	keep, success = true, true
-	return &controllerListener{UnixListener: listener, parent: parent, name: filepath.Base(path), dir: gatewayDir}, nil
+	return &controllerListener{UnixListener: listener, parent: parent, name: filepath.Base(path), link: path, socket: staged, dir: gatewayDir}, nil
 }
 
 type controllerListener struct {
 	*net.UnixListener
 	parent *os.File
-	name   string
+	name   string // published name inside the data directory
+	link   string // published path (a symlink to socket)
+	socket string // real socket inside the private gateway directory
 	dir    string
 	once   sync.Once
+	gone   atomic.Bool
+}
+
+// Intact reports whether the published link still resolves to this listener.
+// The gateway directory lives in a system temporary directory, and macOS (or a
+// cleanup tool) can delete it while the daemon keeps running. Every client then
+// fails forever because the link points at nothing; the daemon uses this check
+// to exit so launchd (KeepAlive) or the app's watchdog starts a clean copy.
+func (l *controllerListener) Intact() bool {
+	if l == nil || l.gone.Load() {
+		return true
+	}
+	info, err := os.Lstat(l.link)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	target, err := os.Readlink(l.link)
+	if err != nil || target != l.socket {
+		return false
+	}
+	_, err = os.Stat(l.socket)
+	return err == nil
 }
 
 func (l *controllerListener) Close() error {
 	var err error
 	l.once.Do(func() {
+		l.gone.Store(true)
 		err = l.UnixListener.Close()
-		_ = unix.Unlinkat(int(l.parent.Fd()), l.name, 0)
+		// Only remove the published link when it still points at this
+		// listener. A successor may have replaced it (service restart), and
+		// unlinking by name would then disconnect the new daemon.
+		var target [1024]byte
+		if n, readErr := unix.Readlinkat(int(l.parent.Fd()), l.name, target[:]); readErr == nil && string(target[:n]) == l.socket {
+			_ = unix.Unlinkat(int(l.parent.Fd()), l.name, 0)
+		}
 		_ = l.parent.Close()
 		_ = os.RemoveAll(l.dir)
 	})

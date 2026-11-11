@@ -12,12 +12,25 @@ import (
 
 const Label = "io.github.gopurr.core"
 
+// LogEntry is the most useful line of the copied service log together with the
+// newest timestamp that log contains. The copy is made once, when the service
+// is installed, so callers must treat At as the freshness of the evidence: a
+// line from last week does not explain a start that just failed.
+type LogEntry struct {
+	Text string
+	At   time.Time
+}
+
 // LogTail explains a daemon that is installed but not answering. The installer
 // copies the protected log into the user's data directory so the interface can
 // show why the kernel stopped instead of guessing "no administrator rights".
-func LogTail(dataDir string) string {
+//
+// Known-benign lines are skipped: mihomo logs "[TUN] default interface lost by
+// monitor" on every network change and keeps running, so quoting it as the
+// reason a core "did not start" sends users after the wrong problem.
+func LogTail(dataDir string) LogEntry {
 	if dataDir == "" {
-		return ""
+		return LogEntry{}
 	}
 	path := filepath.Join(dataDir, "service.log")
 	if runtime.GOOS == "windows" {
@@ -25,24 +38,56 @@ func LogTail(dataDir string) string {
 	}
 	raw, err := rotatelog.Tail(path, 64<<10)
 	if err != nil {
-		return ""
+		return LogEntry{}
 	}
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	var last string
+	var entry LogEntry
+	for _, line := range lines {
+		if at := logLineTime(strings.TrimSpace(line)); at.After(entry.At) {
+			entry.At = at
+		}
+	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
-		if line == "" {
+		if line == "" || benignLogLine(line) {
 			continue
 		}
-		if last == "" {
-			last = line
+		if entry.Text == "" {
+			entry.Text = line
 		}
 		if strings.Contains(line, "level=error") || strings.Contains(line, "core:") {
-			last = line
+			entry.Text = line
 			break
 		}
 	}
-	return shorten(last, 160)
+	entry.Text = shorten(entry.Text, 160)
+	return entry
+}
+
+// benignLogLine lists recurring core messages that say nothing about a failed
+// start. They are reported during normal network changes.
+func benignLogLine(line string) bool {
+	return strings.Contains(line, "default interface lost by monitor") ||
+		strings.Contains(line, "default interface changed by monitor")
+}
+
+// logLineTime reads the logrus time="..." prefix of a service log line. Only a
+// line that starts with it counts: a message may quote "time=" itself.
+func logLineTime(line string) time.Time {
+	const prefix = `time="`
+	if !strings.HasPrefix(line, prefix) {
+		return time.Time{}
+	}
+	rest := line[len(prefix):]
+	end := strings.IndexByte(rest, '"')
+	if end <= 0 {
+		return time.Time{}
+	}
+	at, err := time.Parse(time.RFC3339Nano, rest[:end])
+	if err != nil {
+		return time.Time{}
+	}
+	return at
 }
 
 func shorten(text string, limit int) string {

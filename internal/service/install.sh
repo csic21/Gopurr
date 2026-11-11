@@ -107,6 +107,10 @@ PLIST
 chown root:wheel "$STAGED_PLIST"
 chmod 644 "$STAGED_PLIST"
 launchctl bootout "system/$LABEL" 2>/dev/null || true
+# Drop the previous run's status and published socket. A stale core.json makes
+# the app believe an outdated daemon is still authoritative, and a dangling
+# link looks like a live-but-broken service instead of a fresh install.
+rm -f "$DIR/core.json" "$DIR/core.sock"
 mv -f "$STAGED" "$TARGET"
 mv -f "$STAGED_PLIST" "$PLIST"
 launchctl bootstrap system "$PLIST"

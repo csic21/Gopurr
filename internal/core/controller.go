@@ -29,12 +29,22 @@ import (
 // exposed to the UI. Debug, UI and executable upgrade routes are not exposed.
 type controllerServer struct {
 	*http.Server
-	broker *sysproxy.ServiceBroker
+	broker   *sysproxy.ServiceBroker
+	listener net.Listener
 }
 
 func (s *controllerServer) Close() error {
 	s.broker.Close()
 	return s.Server.Close()
+}
+
+// Intact reports whether the published controller socket still reaches this
+// server. Platforms that publish a stable socket always report healthy.
+func (s *controllerServer) Intact() bool {
+	if guard, ok := s.listener.(interface{ Intact() bool }); ok {
+		return guard.Intact()
+	}
+	return true
 }
 
 func serveController(socket, backend, secret string, geo *geoUpdater, restart ...func()) (*controllerServer, error) {
@@ -137,7 +147,7 @@ func serveController(socket, backend, secret string, geo *geoUpdater, restart ..
 	})
 	server.RegisterOnShutdown(transport.CloseIdleConnections)
 	go func() { _ = server.Serve(listener) }()
-	return &controllerServer{server, broker}, nil
+	return &controllerServer{Server: server, broker: broker, listener: listener}, nil
 }
 
 func sanitizeReload(r *http.Request) error {
