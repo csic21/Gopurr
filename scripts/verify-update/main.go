@@ -107,7 +107,7 @@ func run() error {
 	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
 		return err
 	}
-	flags := "-X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageUpdateFeed=" + server.URL + "/update.json -X github.com/egoist/mygo.packageUpdateKey=" + config.Updates.PublicKey
+	flags := "-X github.com/egoist/mygo.production=1 -X gopurr/internal/update.feed=" + server.URL + "/update.json -X gopurr/internal/update.publicKey=" + config.Updates.PublicKey
 	build := exec.Command("go", "build", "-ldflags", flags, "-o", binary, source)
 	build.Stdout, build.Stderr = os.Stdout, os.Stderr
 	if err := build.Run(); err != nil {
@@ -166,13 +166,11 @@ import (
  "fmt"
  "os"
  "time"
- "github.com/egoist/mygo"
+ "gopurr/internal/buildinfo"
  "gopurr/internal/update"
 )
 func main() {
- if len(os.Args)==2 && os.Args[1]=="--version" {fmt.Println("Gopurr 0.0.0");return}
- mygo.App.SetName("Gopurr")
- mygo.App.SetVersion("0.0.0")
+ if len(os.Args)==2 && os.Args[1]=="--version" {fmt.Println("Gopurr "+buildinfo.Version);return}
  ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel()
  backend:=update.Native{}
  if !backend.Enabled(){fmt.Fprintln(os.Stderr,"fixture cannot update");os.Exit(1)}

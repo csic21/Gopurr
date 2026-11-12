@@ -105,8 +105,7 @@ run: build
 autostart: build
 	GOPURR_AUTOSTART=1 $(BIN)
 
-dev:
-	go tool mygo dev
+dev: native-run
 
 # Rebuild the embedded remote console. The generated files are committed so
 # ordinary Go builds remain Node-free; release builds run this before Go.
@@ -120,9 +119,9 @@ web-dev:
 test:
 	go test ./...
 
-# Opt-in macOS window lifecycle checks using an isolated local controller.
+# The old window lifecycle suite left with the legacy toolkit.
 test-native:
-	go test -tags gopurr_native . -count=1 -timeout=60s
+	@echo "native window tests now live in make native-test"
 
 tidy:
 	go mod tidy

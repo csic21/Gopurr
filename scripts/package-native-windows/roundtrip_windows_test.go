@@ -111,7 +111,7 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 		c.Name, c.Slug, c.Version = "Gopurr", "gopurr", version
 		c.Updates.URL = server.URL
 		c.Updates.PublicKey = base64.StdEncoding.EncodeToString(pub)
-		flags := "-H=windowsgui -X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageName=Gopurr -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageVersion=" + version + " -X gopurr/internal/buildinfo.Version=" + version + " -X github.com/egoist/mygo.packageUpdateFeed=" + feed(c) + " -X github.com/egoist/mygo.packageUpdateKey=" + c.Updates.PublicKey
+		flags := "-H=windowsgui -X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageName=Gopurr -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageVersion=" + version + " -X gopurr/internal/buildinfo.Version=" + version + " -X gopurr/internal/update.feed=" + feed(c) + " -X gopurr/internal/update.publicKey=" + c.Updates.PublicKey
 		fixtureCommand(t, repo, nil, "go", "build", "-ldflags", flags, "-o", filepath.Join(app, "gopurr-desktop.exe"), ".")
 		env := append(os.Environ(), "GOPURR_VERSION="+version, "GOPURR_WINDOWS_ICON="+filepath.Join(app, "Gopurr.ico"), "RUSTFLAGS=-C target-feature=+crt-static", "LIBCLANG_PATH=C:/Program Files/LLVM/bin")
 		fixtureCommand(t, repo, env, "cargo", "+1.99.1", "build", "--locked", "--release", "--manifest-path", "native/windows/Cargo.toml")
@@ -152,7 +152,7 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	if err := os.WriteFile(sourcePath, []byte(windowsLegacyFixture), 0600); err != nil {
 		t.Fatal(err)
 	}
-	flags := "-X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageUpdateFeed=" + server.URL + "/update-windows-amd64.json -X github.com/egoist/mygo.packageUpdateKey=" + base64.StdEncoding.EncodeToString(pub)
+	flags := "-X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X gopurr/internal/update.feed=" + server.URL + "/update-windows-amd64.json -X gopurr/internal/update.publicKey=" + base64.StdEncoding.EncodeToString(pub)
 	fixtureCommand(t, repo, nil, "go", "build", "-ldflags", flags, "-o", binary, sourcePath)
 	sessionPath := filepath.Join(work, "session.json")
 	old := exec.Command(binary, "--gopurr-home", home)
@@ -469,11 +469,13 @@ func copyFixtureTree(t *testing.T, source, dest string) {
 }
 
 const windowsLegacyFixture = `package main
-import("context";"fmt";"os";"time";"github.com/egoist/mygo";"gopurr/internal/update")
+import("context";"fmt";"os";"time";"gopurr/internal/update")
 func main(){
- mygo.App.SetName("Gopurr");mygo.App.SetVersion("0.0.0");if !mygo.App.RequestSingleInstanceLock(){os.Exit(2)};mygo.App.OnWindowAllClosed(func(){})
- mygo.App.WhenReady(func(){go func(){ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel();release,err:= (update.Native{}).Check(ctx);if err!=nil||release==nil{fmt.Fprintln(os.Stderr,"check",err);os.Exit(1)};if err=release.Install(ctx,nil);err!=nil{fmt.Fprintln(os.Stderr,"install",err);os.Exit(1)};mygo.RunOnMain(mygo.App.Relaunch)}()})
- if err:=mygo.App.Run();err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel()
+ release,err:= (update.Native{}).Check(ctx)
+ if err!=nil||release==nil{fmt.Fprintln(os.Stderr,"check",err);os.Exit(1)}
+ if err=release.Install(ctx,nil);err!=nil{fmt.Fprintln(os.Stderr,"install",err);os.Exit(1)}
+ if err:=update.Relaunch();err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
 }`
 
 func fixtureMixedPort(t *testing.T) int {

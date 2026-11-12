@@ -3,13 +3,12 @@
 package main
 
 import (
-	"github.com/egoist/mygo"
-	"golang.org/x/sys/windows"
 	"log"
 	"os"
-	"os/exec"
 	"strconv"
-	"syscall"
+
+	"golang.org/x/sys/windows"
+	"gopurr/internal/update"
 )
 
 func nativeParentAlive(pid int) bool {
@@ -25,19 +24,10 @@ func nativeParentAlive(pid int) bool {
 	return err == nil && state == uint32(windows.WAIT_TIMEOUT)
 }
 
-// Windows' updater swaps the installation directory while files are mapped.
-// Restart the new frontend, never the backend executable. The frontend waits
-// for this helper to exit before loading its new DLL or taking any data lock.
+// Windows replaces files in the installation directory while they are mapped.
+// Start the new frontend and let it wait until this helper exits.
 func nativeRelaunch(frontend, home string) {
-	mygo.App.OnQuit(func() {
-		log.Printf("native relaunch: starting frontend after backend %d", os.Getpid())
-		cmd := exec.Command(frontend, "--gopurr-home", home, "--wait-for-process", strconv.Itoa(os.Getpid()))
-		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
-		if err := cmd.Start(); err != nil {
-			log.Printf("native relaunch: %v", err)
-		} else {
-			_ = cmd.Process.Release()
-		}
-	})
-	mygo.App.Quit()
+	if err := update.ActivateRelaunch(frontend, "--gopurr-home", home, "--wait-for-process", strconv.Itoa(os.Getpid())); err != nil {
+		log.Printf("native relaunch: %v", err)
+	}
 }

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"github.com/egoist/mygo"
 	"testing"
 )
 
@@ -10,12 +9,12 @@ func TestNativeTrayCommandsPreserveCheckboxesAndRejectStaleMenus(t *testing.T) {
 	nativeDispatchFixture(t)
 	calls := 0
 	checked := false
-	menu := NewNativeTrayMenu(func() *mygo.Menu {
-		return mygo.NewMenu([]*mygo.MenuItem{
-			{Label: "Proxy", Type: mygo.MenuItemCheckbox, Checked: checked, Click: func(it *mygo.MenuItem, _ *mygo.Window) { checked = it.IsChecked(); calls++ }},
-			{Label: "Unavailable", Disabled: true, Submenu: []*mygo.MenuItem{{Label: "Child", Click: func(*mygo.MenuItem, *mygo.Window) { calls += 100 }}}},
-			{Label: "Hidden", Hidden: true, Click: func(*mygo.MenuItem, *mygo.Window) { calls += 1000 }},
-			mygo.Separator(),
+	menu := NewNativeTrayMenu(func() *Menu {
+		return NewMenu([]*MenuItem{
+			{Label: "Proxy", Type: MenuItemCheckbox, Checked: checked, Click: func(it *MenuItem, _ *Window) { checked = it.IsChecked(); calls++ }},
+			{Label: "Unavailable", Disabled: true, Submenu: []*MenuItem{{Label: "Child", Click: func(*MenuItem, *Window) { calls += 100 }}}},
+			{Label: "Hidden", Hidden: true, Click: func(*MenuItem, *Window) { calls += 1000 }},
+			Separator(),
 		})
 	})
 	first, err := menu.Snapshot(context.Background())

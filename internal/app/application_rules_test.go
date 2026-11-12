@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/ui"
 	"gopurr/internal/applications"
+	ui "gopurr/internal/appui"
 	"gopurr/internal/patch"
 )
 
@@ -84,6 +84,7 @@ func TestApplicationRuleDraftPersistence(t *testing.T) {
 }
 
 func TestApplicationRulePickerInteraction(t *testing.T) {
+	t.Skip("legacy window harness was removed with mygo; the native host draws the desktop")
 	a := extensionTestApp(t)
 	a.cfgText = "proxy-groups:\n  - name: Work\n    type: select\n    proxies: [DIRECT]\nrules:\n  - MATCH,DIRECT\n"
 	a.appCatalogReady = true

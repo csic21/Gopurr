@@ -91,8 +91,8 @@ if [[ "$target" == catalyst ]]; then
     helper_ldflags+=" -X github.com/egoist/mygo.packageIdentifier=$bundle_id"
     helper_ldflags+=" -X github.com/egoist/mygo.packageURLSchemes=gopurr,clash"
     helper_ldflags+=" -X github.com/egoist/mygo.packageVersion=$app_version"
-    helper_ldflags+=" -X github.com/egoist/mygo.packageUpdateFeed=$update_feed"
-    helper_ldflags+=" -X github.com/egoist/mygo.packageUpdateKey=$update_public_key"
+    helper_ldflags+=" -X gopurr/internal/update.feed=$update_feed"
+    helper_ldflags+=" -X gopurr/internal/update.publicKey=$update_public_key"
   fi
   # This executable also implements --core and the privileged service flags.
   # The NSH window never loads the legacy desktop UI.

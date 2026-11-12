@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 )
 
 // Fields belong to the UI thread. Only shutdownPending is read by workers.
@@ -24,6 +23,8 @@ func (a *App) ShutdownReady() bool     { return a.shutdown.ready }
 func (a *App) ShuttingDown() bool      { return a.shutdownPending.Load() }
 func (a *App) RelaunchRequested() bool { return a.shutdown.relaunch }
 
+func (a *App) SetQuitHandler(fn func()) { a.shutdown.quit = fn }
+
 func (a *App) requestQuit(relaunch bool) {
 	if a.ShuttingDown() {
 		return
@@ -31,18 +32,15 @@ func (a *App) requestQuit(relaunch bool) {
 	a.shutdown.relaunch = relaunch
 	quit := a.shutdown.quit
 	if quit == nil {
-		quit = mygo.App.Quit
+		return
 	}
-	// The first quit is canceled by OnBeforeQuit. Relaunch is requested only
-	// after asynchronous cleanup succeeds, so mygo cannot lose that intent
-	// when canceling its initial quit event.
 	quit()
 }
 
 // ShutdownAsync starts on the UI thread and returns immediately. Completion
 // and all UI state changes return to the UI thread, including failure/retry.
 func (a *App) ShutdownAsync(done func(error)) {
-	a.beginShutdown(mygo.RunOnMain, done)
+	a.beginShutdown(runOnMain, done)
 }
 
 func (a *App) beginShutdown(dispatch func(func()), done func(error)) {

@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/egoist/mygo/i18n"
-
 	"gopurr/internal/buildinfo"
 	"gopurr/internal/core"
 	"gopurr/internal/remote"
@@ -338,7 +336,7 @@ feed:
 }
 
 func (h webHost) Language() string {
-	if strings.HasPrefix(i18n.Locale(), "zh") {
+	if strings.HasPrefix(currentLocale(), "zh") {
 		return "zh-Hans"
 	}
 	return "en"

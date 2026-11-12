@@ -2,7 +2,7 @@ package app
 
 import (
 	"encoding/json"
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 )
 
 func (a *App) proxyEditorFingerprint() string {

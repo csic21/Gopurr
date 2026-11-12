@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 
 	"gopurr/internal/mesh"
 	"gopurr/internal/remote"

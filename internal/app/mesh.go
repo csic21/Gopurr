@@ -10,8 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 	"gopurr/internal/mesh"
 )
 
@@ -111,8 +110,8 @@ func (a *App) reconcileMeshRoutes() {
 	}
 }
 
-func (a *App) meshTrayItems(openPage func(string)) []*mygo.MenuItem {
-	items := []*mygo.MenuItem{{ID: "mesh-open", Label: tr("打开组网"), Click: func(*mygo.MenuItem, *mygo.Window) { openPage("mesh") }}}
+func (a *App) meshTrayItems(openPage func(string)) []*MenuItem {
+	items := []*MenuItem{{ID: "mesh-open", Label: tr("打开组网"), Click: func(*MenuItem, *Window) { openPage("mesh") }}}
 	if a.meshClient == nil {
 		return items
 	}
@@ -129,15 +128,15 @@ func (a *App) meshTrayItems(openPage func(string)) []*mygo.MenuItem {
 		}
 	}
 	items = append(items,
-		&mygo.MenuItem{Label: status, Disabled: true},
-		&mygo.MenuItem{ID: "mesh-block", Label: tr("关闭本机组网访问"), Click: func(*mygo.MenuItem, *mygo.Window) { a.meshClient.Do("block") }},
-		&mygo.MenuItem{ID: "mesh-disconnect", Label: tr("断开组网"), Click: func(*mygo.MenuItem, *mygo.Window) { a.meshClient.Do("disconnect") }})
+		&MenuItem{Label: status, Disabled: true},
+		&MenuItem{ID: "mesh-block", Label: tr("关闭本机组网访问"), Click: func(*MenuItem, *Window) { a.meshClient.Do("block") }},
+		&MenuItem{ID: "mesh-disconnect", Label: tr("断开组网"), Click: func(*MenuItem, *Window) { a.meshClient.Do("disconnect") }})
 	if !s.Status.Running {
 		label := tr("连接组网")
 		if s.Status.AuthURL != "" {
 			label = tr("继续登录组网…")
 		}
-		items = append(items, &mygo.MenuItem{ID: "mesh-connect", Label: label, Disabled: s.Busy, Click: func(*mygo.MenuItem, *mygo.Window) {
+		items = append(items, &MenuItem{ID: "mesh-connect", Label: label, Disabled: s.Busy, Click: func(*MenuItem, *Window) {
 			openPage("mesh")
 			if s.Status.AuthURL == "" {
 				a.beginMeshConnect()

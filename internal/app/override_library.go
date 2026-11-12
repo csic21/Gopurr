@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 	"gopurr/internal/patch"
 	"gopurr/internal/securefs"
+	"gopurr/internal/shell"
 )
 
 type overrideLibraryState struct {
@@ -417,7 +417,11 @@ func (a *App) importOverrideTemplateDialog() {
 	a.libraryFileBusy = true
 	generation := a.libraryGeneration
 	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: tr("导入覆写 YAML"), Filters: []mygo.FileFilter{{Name: "YAML", Extensions: []string{"yaml", "yml"}}}})
+		picked, err := shell.ChooseFile(false, "", []string{"yaml", "yml"})
+		paths := []string(nil)
+		if picked != "" {
+			paths = []string{picked}
+		}
 		var raw []byte
 		name := ""
 		if err == nil && len(paths) > 0 {
@@ -429,7 +433,7 @@ func (a *App) importOverrideTemplateDialog() {
 				_ = file.Close()
 			}
 		}
-		mygo.RunOnMain(func() {
+		runOnMain(func() {
 			if generation != a.libraryGeneration || !a.showOverrideLibrary {
 				return
 			}
@@ -472,11 +476,11 @@ func (a *App) exportOverrideTemplateDialog() {
 	a.libraryFileBusy = true
 	generation := a.libraryGeneration
 	go func() {
-		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: tr("导出覆写 YAML"), DefaultPath: item.ID + ".yaml", Filters: []mygo.FileFilter{{Name: "YAML", Extensions: []string{"yaml", "yml"}}}, Message: tr("模板可能包含凭据，请妥善保存。")})
+		path, err := shell.ChooseFile(true, item.ID+".yaml", []string{"yaml", "yml"})
 		if err == nil && path != "" {
 			err = securefs.WriteFile(path, []byte(item.YAML), 0600)
 		}
-		mygo.RunOnMain(func() {
+		runOnMain(func() {
 			if generation != a.libraryGeneration || !a.showOverrideLibrary {
 				return
 			}

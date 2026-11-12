@@ -17,9 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/chart"
+	ui "gopurr/internal/appui"
+	"gopurr/internal/appui/chart"
 
 	"gopurr/internal/core"
 	"gopurr/internal/kernel"
@@ -28,6 +27,7 @@ import (
 	"gopurr/internal/profile"
 	"gopurr/internal/securefs"
 	"gopurr/internal/service"
+	"gopurr/internal/shell"
 	"gopurr/internal/sysproxy"
 	"gopurr/internal/update"
 )
@@ -277,6 +277,9 @@ func New() *App {
 	return a
 }
 
+// DataDirectory is the desktop data folder, including the GOPURR_HOME override.
+func DataDirectory() (string, error) { return appDir() }
+
 func appDir() (string, error) {
 	// GOPURR_HOME keeps profiles, overrides and logs next to the binary,
 	// which is what the tests and a portable install want.
@@ -513,7 +516,7 @@ func (a *App) sampleLoop() {
 	for range t.C {
 		tick++
 		if tick%3 == 0 {
-			mygo.RunOnMain(func() { a.reconcileMeshRoutes(); a.reconcileMeshPreparation() })
+			runOnMain(func() { a.reconcileMeshRoutes(); a.reconcileMeshPreparation() })
 		}
 		if a.windowHidden.Load() {
 			continue
@@ -1062,8 +1065,72 @@ func (a *App) startKernelAsyncWithForce(after func(ok bool), force bool) {
 	}()
 }
 
-// runOnMain is a seam so tests without an event loop can complete async work.
-var runOnMain = mygo.RunOnMain
+// runOnMain serializes model mutations. Tests replace it with an inline call.
+var runOnMain = func(fn func()) { mainGate.do(fn) }
+
+type mainGateT struct {
+	mu    sync.Mutex
+	cv    *sync.Cond
+	owner uint64
+	depth int
+}
+
+var mainGate = func() *mainGateT {
+	g := &mainGateT{}
+	g.cv = sync.NewCond(&g.mu)
+	return g
+}()
+
+func (g *mainGateT) do(fn func()) {
+	id := goroutineID()
+	g.mu.Lock()
+	if g.depth > 0 && g.owner == id {
+		g.depth++
+		g.mu.Unlock()
+		defer func() {
+			g.mu.Lock()
+			g.depth--
+			if g.depth == 0 {
+				g.cv.Broadcast()
+			}
+			g.mu.Unlock()
+		}()
+		fn()
+		return
+	}
+	for g.depth > 0 {
+		g.cv.Wait()
+	}
+	g.owner = id
+	g.depth = 1
+	g.mu.Unlock()
+	defer func() {
+		g.mu.Lock()
+		g.depth = 0
+		g.cv.Broadcast()
+		g.mu.Unlock()
+	}()
+	fn()
+}
+
+func goroutineID() uint64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	var id uint64
+	for _, c := range buf[:n] {
+		if c < '0' || c > '9' {
+			if id > 0 {
+				break
+			}
+			continue
+		}
+		id = id*10 + uint64(c-'0')
+	}
+	return id
+}
+
+// RunOnMain runs fn on the desktop model thread.
+func RunOnMain(fn func()) { runOnMain(fn) }
 
 func (a *App) completeKernelStart(ok bool, notice string, after func(ok bool)) {
 	a.bmu.Lock()
@@ -1755,13 +1822,11 @@ func (a *App) autoUpdateDesc() string {
 // importLocalFile asks for a file and adds it as a profile.
 func (a *App) importLocalFile() {
 	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Title:   tr("选择 Clash / mihomo 配置"),
-			Filters: []mygo.FileFilter{{Name: "YAML", Extensions: []string{"yaml", "yml"}}},
-		})
-		if err != nil || len(paths) == 0 {
+		path, err := shell.ChooseFile(false, "", []string{"yaml", "yml"})
+		if err != nil || path == "" {
 			return
 		}
+		paths := []string{path}
 		if a.store == nil {
 			a.setSubErr(tr("订阅目录不可用"))
 			return

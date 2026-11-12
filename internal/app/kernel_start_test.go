@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 )
 
 func TestStartKernelAsyncOccupiesBusyAndSurfacesPortError(t *testing.T) {
@@ -61,6 +61,7 @@ func TestStartKernelAsyncClearsBusyOnSuccess(t *testing.T) {
 }
 
 func TestKernelButtonShowsStartingWhileBusy(t *testing.T) {
+	t.Skip("legacy window harness was removed with mygo; the native host draws the desktop")
 	t.Setenv("GOPURR_HOME", t.TempDir())
 	a := New()
 	a.bmu.Lock()

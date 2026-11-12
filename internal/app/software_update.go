@@ -8,8 +8,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 
 	"go.yaml.in/yaml/v3"
 	"gopurr/internal/buildinfo"
@@ -66,7 +65,7 @@ func (a *App) startSoftwareUpdates() {
 }
 
 func softwareVersion() string {
-	if version := mygo.App.Version(); version != "" {
+	if version := buildinfo.Version; version != "" {
 		return version
 	}
 	return buildinfo.Version
@@ -76,7 +75,7 @@ func (a *App) softwareUpdateSettings(c *ui.Context) {
 	a.initSoftwareUpdates()
 	s := a.softwareUpdates.Snapshot()
 	settingsGroup(c, tr("软件更新"), func() {
-		settingsRow(c, "Gopurr "+softwareVersion(), tr("让连接简单一点 · mygo 原生界面 · mihomo 内核"), nil)
+		settingsRow(c, "Gopurr "+softwareVersion(), tr("让连接简单一点 · mihomo 内核"), nil)
 		hairline(c)
 		on := a.Prefs().CheckAppUpdates
 		settingsRow(c, tr("自动检查更新"), tr("每天检查新版本；下载与安装前由你确认"), func() {

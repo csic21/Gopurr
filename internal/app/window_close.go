@@ -1,6 +1,6 @@
 package app
 
-import "github.com/egoist/mygo/ui"
+import ui "gopurr/internal/appui"
 
 type windowCloseState struct {
 	show  bool

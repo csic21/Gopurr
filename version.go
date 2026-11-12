@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"gopurr/internal/buildinfo"
+	"gopurr/internal/update"
 )
 
 //go:embed mygo.json
@@ -23,4 +24,5 @@ func init() {
 	if buildinfo.Version == "dev" {
 		buildinfo.Version = config.Version
 	}
+	update.SetVersionSource(func() string { return buildinfo.Version })
 }

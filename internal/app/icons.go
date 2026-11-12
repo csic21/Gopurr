@@ -3,7 +3,7 @@ package app
 import (
 	"embed"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 )
 
 // Lucide's 24-unit grid and two-unit stroke are shared by navigation,

@@ -1115,6 +1115,7 @@
   "订阅更新保留额外规则与 YAML 覆写。": "Extra rules and YAML overrides survive subscription updates.",
   "订阅链接或本地文件": "Subscription URL or local file",
   "让连接简单一点 · mygo 原生界面 · mihomo 内核": "Connections, simplified · mygo native UI · mihomo core",
+  "让连接简单一点 · mihomo 内核": "Connections, simplified · mihomo core",
   "记住组网连接方式": "Remember mesh connection method",
   "记住连接方式（不保存密码）": "Remember connection method (no passwords saved)",
   "记录内置组网实际接收的服务连接，含短连接；不含网络层已拦截的尝试。账号为设备所属身份。": "Records service connections received by the built-in mesh, including short sessions. Network-blocked attempts are excluded. Accounts identify device owners.",

@@ -27,7 +27,7 @@
 
 - 客户端公钥位于 `mygo.json` 的 `updates.publicKey`，仓库为 `updates.github`。
 - 私钥保存在仓库 Actions 加密 Secret `MYGO_UPDATER_PRIVATE_KEY`；只有发布构建步骤读取它。
-- 本机备份为 `.secrets/mygo-update.key`，目录和 `*.key` 均已被 Git 忽略。请妥善备份，不能直接换一把公钥，否则旧版本无法验证后续更新。
+- 本机备份为 `.secrets/gopurr-update.key`，目录和 `*.key` 均已被 Git 忽略。请妥善备份，不能直接换一把公钥，否则旧版本无法验证后续更新。
 - 全新 checkout 在没有私钥时可以开发、测试和本地打包；正式发布必须提供密钥，缺失时构建会失败。
 - 为降低首版发布复杂度，当前使用完整更新包，关闭增量更新。
 

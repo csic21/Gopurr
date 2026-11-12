@@ -15,7 +15,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/egoist/mygo"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -142,7 +141,7 @@ func TestTrayNodesAndModesRoundTrip(t *testing.T) {
 		t.Fatal("duplicate nodes or missing current check")
 	}
 	for _, node := range automatic.Submenu {
-		if node.Type == mygo.MenuItemRadio && !node.Disabled {
+		if node.Type == MenuItemRadio && !node.Disabled {
 			t.Fatal("automatically scheduled group must not permit manual selection")
 		}
 	}
@@ -235,10 +234,10 @@ func TestTrayRefreshesSystemProxyState(t *testing.T) {
 	}
 }
 
-func findTrayItem(t *testing.T, items []*mygo.MenuItem, id string) *mygo.MenuItem {
+func findTrayItem(t *testing.T, items []*MenuItem, id string) *MenuItem {
 	t.Helper()
-	var find func([]*mygo.MenuItem) *mygo.MenuItem
-	find = func(list []*mygo.MenuItem) *mygo.MenuItem {
+	var find func([]*MenuItem) *MenuItem
+	find = func(list []*MenuItem) *MenuItem {
 		for _, item := range list {
 			if item.ID == id {
 				return item
@@ -257,14 +256,14 @@ func findTrayItem(t *testing.T, items []*mygo.MenuItem, id string) *mygo.MenuIte
 }
 
 // Match mygo's pre-click checkbox/radio behavior without a native event loop.
-func clickTrayItem(t *testing.T, item *mygo.MenuItem) {
+func clickTrayItem(t *testing.T, item *MenuItem) {
 	t.Helper()
 	if item.Disabled || item.Click == nil {
 		t.Fatalf("tray item %q is not actionable", item.Label)
 	}
-	if item.Type == mygo.MenuItemCheckbox {
+	if item.Type == MenuItemCheckbox {
 		item.SetChecked(!item.IsChecked())
-	} else if item.Type == mygo.MenuItemRadio {
+	} else if item.Type == MenuItemRadio {
 		item.SetChecked(true)
 	}
 	item.Click(item, nil)

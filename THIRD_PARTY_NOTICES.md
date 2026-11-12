@@ -11,8 +11,6 @@ The complete source and build instructions are at https://github.com/csic21/Gopu
   — GPL-3.0; see licenses/meta-rules-dat.txt. Source commit and database SHA-256
   hashes are recorded in internal/geodata/data/manifest.json. Upstream data
   sources and build scripts are published in that repository.
-- mygo: https://github.com/egoist/mygo — MIT; its native runtime bundles the
-  libraries and licenses supplied by the framework.
 - Native Shell (NSH): https://github.com/longbridge/nsh — Apache-2.0; the macOS desktop,
   Windows desktop and mobile clients embed the NSH v0.4.0 runtime
   (commit e626a8d). See

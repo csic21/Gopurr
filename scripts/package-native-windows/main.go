@@ -251,7 +251,7 @@ func validate(root string, c config) error {
 	if err != nil {
 		return err
 	}
-	for _, pair := range [][2]string{{"github.com/egoist/mygo.production", "1"}, {"github.com/egoist/mygo.packageUpdateFeed", feed(c)}, {"github.com/egoist/mygo.packageUpdateKey", c.Updates.PublicKey}, {"github.com/egoist/mygo.packageIdentifier", "io.github.gopurr.app"}, {"github.com/egoist/mygo.packageVersion", c.Version}, {"gopurr/internal/buildinfo.Version", c.Version}} {
+	for _, pair := range [][2]string{{"github.com/egoist/mygo.production", "1"}, {"gopurr/internal/update.feed", feed(c)}, {"gopurr/internal/update.publicKey", c.Updates.PublicKey}, {"github.com/egoist/mygo.packageIdentifier", "io.github.gopurr.app"}, {"github.com/egoist/mygo.packageVersion", c.Version}, {"gopurr/internal/buildinfo.Version", c.Version}} {
 		if symbols[pair[0]] != pair[1] {
 			return fmt.Errorf("missing trusted helper linker setting %s", pair[0])
 		}

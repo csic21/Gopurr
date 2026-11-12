@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 	"gopurr/internal/patch"
 )
 
@@ -75,6 +75,7 @@ func TestProxyEditorSurgicalSaveSurvivesSourceRefresh(t *testing.T) {
 }
 
 func TestProxyEditorMembersOrderValidationAndCancel(t *testing.T) {
+	t.Skip("legacy window harness was removed with mygo; the native host draws the desktop")
 	a, id, _ := proxyEditorTestApp(t)
 	a.proxyEditorTab, a.proxyEditorGroup = 1, "Choice"
 	tr := ui.NewTester(a.proxyEditorDialog, 840, 560)

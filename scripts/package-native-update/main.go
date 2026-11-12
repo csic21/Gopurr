@@ -183,7 +183,7 @@ func archiveURL(c config, name string) string {
 	return "https://github.com/" + c.Updates.GitHub + "/releases/download/" + url.PathEscape(c.Updates.TagPrefix+c.Version) + "/" + url.PathEscape(name)
 }
 func linkFlags(c config, id string) string {
-	values := [][2]string{{"github.com/egoist/mygo.production", "1"}, {"github.com/egoist/mygo.packageUpdateFeed", feed(c)}, {"github.com/egoist/mygo.packageUpdateKey", c.Updates.PublicKey}, {"github.com/egoist/mygo.packageName", c.Name}, {"github.com/egoist/mygo.packageVersion", c.Version}, {"github.com/egoist/mygo.packageIdentifier", id}, {"github.com/egoist/mygo.packageURLSchemes", "gopurr,clash"}, {"gopurr/internal/buildinfo.Version", c.Version}}
+	values := [][2]string{{"github.com/egoist/mygo.production", "1"}, {"gopurr/internal/update.feed", feed(c)}, {"gopurr/internal/update.publicKey", c.Updates.PublicKey}, {"github.com/egoist/mygo.packageName", c.Name}, {"github.com/egoist/mygo.packageVersion", c.Version}, {"github.com/egoist/mygo.packageIdentifier", id}, {"github.com/egoist/mygo.packageURLSchemes", "gopurr,clash"}, {"gopurr/internal/buildinfo.Version", c.Version}}
 	var parts []string
 	for _, p := range values {
 		v := p[0] + "=" + p[1]
@@ -322,7 +322,7 @@ func validateHelper(bi *debug.BuildInfo, c config, id string) error {
 			}
 		}
 	}
-	for _, pair := range [][2]string{{"github.com/egoist/mygo.production", "1"}, {"github.com/egoist/mygo.packageUpdateFeed", feed(c)}, {"github.com/egoist/mygo.packageUpdateKey", c.Updates.PublicKey}, {"github.com/egoist/mygo.packageVersion", c.Version}, {"github.com/egoist/mygo.packageIdentifier", id}, {"gopurr/internal/buildinfo.Version", c.Version}} {
+	for _, pair := range [][2]string{{"github.com/egoist/mygo.production", "1"}, {"gopurr/internal/update.feed", feed(c)}, {"gopurr/internal/update.publicKey", c.Updates.PublicKey}, {"github.com/egoist/mygo.packageVersion", c.Version}, {"github.com/egoist/mygo.packageIdentifier", id}, {"gopurr/internal/buildinfo.Version", c.Version}} {
 		if symbols[pair[0]] != pair[1] {
 			return fmt.Errorf("desktop helper is missing the trusted release linker setting %s", pair[0])
 		}

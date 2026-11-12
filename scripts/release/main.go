@@ -92,7 +92,7 @@ func run() error {
 		return errors.New("Windows releases require the validated NSH desktop; legacy builds are local comparison only")
 	}
 	if os.Getenv("MYGO_UPDATER_PRIVATE_KEY") == "" {
-		if key, err := os.ReadFile(".secrets/mygo-update.key"); err == nil {
+		if key, err := os.ReadFile(".secrets/gopurr-update.key"); err == nil {
 			env = append(env, "MYGO_UPDATER_PRIVATE_KEY="+strings.TrimSpace(string(key)))
 		} else if *release {
 			return errors.New("release needs the MYGO_UPDATER_PRIVATE_KEY GitHub Actions secret")
@@ -107,41 +107,7 @@ func run() error {
 			return fmt.Errorf("refresh bundled geodata: %w", err)
 		}
 	}
-	args := []string{"run", "github.com/egoist/mygo/cmd/mygo", "build", "-platform", *platform, "-skip-notarize", "-o", *output}
-	if *skipDMG {
-		args = append(args, "-skip-dmg")
-	}
-	cmd := exec.Command("go", args...)
-	cmd.Env, cmd.Stdout, cmd.Stderr = env, os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	if !*release {
-		return nil
-	}
-	target := strings.ReplaceAll(*platform, "/", "-")
-	stage := filepath.Join(*output, target)
-	installer := "gopurr-" + current + "-arm64.dmg"
-	if *platform == "windows/amd64" {
-		installer = "gopurr-setup-" + current + "-amd64.exe"
-	}
-	names := []string{installer, "gopurr-" + current + "-" + target + ".tar.gz", "update-" + target + ".json"}
-	destination := filepath.Join("dist", target)
-	if err := os.MkdirAll(destination, 0o755); err != nil {
-		return err
-	}
-	for _, name := range names {
-		if err := copyFile(filepath.Join(stage, name), filepath.Join(destination, name)); err != nil {
-			return fmt.Errorf("missing release artifact %s: %w", name, err)
-		}
-	}
-	updates, _ := config["updates"].(map[string]any)
-	publicKey, _ := updates["publicKey"].(string)
-	if err := verifyUpdate(destination, current, target, publicKey); err != nil {
-		return err
-	}
-	fmt.Printf("Release artifacts: %s\n", destination)
-	return nil
+	return errors.New("the legacy desktop toolkit build was removed; use the native macOS or Windows host")
 }
 
 func verifyUpdate(dir, version, target, key string) error {

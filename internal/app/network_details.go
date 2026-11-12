@@ -5,7 +5,7 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 )
 
 func busyNetwork(a *App) bool {

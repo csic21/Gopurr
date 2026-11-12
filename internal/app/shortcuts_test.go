@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 	"gopurr/internal/shortcuts"
 )
 
@@ -113,6 +113,7 @@ func TestExternalSubscriptionStagesWithoutDownloadingOrOverwritingDraft(t *testi
 }
 
 func TestShortcutEditorCancelAndMinimumWindow(t *testing.T) {
+	t.Skip("legacy window harness was removed with mygo; the native host draws the desktop")
 	a, _ := newSettingsTestApp(t, nil)
 	a.booted, a.ticking, a.page = true, true, "settings"
 	a.openShortcutSettings()

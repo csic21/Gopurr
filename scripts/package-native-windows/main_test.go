@@ -129,11 +129,11 @@ func TestSigningRejectsKeyRotationAndMalformedKeys(t *testing.T) {
 	}
 }
 func TestReadActualGoLinkerSettings(t *testing.T) {
-	symbols, err := linkSymbols(`-s -w -H=windowsgui -X "github.com/egoist/mygo.packageName=Gopurr" -X github.com/egoist/mygo.packageUpdateFeed=https://github.com/csic21/Gopurr/releases/latest/download/update-native-windows-amd64.json`)
+	symbols, err := linkSymbols(`-s -w -H=windowsgui -X "github.com/egoist/mygo.packageName=Gopurr" -X gopurr/internal/update.feed=https://github.com/csic21/Gopurr/releases/latest/download/update-native-windows-amd64.json`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if symbols["github.com/egoist/mygo.packageName"] != "Gopurr" || symbols["github.com/egoist/mygo.packageUpdateFeed"] != "https://github.com/csic21/Gopurr/releases/latest/download/update-native-windows-amd64.json" {
+	if symbols["github.com/egoist/mygo.packageName"] != "Gopurr" || symbols["gopurr/internal/update.feed"] != "https://github.com/csic21/Gopurr/releases/latest/download/update-native-windows-amd64.json" {
 		t.Fatal(symbols)
 	}
 	if _, err := linkSymbols(`-X "unterminated`); err == nil {

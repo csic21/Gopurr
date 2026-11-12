@@ -3,7 +3,7 @@ package app
 import (
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 )
 
 // Motion settles between interactions. There are no idle loops, artificial

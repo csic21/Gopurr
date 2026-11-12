@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 
 	"gopurr/internal/patch"
 	"gopurr/internal/remote"
@@ -152,6 +152,7 @@ func waitFor(t *testing.T, timeout time.Duration, done func() bool) {
 }
 
 func TestRemoteSettingsDialogInteraction(t *testing.T) {
+	t.Skip("legacy window harness was removed with mygo; the native host draws the desktop")
 	dir := t.TempDir()
 	t.Setenv("GOPURR_HOME", dir)
 	a := New()

@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
 	"go.yaml.in/yaml/v3"
+	ui "gopurr/internal/appui"
 
 	"gopurr/internal/applications"
 	"gopurr/internal/patch"
+	"gopurr/internal/shell"
 )
 
 type applicationScanResult struct {
@@ -151,19 +151,17 @@ func (a *App) chooseApplicationFile() {
 	result := make(chan applicationScanResult, 1)
 	a.appFileResult = result
 	go func() {
-		opts := mygo.OpenDialogOptions{Title: tr("选择应用或 Helper 程序"), ButtonLabel: tr("选择")}
-		if runtime.GOOS == "darwin" {
-			opts.DefaultPath = "/Applications"
-		} else if runtime.GOOS == "windows" {
-			opts.Filters = []mygo.FileFilter{{Name: tr("可执行程序"), Extensions: []string{"exe"}}}
+		ext := []string(nil)
+		if runtime.GOOS == "windows" {
+			ext = []string{"exe"}
 		}
-		paths, err := mygo.Dialog.Open(opts)
+		path, err := shell.ChooseFile(false, "", ext)
 		var apps []applications.Application
-		if err == nil && len(paths) > 0 {
+		if err == nil && path != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			var app applications.Application
-			app, err = applications.Inspect(ctx, paths[0])
+			app, err = applications.Inspect(ctx, path)
 			if err == nil {
 				apps = append(apps, app)
 			}

@@ -3,7 +3,7 @@ package app
 import (
 	"fmt"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 )
 
 const (

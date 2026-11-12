@@ -1,6 +1,6 @@
 package app
 
-import "github.com/egoist/mygo/ui"
+import ui "gopurr/internal/appui"
 
 func (a *App) toggleSidebar() {
 	if err := a.changePrefs(func(p *Prefs) { p.SidebarCollapsed = !p.SidebarCollapsed }); err != nil {

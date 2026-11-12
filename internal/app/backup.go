@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 	"gopurr/internal/backup"
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
+	"gopurr/internal/shell"
 )
 
 type backupState struct {
@@ -268,11 +268,11 @@ func (a *App) backupSettings(c *ui.Context) {
 
 func (a *App) exportBackupDialog() {
 	go func() {
-		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: tr("导出 Gopurr 备份"), DefaultPath: "Gopurr-" + time.Now().Format("2006-01-02") + ".zip", Filters: []mygo.FileFilter{{Name: tr("Gopurr 备份"), Extensions: []string{"zip"}}}, Message: tr("备份包含订阅链接与配置凭据，请妥善保存。")})
+		path, err := shell.ChooseFile(true, "Gopurr-"+time.Now().Format("2006-01-02")+".zip", []string{"zip"})
 		if err != nil || path == "" {
 			return
 		}
-		mygo.RunOnMain(func() {
+		runOnMain(func() {
 			a.backupError, a.backupStatus = "", ""
 			if !a.beginProfileWork() {
 				a.backupError = tr("订阅正在更新，请稍后重试")
@@ -294,12 +294,16 @@ func (a *App) exportBackupDialog() {
 }
 func (a *App) importBackupDialog() {
 	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: tr("选择 Gopurr 备份"), Filters: []mygo.FileFilter{{Name: tr("Gopurr 备份"), Extensions: []string{"zip"}}}})
+		path, err := shell.ChooseFile(false, "", []string{"zip"})
+		paths := []string(nil)
+		if path != "" {
+			paths = []string{path}
+		}
 		if err != nil || len(paths) == 0 {
 			return
 		}
 		snapshot, readErr := backup.Read(paths[0])
-		mygo.RunOnMain(func() {
+		runOnMain(func() {
 			a.backupError, a.backupStatus = "", ""
 			if readErr != nil {
 				a.backupError = readErr.Error()

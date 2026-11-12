@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/egoist/mygo"
-
 	"gopurr/internal/core"
 	"gopurr/internal/service"
 	"gopurr/internal/sysproxy"
@@ -13,7 +11,7 @@ import (
 
 // TrayMenu takes a new snapshot when the menu opens. It does not depend on
 // window services, which may have been released by light mode.
-func (a *App) TrayMenu(openWindow func()) *mygo.Menu {
+func (a *App) TrayMenu(openWindow func()) *Menu {
 	s := a.ReadTrayKernel()
 	if !a.ShuttingDown() {
 		// Opening the menu is a fresh look: adopt what the core and the OS
@@ -60,19 +58,19 @@ func (a *App) ReadTrayKernel() TrayKernel {
 // poller's reading may be a moment old. The signature describes everything
 // the menu shows, so a caller that must keep a menu attached (Linux panels
 // open it themselves) can replace it only when something visible changed.
-func (a *App) TrayMenuFor(s TrayKernel, openWindow func()) (*mygo.Menu, string) {
+func (a *App) TrayMenuFor(s TrayKernel, openWindow func()) (*Menu, string) {
 	if a.ShuttingDown() {
-		items := []*mygo.MenuItem{{Label: tr("正在结束当前会话…"), Disabled: true}}
-		return mygo.NewMenu(items), trayMenuSignature(items)
+		items := []*MenuItem{{Label: tr("正在结束当前会话…"), Disabled: true}}
+		return NewMenu(items), trayMenuSignature(items)
 	}
 	items := a.trayItems(s.Running, s.Groups, openWindow)
-	return mygo.NewMenu(items), trayMenuSignature(items)
+	return NewMenu(items), trayMenuSignature(items)
 }
 
-func trayMenuSignature(items []*mygo.MenuItem) string {
+func trayMenuSignature(items []*MenuItem) string {
 	var b strings.Builder
-	var walk func([]*mygo.MenuItem)
-	walk = func(items []*mygo.MenuItem) {
+	var walk func([]*MenuItem)
+	walk = func(items []*MenuItem) {
 		for _, it := range items {
 			fmt.Fprintf(&b, "%s\x1f%s\x1f%s\x1f%t%t%t\x1f%s\x1e", it.ID, it.Label, fmt.Sprint(it.Type), it.Checked, it.Disabled, it.Hidden, it.ToolTip)
 			if len(it.Submenu) > 0 {
@@ -86,7 +84,7 @@ func trayMenuSignature(items []*mygo.MenuItem) string {
 	return b.String()
 }
 
-func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []*mygo.MenuItem {
+func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []*MenuItem {
 	openPage := func(page string) {
 		a.page = page
 		openWindow()
@@ -101,13 +99,13 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 	if resumePending {
 		proxyLabel = tr("系统代理（等待内核恢复）")
 	}
-	items := []*mygo.MenuItem{
-		{ID: "show-window", Label: tr("显示窗口"), Click: func(*mygo.MenuItem, *mygo.Window) { openWindow() }},
-		mygo.Separator(),
+	items := []*MenuItem{
+		{ID: "show-window", Label: tr("显示窗口"), Click: func(*MenuItem, *Window) { openWindow() }},
+		Separator(),
 		{
-			ID: "system-proxy", Label: proxyLabel, Type: mygo.MenuItemCheckbox,
+			ID: "system-proxy", Label: proxyLabel, Type: MenuItemCheckbox,
 			Checked: a.sysApplied || resumePending, Disabled: !sysproxy.Available() || a.k == nil || svcBusy || kernelBusy,
-			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
+			Click: func(item *MenuItem, _ *Window) {
 				if a.healthResumePending() {
 					// Shown on while the watchdog waits: unchecking cancels.
 					a.cancelHealthResume()
@@ -129,9 +127,9 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 			},
 		},
 		{
-			ID: "tun", Label: tr("TUN 模式"), Type: mygo.MenuItemCheckbox,
+			ID: "tun", Label: tr("TUN 模式"), Type: MenuItemCheckbox,
 			Checked: a.tunOn, Disabled: !tunEnabled, ToolTip: a.tunHint(),
-			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
+			Click: func(item *MenuItem, _ *Window) {
 				a.requestTun(item.IsChecked(), func() {
 					item.SetChecked(a.tunOn)
 					if a.tunErrText() != "" {
@@ -146,18 +144,18 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 		if svcBusy {
 			label = tr("TUN 服务正在变更…")
 		}
-		items = append(items, &mygo.MenuItem{
+		items = append(items, &MenuItem{
 			ID: "tun-service", Label: label, Disabled: svcBusy || a.k == nil,
-			Click: func(*mygo.MenuItem, *mygo.Window) { openPage("overview") },
+			Click: func(*MenuItem, *Window) { openPage("overview") },
 		})
 	}
 
-	var modes []*mygo.MenuItem
+	var modes []*MenuItem
 	for _, token := range routeTokens {
-		modes = append(modes, &mygo.MenuItem{
-			ID: "mode-" + token, Label: modeLabelFor(token), Type: mygo.MenuItemRadio,
+		modes = append(modes, &MenuItem{
+			ID: "mode-" + token, Label: modeLabelFor(token), Type: MenuItemRadio,
 			Checked: a.modeToken == token, Disabled: a.k == nil || svcBusy || kernelBusy,
-			Click: func(*mygo.MenuItem, *mygo.Window) {
+			Click: func(*MenuItem, *Window) {
 				a.UseMode(token)
 				for i, mode := range modes {
 					mode.SetChecked(a.modeToken == routeTokens[i])
@@ -178,14 +176,14 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 		reloadLabel = tr("启动内核")
 	}
 	items = append(items,
-		mygo.Separator(),
-		&mygo.MenuItem{ID: "routing-mode", Label: tr("路由模式"), Submenu: modes},
-		&mygo.MenuItem{ID: "select-node", Label: tr("选择节点"), Submenu: nodes},
-		&mygo.MenuItem{ID: "mesh", Label: tr("设备组网"), Submenu: a.meshTrayItems(openPage)},
-		mygo.Separator(),
-		&mygo.MenuItem{
+		Separator(),
+		&MenuItem{ID: "routing-mode", Label: tr("路由模式"), Submenu: modes},
+		&MenuItem{ID: "select-node", Label: tr("选择节点"), Submenu: nodes},
+		&MenuItem{ID: "mesh", Label: tr("设备组网"), Submenu: a.meshTrayItems(openPage)},
+		Separator(),
+		&MenuItem{
 			ID: "reload", Label: reloadLabel, Disabled: a.k == nil || svcBusy || kernelBusy,
-			Click: func(*mygo.MenuItem, *mygo.Window) {
+			Click: func(*MenuItem, *Window) {
 				a.Reload()
 				a.invalidate()
 				if a.notice != "" {
@@ -194,34 +192,34 @@ func (a *App) trayItems(running bool, groups []core.Group, openWindow func()) []
 			},
 		},
 		a.checkUpdatesMenuItem(openWindow),
-		mygo.Separator(),
-		&mygo.MenuItem{ID: "quit", Label: tr("退出 Gopurr"), Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
+		Separator(),
+		&MenuItem{ID: "quit", Label: tr("退出 Gopurr"), Click: func(*MenuItem, *Window) { a.requestQuit(false) }},
 	)
 	return items
 }
 
-func (a *App) trayNodeItems(running bool, groups []core.Group, busy bool, openPage func(string)) []*mygo.MenuItem {
-	var items []*mygo.MenuItem
+func (a *App) trayNodeItems(running bool, groups []core.Group, busy bool, openPage func(string)) []*MenuItem {
+	var items []*MenuItem
 	switch {
 	case !running:
-		items = append(items, &mygo.MenuItem{Label: tr("启动内核后可选择节点"), Disabled: true})
+		items = append(items, &MenuItem{Label: tr("启动内核后可选择节点"), Disabled: true})
 	case a.modeToken == "direct":
-		items = append(items, &mygo.MenuItem{Label: tr("直连模式无需选择节点"), Disabled: true})
+		items = append(items, &MenuItem{Label: tr("直连模式无需选择节点"), Disabled: true})
 	default:
 		for _, group := range visibleGroups(groups, a.modeToken) {
 			members := filterMembers(group.Members, "")
-			var nodes []*mygo.MenuItem
+			var nodes []*MenuItem
 			if !manualGroup(group) {
 				nodes = append(nodes,
-					&mygo.MenuItem{Label: groupTypeLabel(group.Type) + tr(" · 由内核自动调度"), Disabled: true},
-					mygo.Separator(),
+					&MenuItem{Label: groupTypeLabel(group.Type) + tr(" · 由内核自动调度"), Disabled: true},
+					Separator(),
 				)
 			}
 			for _, member := range members {
-				nodes = append(nodes, &mygo.MenuItem{
-					Label: trayLabel(member, 32), ToolTip: member, Type: mygo.MenuItemRadio,
+				nodes = append(nodes, &MenuItem{
+					Label: trayLabel(member, 32), ToolTip: member, Type: MenuItemRadio,
 					Checked: member == group.Now, Disabled: busy || !manualGroup(group),
-					Click: func(*mygo.MenuItem, *mygo.Window) {
+					Click: func(*MenuItem, *Window) {
 						a.requestProxySelection(group.Name, member, func(ok bool) {
 							if !ok {
 								openPage("proxies")
@@ -231,23 +229,23 @@ func (a *App) trayNodeItems(running bool, groups []core.Group, busy bool, openPa
 				})
 			}
 			if len(members) == 0 {
-				nodes = append(nodes, &mygo.MenuItem{Label: tr("此策略组暂无节点"), Disabled: true})
+				nodes = append(nodes, &MenuItem{Label: tr("此策略组暂无节点"), Disabled: true})
 			}
 			label := trayLabel(group.Name, 18)
 			if group.Now != "" {
 				label += " · " + trayLabel(group.Now, 18)
 			}
-			items = append(items, &mygo.MenuItem{
+			items = append(items, &MenuItem{
 				Label: label, ToolTip: group.Name + " → " + group.Now, Submenu: nodes,
 			})
 		}
 		if len(items) == 0 {
-			items = append(items, &mygo.MenuItem{Label: tr("暂无可选策略组"), Disabled: true})
+			items = append(items, &MenuItem{Label: tr("暂无可选策略组"), Disabled: true})
 		}
 	}
-	return append(items, mygo.Separator(), &mygo.MenuItem{
+	return append(items, Separator(), &MenuItem{
 		ID: "open-proxies", Label: tr("打开代理页面…"),
-		Click: func(*mygo.MenuItem, *mygo.Window) { openPage("proxies") },
+		Click: func(*MenuItem, *Window) { openPage("proxies") },
 	})
 }
 

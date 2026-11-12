@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
 	"gopurr/internal/workflow"

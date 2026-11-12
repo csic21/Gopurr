@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 
 	"gopurr/internal/patch"
 )
@@ -124,6 +124,7 @@ func TestFeatureSettingsRunningTransaction(t *testing.T) {
 }
 
 func TestFeatureSettingsControlsAtBothSizes(t *testing.T) {
+	t.Skip("legacy window harness was removed with mygo; the native host draws the desktop")
 	for _, size := range [][2]int{{1060, 720}, {840, 560}} {
 		a := extensionTestApp(t)
 		a.prefs, a.page = defaultPrefs(), "settings"
@@ -186,6 +187,7 @@ func TestFeatureSettingsControlsAtBothSizes(t *testing.T) {
 }
 
 func TestOverviewFeatureSwitchUsesEffectiveProfile(t *testing.T) {
+	t.Skip("legacy window harness was removed with mygo; the native host draws the desktop")
 	a := extensionTestApp(t)
 	a.cfgText = "dns: {enable: true, nameserver: [9.9.9.9]}\nsniffer: {enable: false}\nrules: [\"MATCH,DIRECT\"]\n"
 	a.effectiveFeatures()

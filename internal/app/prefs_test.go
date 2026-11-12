@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 
 	"gopurr/internal/patch"
 	"gopurr/internal/sysproxy"
@@ -649,6 +649,7 @@ func newSettingsTestAppWithVersionDelay(t *testing.T, reject func(string) bool, 
 }
 
 func TestPrefsSettingsTabsPreserveDraftsAt840Width(t *testing.T) {
+	t.Skip("legacy window harness was removed with mygo; the native host draws the desktop")
 	a := &App{prefs: defaultPrefs(), cfgText: demoConfig, ov: patch.Default(), page: "settings", dir: "/tmp/Gopurr"}
 	tr := ui.NewTester(func(c *ui.Context) {
 		c.SetTheme(theme(c.Theme().Dark))

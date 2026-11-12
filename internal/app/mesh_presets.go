@@ -3,7 +3,7 @@ package app
 import (
 	"slices"
 
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 	"gopurr/internal/mesh"
 )
 

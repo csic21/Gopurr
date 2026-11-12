@@ -4,10 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/i18n"
-	_ "github.com/egoist/mygo/locales/zh-Hans"
-	"github.com/egoist/mygo/ui"
+	ui "gopurr/internal/appui"
 
 	"gopurr/internal/diagnostic"
 	"gopurr/internal/localize"
@@ -21,8 +18,42 @@ const (
 
 var languages = []string{LanguageSystem, LanguageChinese, LanguageEnglish}
 
+var localeFunc = func() string { return LanguageChinese }
+
+func SetLocaleFunc(fn func() string) {
+	if fn != nil {
+		localeFunc = fn
+	}
+}
+
+func currentLocale() string {
+	lang := localeFunc()
+	if lang == "" || lang == LanguageSystem {
+		return MatchLanguage(nil)
+	}
+	return lang
+}
+
+// MatchLanguage maps system language tags onto the catalogs we ship.
+// Regional Chinese tags use the simplified catalog, except Traditional Chinese,
+// which stays on English until that catalog exists.
+func MatchLanguage(preferred []string) string {
+	for _, tag := range preferred {
+		base := strings.ToLower(strings.ReplaceAll(tag, "_", "-"))
+		switch {
+		case strings.HasPrefix(base, "zh-hant"), strings.HasPrefix(base, "zh-tw"), strings.HasPrefix(base, "zh-hk"), strings.HasPrefix(base, "zh-mo"):
+			continue
+		case base == "zh" || strings.HasPrefix(base, "zh-"):
+			return LanguageChinese
+		case strings.HasPrefix(base, "en"):
+			return LanguageEnglish
+		}
+	}
+	return LanguageEnglish
+}
+
 // Translate only application-owned messages, never names or profile content.
-func tr(message string) string                  { return translate(i18n.Locale(), message) }
+func tr(message string) string                  { return translate(currentLocale(), message) }
 func translate(language, message string) string { return localize.Translate(language, message) }
 
 func translated(messages []string) []string {
@@ -58,9 +89,13 @@ func (p Prefs) NativeLanguage() string {
 // ConfigureLanguages declares English first so unavailable system languages
 // fall back to English. MyGo matches regional tags and observes system changes.
 func ConfigureLanguages(p Prefs) {
-	localize.SetLanguageSource(i18n.Locale)
-	mygo.App.SetLanguages(LanguageEnglish, LanguageChinese)
-	mygo.App.SetLocale(p.NativeLanguage())
+	localize.SetLanguageSource(currentLocale)
+	SetLocaleFunc(func() string {
+		if lang := p.NativeLanguage(); lang != "" {
+			return lang
+		}
+		return MatchLanguage(nil)
+	})
 }
 
 // localizedSelect keeps controller/filter values independent of display text.

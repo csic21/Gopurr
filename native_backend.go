@@ -18,13 +18,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/egoist/mygo"
 	"gopurr/internal/app"
 	"gopurr/internal/autostart"
 	"gopurr/internal/buildinfo"
+	"gopurr/internal/instance"
 	"gopurr/internal/nativehost"
 	"gopurr/internal/patch"
 	"gopurr/internal/securefs"
+	"gopurr/internal/shell"
+	"gopurr/internal/shortcuts"
 	"gopurr/internal/update"
 )
 
@@ -54,13 +56,9 @@ func runNativeBackend(args []string) error {
 	if err != nil {
 		return err
 	}
-	// mygo forwards os.Args to the updated bundle. Backend socket/authentication
-	// arguments describe this session only and must never reach the next host.
+	// The staged updater opens the frontend with these arguments. Backend
+	// socket and authentication values describe this session only.
 	os.Args = []string{*frontend, "--gopurr-home", *home}
-	mygo.App.SetName("Gopurr")
-	if *productionHome && nativehost.IsCanonicalHome(*home) && !mygo.App.RequestSingleInstanceLock() {
-		return nativehost.ErrHomeInUse
-	}
 	homeLock, err := nativehost.LockHome(*home)
 	if err != nil {
 		return err
@@ -92,19 +90,13 @@ func runNativeBackend(args []string) error {
 	if err = os.Setenv("GOPURR_HOME", *home); err != nil {
 		return err
 	}
-	mygo.App.SetName("Gopurr")
-	mygo.App.SetVersion(buildinfo.Version)
-	mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory)
 	a := app.New()
 	a.SetNativeShowWindowOnLaunch(showWindowOnLaunch)
 	a.NativeSetAutoLaunchHandler(func(enabled bool) error { return autostart.SetExecutable(enabled, *frontend) })
 	app.ConfigureLanguages(a.Prefs())
-	mygo.Theme.SetSource(mygo.ThemeSource(a.Prefs().Appearance))
 	update.ConfigureHTTPClient(a.UpdateProxyURL)
 	events := &nativehost.Events{}
 	show := func() { a.SetWindowVisible(true); events.Add("show", map[string]any{"page": a.NativePage()}) }
-	mygo.App.SetMenu(a.ApplicationMenu(show))
-	mygo.App.OnLocaleChanged(func(string) { mygo.App.SetMenu(a.ApplicationMenu(show)) })
 	importURL := func(raw string) error {
 		payload, err := a.NativeImportURL(raw)
 		if err != nil {
@@ -115,52 +107,53 @@ func runNativeBackend(args []string) error {
 		show()
 		return nil
 	}
-	mygo.App.OnSecondInstance(func(args []string, _ string) {
-		for _, arg := range args {
-			if arg == "--native-quit" {
-				mygo.App.Quit()
-				return
-			}
-		}
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "gopurr://") || strings.HasPrefix(arg, "clash://") {
-				if err := importURL(arg); err != nil {
-					events.Add("error", err.Error())
+	var requestStop func()
+	activate := func(args []string) {
+		app.RunOnMain(func() {
+			for _, arg := range args {
+				if arg == "--native-quit" {
+					a.SetQuitHandler(nil)
+					requestStop()
+					return
 				}
 			}
-		}
-		for _, arg := range args {
-			if arg == "--autostart" {
-				return
+			for _, arg := range args {
+				if strings.HasPrefix(arg, "gopurr://") || strings.HasPrefix(arg, "clash://") {
+					if err := importURL(arg); err != nil {
+						events.Add("error", err.Error())
+					}
+				}
 			}
-		}
-		show()
-	})
-	mygo.App.OnOpenURL(func(raw string) {
-		mygo.App.WhenReady(func() {
-			if err := importURL(raw); err != nil {
-				events.Add("error", err.Error())
-				show()
+			for _, arg := range args {
+				if arg == "--autostart" {
+					return
+				}
 			}
+			show()
 		})
-	})
-	mygo.App.OnWindowAllClosed(func() {})
-	mygo.App.OnActivate(func(bool) { show() })
+	}
+	stopInstance, err := instance.Listen(*home, activate)
+	if err != nil {
+		return err
+	}
+	defer stopInstance()
 	a.SetPrefsHook(func(p app.Prefs) {
-		mygo.RunOnMain(func() {
-			mygo.Theme.SetSource(mygo.ThemeSource(p.Appearance))
+		app.RunOnMain(func() {
 			app.ConfigureLanguages(p)
-			mygo.App.SetMenu(a.ApplicationMenu(show))
 			events.Add("prefs", p)
 		})
 	})
 	var quitOnce sync.Once
-	finalQuitRequested := false // UI thread; prevents parent-watch/OS quit racing relaunch
+	stopped := make(chan struct{})
+	stop := func() {
+		select {
+		case <-stopped:
+		default:
+			close(stopped)
+		}
+	}
 	scheduleQuit := func() {
 		quitOnce.Do(func() {
-			// The installer waits for this helper. First release the Swift host;
-			// then mygo marks the staged update for relaunch and exits. Its
-			// installer opens the new bundle only after the atomic replacement.
 			relaunch := a.RelaunchRequested()
 			log.Printf("native shutdown ready; frontend=%d relaunch=%v", *parent, relaunch)
 			if relaunch {
@@ -177,14 +170,12 @@ func runNativeBackend(args []string) error {
 				} else {
 					time.Sleep(500 * time.Millisecond)
 				}
-				mygo.RunOnMain(func() {
+				app.RunOnMain(func() {
 					log.Printf("native frontend exited; finishing shutdown (relaunch=%v)", relaunch)
-					finalQuitRequested = true
 					if relaunch {
 						nativeRelaunch(*frontend, *home)
-					} else {
-						mygo.App.Quit()
 					}
+					stop()
 				})
 			}()
 		})
@@ -205,8 +196,6 @@ func runNativeBackend(args []string) error {
 			shutdownPending = false
 			if err == nil {
 				_ = homeLock.Close()
-				// Cleanup belongs to the app, not to one socket request. A
-				// disconnected quit caller must not strand a stopped helper.
 				scheduleQuit()
 			} else {
 				events.Add("error", err.Error())
@@ -217,9 +206,21 @@ func runNativeBackend(args []string) error {
 			shutdownWaiters = nil
 		})
 	}
+	requestStop = func() {
+		done := make(chan error, 1)
+		app.RunOnMain(func() { beginShutdown(done) })
+		go func() {
+			if err := <-done; err != nil {
+				log.Printf("native quit canceled: %v", err)
+				events.Add("error", err.Error())
+				app.RunOnMain(show)
+			}
+		}()
+	}
+	a.SetQuitHandler(requestStop)
 	shutdown := func(ctx context.Context) error {
 		done := make(chan error, 1)
-		mygo.RunOnMain(func() { beginShutdown(done) })
+		app.RunOnMain(func() { beginShutdown(done) })
 		select {
 		case err := <-done:
 			return err
@@ -227,31 +228,8 @@ func runNativeBackend(args []string) error {
 			return ctx.Err()
 		}
 	}
-	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
-		if a.ShutdownReady() {
-			scheduleQuit()
-			if !finalQuitRequested || (*waitForFrontend && nativeParentAlive(*parent)) {
-				e.PreventDefault()
-			}
-			return
-		}
-		e.PreventDefault()
-		done := make(chan error, 1)
-		beginShutdown(done)
-		go func() {
-			err := <-done
-			mygo.RunOnMain(func() {
-				if err != nil {
-					log.Printf("native quit canceled: %v", err)
-					events.Add("error", err.Error())
-					show()
-					return
-				}
-				scheduleQuit()
-			})
-		}()
-	})
-	trayMenu := app.NewNativeTrayMenu(func() *mygo.Menu { return a.TrayMenu(show) })
+	_ = *frontendTray
+	trayMenu := app.NewNativeTrayMenu(func() *app.Menu { return a.TrayMenu(show) })
 	var server *nativehost.Server
 	defer func() {
 		if server != nil {
@@ -259,139 +237,138 @@ func runNativeBackend(args []string) error {
 			_ = nativehost.CleanupSession(*socket, *tokenFile, token)
 		}
 	}()
-	mygo.App.WhenReady(func() {
-		a.ConfigureShortcuts(mygo.GlobalShortcut, show)
-		mygo.App.OnQuit(a.CloseShortcuts)
-		a.StartBackground()
-		if !*frontendTray || runtime.GOOS != "darwin" {
-			installTrayWithWindow(a, show)
+	a.StartBackground()
+	var listenErr error
+	server, listenErr = nativehost.Listen(*socket, token, func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+		if a.ShuttingDown() && method != "host.ping" && method != "host.events" && method != "host.shutdown" {
+			return nil, errors.New("desktop application is shutting down")
 		}
-		var listenErr error
-		server, listenErr = nativehost.Listen(*socket, token, func(ctx context.Context, method string, params json.RawMessage) (any, error) {
-			if a.ShuttingDown() && method != "host.ping" && method != "host.events" && method != "host.shutdown" {
-				return nil, errors.New("desktop application is shutting down")
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		switch method {
+		case "host.tray.menu":
+			return trayMenu.Snapshot(ctx)
+		case "host.tray.activate":
+			var p struct {
+				Command string `json:"command"`
 			}
-			if err := ctx.Err(); err != nil {
+			if err := json.Unmarshal(params, &p); err != nil {
 				return nil, err
 			}
-			switch method {
-			case "host.tray.menu":
-				return trayMenu.Snapshot(ctx)
-			case "host.tray.activate":
-				var p struct {
-					Command string `json:"command"`
-				}
-				if err := json.Unmarshal(params, &p); err != nil {
-					return nil, err
-				}
-				return trayMenu.Activate(ctx, p.Command)
-			case "host.ping":
-				return map[string]any{"ready": true, "version": buildinfo.Version}, nil
-			case "host.importURL":
-				var p struct {
-					URL string `json:"url"`
-				}
-				if err := json.Unmarshal(params, &p); err != nil {
-					return nil, err
-				}
-				done := make(chan error, 1)
-				mygo.RunOnMain(func() { done <- importURL(p.URL) })
-				select {
-				case err := <-done:
-					return nil, err
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
-			case "host.events":
-				var p struct {
-					After uint64 `json:"after"`
-				}
-				if err := json.Unmarshal(params, &p); err != nil {
-					return nil, err
-				}
-				return events.Since(p.After), nil
-			case "host.shutdown":
-				if err := shutdown(ctx); err != nil {
-					return nil, err
-				}
-				scheduleQuit()
-				return map[string]bool{"ok": true}, nil
-			case "host.visible":
-				var p struct {
-					Visible bool `json:"visible"`
-				}
-				if err := json.Unmarshal(params, &p); err != nil {
-					return nil, err
-				}
-				mygo.RunOnMain(func() { a.SetWindowVisible(p.Visible) })
-				return true, nil
-			case "host.activate":
-				mygo.RunOnMain(show)
-				return true, nil
-			case "host.file.open", "host.file.save":
-				return nativeFileDialog(method, params)
-			case "host.clipboard.write":
-				var p struct {
-					Text string `json:"text"`
-				}
-				if err := json.Unmarshal(params, &p); err != nil {
-					return nil, err
-				}
-				mygo.Clipboard.WriteText(p.Text)
-				return map[string]bool{"ok": true}, nil
-			case "host.openURL":
-				var p struct {
-					URL string `json:"url"`
-				}
-				if err := json.Unmarshal(params, &p); err != nil {
-					return nil, err
-				}
-				u, err := url.Parse(p.URL)
-				if err != nil || !nativeURLScheme(u.Scheme) {
-					return nil, errors.New("unsupported URL")
-				}
-				return map[string]bool{"ok": true}, mygo.Shell.OpenExternal(p.URL)
-			case "host.reveal":
-				var p struct {
-					Path string `json:"path"`
-				}
-				if err := json.Unmarshal(params, &p); err != nil {
-					return nil, err
-				}
-				if !filepath.IsAbs(p.Path) {
-					return nil, errors.New("absolute path required")
-				}
-				mygo.Shell.ShowItemInFolder(p.Path)
-				return true, nil
-			default:
-				return a.NativeCall(ctx, method, params)
+			return trayMenu.Activate(ctx, p.Command)
+		case "host.ping":
+			return map[string]any{"ready": true, "version": buildinfo.Version}, nil
+		case "host.importURL":
+			var p struct {
+				URL string `json:"url"`
 			}
-		})
-		if listenErr != nil {
-			log.Printf("native socket: %v", listenErr)
-			mygo.App.Quit()
-			return
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+			done := make(chan error, 1)
+			app.RunOnMain(func() { done <- importURL(p.URL) })
+			select {
+			case err := <-done:
+				return nil, err
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		case "host.events":
+			var p struct {
+				After uint64 `json:"after"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+			return events.Since(p.After), nil
+		case "host.shutdown":
+			if err := shutdown(ctx); err != nil {
+				return nil, err
+			}
+			scheduleQuit()
+			return map[string]bool{"ok": true}, nil
+		case "host.visible":
+			var p struct {
+				Visible bool `json:"visible"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+			app.RunOnMain(func() { a.SetWindowVisible(p.Visible) })
+			return true, nil
+		case "host.activate":
+			app.RunOnMain(show)
+			return true, nil
+		case "host.shortcut":
+			var p struct {
+				Action int `json:"action"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+			app.RunOnMain(func() { a.RunShortcut(shortcuts.Action(p.Action), show) })
+			return map[string]bool{"ok": true}, nil
+		case "host.file.open", "host.file.save":
+			return nativeFileDialog(method, params)
+		case "host.clipboard.write":
+			var p struct {
+				Text string `json:"text"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+			return map[string]bool{"ok": true}, shell.WriteClipboard(p.Text)
+		case "host.openURL":
+			var p struct {
+				URL string `json:"url"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+			u, err := url.Parse(p.URL)
+			if err != nil || !nativeURLScheme(u.Scheme) {
+				return nil, errors.New("unsupported URL")
+			}
+			return map[string]bool{"ok": true}, shell.OpenExternal(p.URL)
+		case "host.reveal":
+			var p struct {
+				Path string `json:"path"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, err
+			}
+			if !filepath.IsAbs(p.Path) {
+				return nil, errors.New("absolute path required")
+			}
+			return true, shell.ShowItem(p.Path)
+		default:
+			return a.NativeCall(ctx, method, params)
 		}
-		go func() {
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for range ticker.C {
-				// The helper is a direct child. Reparenting also detects PID
-				// reuse; EPERM alone is not evidence that a parent has exited.
-				if !nativeParentAlive(*parent) {
-					mygo.RunOnMain(mygo.App.Quit)
-					// Cleanup may fail transiently. Keep retrying while the
-					// frontend is gone instead of abandoning an orphan core.
-				}
-			}
-		}()
 	})
+	if listenErr != nil {
+		return listenErr
+	}
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if !nativeParentAlive(*parent) {
+				requestStop()
+				return
+			}
+		}
+	}()
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sig)
-	go func() { <-sig; mygo.RunOnMain(mygo.App.Quit) }()
-	err = mygo.App.Run()
-	return err
+	select {
+	case <-sig:
+		requestStop()
+		<-stopped
+	case <-stopped:
+	}
+	return nil
 }
 
 func nativeURLScheme(s string) bool {
@@ -410,34 +387,22 @@ func nativeFileDialog(method string, params json.RawMessage) (any, error) {
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, err
 	}
-	filters := []mygo.FileFilter{}
+	var extensions []string
 	switch p.Kind {
 	case "backup":
-		filters = []mygo.FileFilter{{Name: "Gopurr backup", Extensions: []string{"gopurr", "zip"}}}
+		extensions = []string{"gopurr", "zip"}
 	case "yaml", "profile":
-		filters = []mygo.FileFilter{{Name: "YAML", Extensions: []string{"yaml", "yml"}}}
+		extensions = []string{"yaml", "yml"}
 	case "logs":
-		filters = []mygo.FileFilter{{Name: "Log", Extensions: []string{"txt", "log"}}}
+		extensions = []string{"txt", "log"}
 	case "application":
-		filters = []mygo.FileFilter{{Name: "Application", Extensions: []string{"app", "exe"}}}
+		extensions = []string{"app", "exe"}
 	default:
 		return nil, fmt.Errorf("unknown file kind %q", p.Kind)
 	}
-	var path string
-	if method == "host.file.open" {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Gopurr", Filters: filters})
-		if err != nil {
-			return nil, err
-		}
-		if len(paths) > 0 {
-			path = paths[0]
-		}
-	} else {
-		var err error
-		path, err = mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Gopurr", DefaultPath: filepath.Base(p.Name), Filters: filters, CreateDirectories: true})
-		if err != nil {
-			return nil, err
-		}
+	path, err := shell.ChooseFile(method != "host.file.open", filepath.Base(p.Name), extensions)
+	if err != nil {
+		return nil, err
 	}
 	if path == "" {
 		return map[string]any{"path": nil}, nil

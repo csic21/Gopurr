@@ -136,7 +136,7 @@ func TestNativeDesktopMigrationRoundtrip(t *testing.T) {
 	os.MkdirAll(filepath.Dir(binary), 0700)
 	fixtureSource := filepath.Join(work, "legacy.go")
 	os.WriteFile(fixtureSource, []byte(legacyRoundtripFixture), 0600)
-	flags := "-X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageUpdateFeed=" + server.URL + "/update-darwin-arm64.json -X github.com/egoist/mygo.packageUpdateKey=" + base64.StdEncoding.EncodeToString(pub)
+	flags := "-X github.com/egoist/mygo.production=1 -X gopurr/internal/update.feed=" + server.URL + "/update-darwin-arm64.json -X gopurr/internal/update.publicKey=" + base64.StdEncoding.EncodeToString(pub)
 	runFixtureCommand(t, repo, "go", "build", "-ldflags", flags, "-o", binary, fixtureSource)
 	// A real app bundle is required by LaunchServices and the old installer.
 	os.WriteFile(filepath.Join(installed, "Contents/Info.plist"), []byte(`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>`+testBundleID+`</string><key>CFBundleExecutable</key><string>Gopurr</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>0.0.0</string></dict></plist>`), 0644)
@@ -353,9 +353,11 @@ func runFixtureCommand(t *testing.T, dir, name string, args ...string) {
 }
 
 const legacyRoundtripFixture = `package main
-import("context";"fmt";"os";"time";"github.com/egoist/mygo";"gopurr/internal/update")
+import("context";"fmt";"os";"time";"gopurr/internal/update")
 func main(){
- mygo.App.SetName("Gopurr");mygo.App.SetVersion("0.0.0");mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory);mygo.App.OnWindowAllClosed(func(){})
- mygo.App.WhenReady(func(){go func(){ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel();backend:=update.Native{};release,err:=backend.Check(ctx);if err!=nil||release==nil{fmt.Fprintln(os.Stderr,"check",err);os.Exit(1)};if err:=release.Install(ctx,nil);err!=nil{fmt.Fprintln(os.Stderr,"install",err);os.Exit(1)};mygo.RunOnMain(mygo.App.Relaunch)}()})
- if err:=mygo.App.Run();err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel()
+ backend:=update.Native{};release,err:=backend.Check(ctx)
+ if err!=nil||release==nil{fmt.Fprintln(os.Stderr,"check",err);os.Exit(1)}
+ if err:=release.Install(ctx,nil);err!=nil{fmt.Fprintln(os.Stderr,"install",err);os.Exit(1)}
+ if err:=update.Relaunch();err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
 }`

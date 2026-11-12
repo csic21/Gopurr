@@ -7,8 +7,6 @@ import (
 	"errors"
 	"sync"
 	"time"
-
-	"github.com/egoist/mygo"
 )
 
 type Phase string
@@ -42,17 +40,6 @@ type Backend interface {
 }
 
 type Native struct{}
-
-func (Native) Enabled() bool { return mygo.Updater.Enabled() }
-func (Native) Check(ctx context.Context) (*Release, error) {
-	up, err := mygo.Updater.Check(requestContext(ctx))
-	if err != nil || up == nil {
-		return nil, err
-	}
-	return &Release{Version: up.Version, Notes: up.Notes, Install: func(ctx context.Context, progress func(int64, int64)) error {
-		return up.Install(requestContext(ctx), progress)
-	}}, nil
-}
 
 type Controller struct {
 	mu          sync.Mutex

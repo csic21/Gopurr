@@ -160,8 +160,8 @@ updates disabled. This command builds locally and never reads the signing key.
 For the preview identity the flags set (production uses `io.github.gopurr.app`):
 
 - `github.com/egoist/mygo.production=1`
-- `github.com/egoist/mygo.packageUpdateFeed`
-- `github.com/egoist/mygo.packageUpdateKey`
+- `gopurr/internal/update.feed`
+- `gopurr/internal/update.publicKey`
 - `github.com/egoist/mygo.packageName`
 - `github.com/egoist/mygo.packageVersion`
 - `github.com/egoist/mygo.packageIdentifier=io.github.gopurr.native`

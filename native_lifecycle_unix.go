@@ -4,9 +4,11 @@ package main
 
 import (
 	"errors"
-	"github.com/egoist/mygo"
+	"log"
 	"os"
 	"syscall"
+
+	"gopurr/internal/update"
 )
 
 func nativeParentAlive(pid int) bool {
@@ -21,4 +23,8 @@ func nativeParentAlive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-func nativeRelaunch(frontend, home string) { mygo.App.Relaunch() }
+func nativeRelaunch(frontend, home string) {
+	if err := update.ActivateRelaunch(frontend, "--gopurr-home", home); err != nil {
+		log.Printf("native relaunch: %v", err)
+	}
+}

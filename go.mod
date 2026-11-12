@@ -3,8 +3,8 @@ module gopurr
 go 1.27.4
 
 require (
+	github.com/dlclark/regexp2 v1.12.0
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.7.1
 	github.com/metacubex/mihomo v1.19.33
 	github.com/metacubex/sing-tun v0.4.28
 	github.com/metacubex/tailscale v0.0.0-20260821153257-ff0ecd818181
@@ -13,6 +13,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	go.yaml.in/yaml/v3 v3.0.5
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb
+	golang.org/x/image v0.46.0
 	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.48.0
 )
@@ -28,7 +29,6 @@ require (
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/coder/websocket v1.8.12 // indirect
 	github.com/coreos/go-iptables v0.8.0 // indirect
-	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dunglas/httpsfv v1.0.2 // indirect
 	github.com/easytier/easytier/easytier-go v0.0.0-20260910071355-3d0c9c3ca5e2 // indirect
 	github.com/enfein/mieru/v3 v3.38.1 // indirect
@@ -40,7 +40,6 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gaukas/godicttls v0.0.4 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
@@ -136,7 +135,6 @@ require (
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e // indirect
-	golang.org/x/image v0.46.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
