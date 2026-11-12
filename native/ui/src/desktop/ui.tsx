@@ -1,4 +1,4 @@
-import { colorScheme, computed, Image, reduceMotion, Scroll, Text, View, windowSize } from "nsh";
+import { colorScheme, computed, host, Image, platform, reduceMotion, Scroll, Text, View, windowSize } from "nsh";
 import type { JSX, ImageAsset } from "nsh";
 import { Button, Dialog, Input, Switch, Tabs as NativeTabs, Tab } from "nsh/base";
 import { colors } from "./theme";
@@ -208,6 +208,33 @@ export function Empty(p: { title: string; description?: string; action?: () => J
 }
 
 /**
+ * The scrim behind a dialog. macOS renders the blur as a system material
+ * (AppKit picks the radius); Windows paints it literally against the window's
+ * back buffer, where a partial frame then keeps hard-edged boxes of the page
+ * instead of a blurred one. Windows therefore keeps the plain scrim.
+ */
+function dialogBackdrop() {
+  const backgroundColor = colorScheme() === "dark" ? "#05070c8c" : "#0b122470";
+  return { backgroundColor, ...(platform.os === "windows" ? {} : { backdropFilter: "blur(7px)" }) };
+}
+
+// NSH 0.4.0's Win32 backend stops asking the window for frames once a dialog
+// has finished fading out: the dismissed dialog stays in the back buffer and
+// later updates go undrawn, which reads as a window that cannot be closed.
+// The Windows host draws the whole window once more on
+// `desktop.window.repaint`. Windows also dismisses the dialog through the app
+// so that this repaint lands after the 160 ms exit fade instead of meeting
+// its picture; elsewhere the platform may close it itself.
+const closeOnEscape = platform.os !== "windows";
+const closeOnBackdropPress = platform.os !== "windows";
+
+/** Asks the Windows host for one whole-window frame. */
+function requestWindowRepaint() {
+  if (platform.os !== "windows") return;
+  try { void Promise.resolve(host.call("desktop.window.repaint", {})).catch(() => {}); } catch {}
+}
+
+/**
  * Dialog: one surface, a title row, a scrolling body and a footer that stays
  * put. The close action keeps its label so keyboard and screen-reader users
  * always have a named way out.
@@ -216,12 +243,16 @@ export function Modal(p: { title: string; open: boolean; onClose: () => void; ch
   // Dialog recreates its native layer whenever its open dependency changes.
   // Deduplicate visibility so fresh snapshots update content without reopening.
   const open = computed(() => p.open);
-  return <Dialog testID={p.testID} open={open()} onOpenChange={({ open }) => { if (!open) p.onClose(); }} onCancel={p.onClose} animation="fade"
+  // A press on Close, Escape or the backdrop removes the dialog from the app;
+  // a footer action that closes it does so itself. Both end in the dialog
+  // going away: ask for the repaint once the 160 ms exit fade is over.
+  const close = () => { p.onClose(); if (platform.os === "windows") setTimeout(requestWindowRepaint, 240); };
+  return <Dialog testID={p.testID} open={open()} onOpenChange={({ open }) => { if (!open) close(); }} onCancel={close} onClose={requestWindowRepaint} closeOnEscape={closeOnEscape} closeOnBackdropPress={closeOnBackdropPress} animation="fade"
     style={{ marginHorizontal: "auto", marginVertical: "auto", width: Math.min(p.width ?? 560, windowSize().width - 48), maxHeight: windowSize().height - 48, padding: 0, gap: 0, backgroundColor: colors().surface, borderRadius: RADIUS.dialog, borderWidth: 1, borderColor: colors().border, boxShadow: elevation("dialog") }}
-    backdropStyle={{ backgroundColor: colorScheme() === "dark" ? "#05070c8c" : "#0b122470", backdropFilter: "blur(7px)" }}>
+    backdropStyle={dialogBackdrop()}>
     <Row justify="space-between" gap={12} style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 13 }}>
       <Text style={{ fontSize: 16, fontWeight: "600", letterSpacing: -0.2, color: colors().text, numberOfLines: 1, textOverflow: "ellipsis" }}>{p.title}</Text>
-      <Action quiet testID={p.closeTestID} label={tr("关闭", "Close")} onPress={p.onClose} />
+      <Action quiet testID={p.closeTestID} label={tr("关闭", "Close")} onPress={close} />
     </Row>
     <Scroll style={{ maxHeight: p.height ?? windowSize().height - 210 }} contentStyle={{ paddingHorizontal: 20, paddingBottom: 18, gap: 13 }}>{p.children}</Scroll>
     <If when={!!p.error}><View style={{ paddingHorizontal: 20, paddingBottom: 13 }}><Feedback text={p.error ?? ""} danger /></View></If>

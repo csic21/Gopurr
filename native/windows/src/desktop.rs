@@ -86,6 +86,7 @@ const CHANNELS: &[&str] = &[
     "desktop.reveal",
     "desktop.window.close",
     "desktop.window.dirty",
+    "desktop.window.repaint",
 ];
 type Open = unsafe extern "C" fn(*const c_char) -> *mut c_char;
 type Call = unsafe extern "C" fn(u64, *const c_char) -> *mut c_char;
@@ -518,6 +519,18 @@ fn run_on_ui_thread() -> Result<(), String> {
             let bridge = bridge.clone();
             if name == "desktop.window.close" {
                 post(hwnd, json!({"kind":"hide"}));
+                call.resolve(json!({"ok":true}));
+                return;
+            }
+            if name == "desktop.window.repaint" {
+                // NSH 0.4.0's Win32 backend stops asking for frames once a
+                // dialog's exit animation ends: the dismissed dialog stays in
+                // the back buffer and later changes are not drawn either. A
+                // plain `WM_PAINT` draws the whole window once, which clears
+                // that frame and resumes painting (see `Modal` on the UI side).
+                unsafe {
+                    let _ = PostMessageW(Some(HWND(hwnd as _)), WM_PAINT, WPARAM(0), LPARAM(0));
+                }
                 call.resolve(json!({"ok":true}));
                 return;
             }

@@ -19,3 +19,25 @@ for(const platform of ['ios','macos','windows'] as const) {
     await app.waitFor('text:Polling dialog',{state:'gone'});
   });
 }
+
+// NSH 0.4.0's Win32 backend stops drawing after a dialog fades out; the shared
+// Modal asks the Windows host for one more whole-window frame to clear it.
+test('windows dialog close asks the host for a whole-window repaint',async()=>{
+  let repaints=0;
+  const app=await open('./DesktopModalPreview.tsx',{platform:'windows',width:840,height:560,clock:{time:0},host:{handlers:{'desktop.window.repaint':()=>{repaints++;return {ok:true};}}}});
+  await app.waitFor('text:Polling dialog');
+  await app.press('text:Close');
+  await app.waitFor('text:Polling dialog',{state:'gone'});
+  await app.waitUntil(()=>repaints>0);
+  expect(repaints).toBeGreaterThan(0);
+});
+
+test('macOS dialog close keeps the native material and asks for no repaint',async()=>{
+  let repaints=0;
+  const app=await open('./DesktopModalPreview.tsx',{platform:'macos',width:840,height:560,clock:{time:0},host:{handlers:{'desktop.window.repaint':()=>{repaints++;return {ok:true};}}}});
+  await app.waitFor('text:Polling dialog');
+  await app.press('text:Close');
+  await app.waitFor('text:Polling dialog',{state:'gone'});
+  await app.clock!.runFor(600);
+  expect(repaints).toBe(0);
+});

@@ -1,16 +1,15 @@
-Gopurr 0.6.42 发布桌面改动，并修复安装包构建被离线地理库下载卡住的问题。
+Gopurr 0.6.43 修复 Windows 桌面弹窗的背景遮罩与关闭后不重绘的问题。
 
-- 托盘菜单、文件选择、剪贴板、打开链接以及更新后的重启不再经过旧界面库。
-- 命令行直接启动不再打开旧窗口；请继续从应用包使用桌面。
-- 更新公钥不变。已安装的版本可以正常检查并安装这个版本。
-- 0.6.41 没有公开发布，请直接安装 0.6.42。
+- Windows 弹窗的遮罩不再直接模糊窗口后备缓冲：背景不再糊成一片，也不会在对话框周围留下硬边的透明方块和未模糊的卡片描边；macOS 继续使用系统材质模糊。
+- Windows 上关闭弹窗后窗口会立即重绘，对话框不再停留在屏幕上，看起来像「窗口无法关闭」的问题已修复；窗口之后继续正常刷新。
+- 更新、删除确认、编辑器、组网等全部共享原生弹窗同步生效；弹窗内容与关闭按钮位置不变。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.42-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.42-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.42-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.42-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.43-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.43-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.43-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.43-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

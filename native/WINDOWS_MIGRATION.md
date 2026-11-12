@@ -38,6 +38,7 @@ Native window navigation is verified through Windows UI Automation before every 
 - [x] Windows x64 host build, C ABI, clean runtime PATH and actual startup.
 - [x] Private ACL rejection, authenticated IPC, canonical-home locking and durable migration snapshots.
 - [x] Eight pages, collapsed navigation, long text, hover, selected/disabled controls, editors and dialogs visually reviewed in both sizes/themes.
+- [x] Windows dialog rendering in 0.6.43: the shared Modal uses a plain scrim instead of NSH 0.4.0's back-buffer blur and asks the host for `desktop.window.repaint` after closing, because the Win32 backend stops drawing once a dialog's exit animation ends. On a live Windows host running the 0.6.43 UI bundle, the built-in DNS and domain-sniffing dialogs opened through Windows UI Automation at 1060×720 in light theme rendered without blurred-background boxes, disappeared when closed, and normal traffic updates resumed after the whole-window frame.
 - [x] First close, backend continuity, background activation, light-mode release/reopen, login entry and silent launch. Shared interaction tests also preserve hidden-page drafts and dirty transitions.
 - [x] Real core traffic, Wintun/service operations and proxy recovery.
 - [x] Production-key old-client signed update verification and seeded-data migration into the actual NSH frontend.

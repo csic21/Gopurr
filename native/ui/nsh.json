@@ -1,7 +1,7 @@
 {
   "name": "Gopurr",
   "id": "io.github.gopurr.nsh.preview",
-  "version": "0.6.40",
+  "version": "0.6.43",
   "build": 1,
   "icon": "assets/icon-master.png",
   "statusBar": {
@@ -18,6 +18,7 @@
       "desktop.reveal",
       "desktop.window.close",
       "desktop.window.dirty",
+      "desktop.window.repaint",
       "android.session",
       "android.connect",
       "android.disconnect",
