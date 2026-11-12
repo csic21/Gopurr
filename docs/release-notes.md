@@ -1,15 +1,15 @@
-Gopurr 0.6.39 修复桌面侧栏切换掉帧，并统一有限动画到 NSH 原生动画时钟。
+Gopurr 0.6.40 修复桌面侧栏切换的卡顿和空白，并让 Windows 托盘双击打开窗口。
 
-- 侧栏从 320ms 的逐帧 JavaScript 重排改为 NSH 原生 `LayoutAnimation`，一次提交完成；快速反向与系统「减少动态效果」保持可用。
-- 标题栏侧栏按钮补充原生按下反馈；概览出口文字、软件更新进度条和手机页切换改用 `createAnimatedValue`，动画继续在 NSH 原生时钟上运行。
-- 流量图的真实采样曲线仍在 Canvas 内做最多 400ms 的受控插值，不改变布局；其余有限动画不再逐帧写入 JS 样式。
+- 侧栏按钮改为 180ms 原生位移动画，页面布局一次到位，不再逐帧重排整棵卡片树，因此切换时不会在卡片之间或窗口边缘留下白块。
+- 窗口底色与桌面画布一致，减少动态效果时切换立即完成。
+- Windows 托盘双击与单击一样显示窗口。之前双击消息被忽略，习惯双击托盘图标时窗口不会出现。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.39-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.39-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.39-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.39-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.40-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.40-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.40-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.40-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

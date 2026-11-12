@@ -406,6 +406,7 @@ func installTrayWithWindow(a *app.App, openWindow func()) bool {
 		}
 		syncWindowsTrayIcon()
 		tray.OnAppearanceChange(syncWindowsTrayIcon)
+		installWindowsTrayDoubleClick(openWindow)
 	}
 	if menuOnClick {
 		installPanelTrayMenu(a, tray, openWindow)

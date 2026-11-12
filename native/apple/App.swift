@@ -304,9 +304,18 @@ final class GopurrController: UIViewController {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // Match the desktop canvas. The default system background is white, so any
+    // layout gap or scrollbar gutter reads as a blank strip beside the cards.
+    private static let canvasColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 8.0/255, green: 9.0/255, blue: 13.0/255, alpha: 1)
+            : UIColor(red: 238.0/255, green: 241.0/255, blue: 246.0/255, alpha: 1)
+    }
+
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = desktop != nil ? Self.canvasColor : .systemBackground
         app.translatesAutoresizingMaskIntoConstraints = false
         app.storageDirectory = home.appendingPathComponent("ui", isDirectory: true)
         app.params = [
