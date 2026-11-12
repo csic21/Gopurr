@@ -84,6 +84,18 @@ jobs:
           New-Item C:\gp-tmp -ItemType Directory -Force | Out-Null
           "TEMP=C:\gp-tmp" >> $env:GITHUB_ENV
           "TMP=C:\gp-tmp" >> $env:GITHUB_ENV
+      - name: Free macOS runner disk space
+        # The MacCloud image ships an Android SDK with several NDKs and an
+        # emulator (over 10 GB) that this job never builds. Without the space,
+        # staging the native DMG ends with "No space left on device".
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          df -h /
+          du -sh "$HOME/Library/Android" 2>/dev/null || true
+          rm -rf "$HOME/Library/Android" "$HOME/.gradle" "$HOME/.m2"
+          sudo rm -rf /Library/Developer/CoreSimulator/Caches/* || true
+          df -h /
       - name: Validate tag
         shell: bash
         run: |
