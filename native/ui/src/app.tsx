@@ -1,4 +1,4 @@
-import { cleanup, colorScheme, effect, host, Image, lifecycle, List, reduceMotion, Scroll, setColorScheme, signal, Storage, Text, View } from "nsh";
+import { cleanup, colorScheme, createAnimatedValue, effect, host, Image, lifecycle, List, reduceMotion, Scroll, setColorScheme, signal, Storage, Text, View } from "nsh";
 import { BackHandler } from "nsh/mobile";
 import { Button, Input, Progress } from "nsh/base";
 import { call } from "./client";
@@ -282,33 +282,26 @@ export function GopurrApp(props: { preview?: boolean } = {}) {
   cleanup(() => clearTimeout(noticeTimer));
   // Plain view animation avoids a ShaderView/Vulkan surface on Android. It
   // ends after the page enters and never delays navigation or disables input.
-  const pageProgress = signal(1);
-  let pageFrame = 0, previousRoute = `${page()}-${subpage()}`;
+  const pageProgress = createAnimatedValue(1);
+  let previousRoute = `${page()}-${subpage()}`;
   effect(() => {
     const route = `${page()}-${subpage()}`;
     const reduced = reduceMotion();
     if (route === previousRoute && !reduced) return;
     previousRoute = route;
-    cancelAnimationFrame(pageFrame);
+    void pageProgress.stop();
     if (reduced) { pageProgress.set(1); return; }
     pageProgress.set(0);
-    const started = Date.now();
-    const frame = () => {
-      if (reduceMotion()) { pageProgress.set(1); return; }
-      const t = Math.min(1, (Date.now() - started) / 180);
-      pageProgress.set(1 - Math.pow(1 - t, 3));
-      if (t < 1) pageFrame = requestAnimationFrame(frame);
-    };
-    pageFrame = requestAnimationFrame(frame);
+    void pageProgress.timing(1, { duration: 180, easing: "easeOut" });
   });
-  cleanup(() => cancelAnimationFrame(pageFrame));
+  cleanup(() => void pageProgress.stop());
   cleanup(BackHandler.on("press", () => { if (subpage()) { subpage.set(""); return true; } if (adding() && profiles().length) { adding.set(false); return true; } if (page() !== "overview") { navigate("overview"); return true; } return false; }));
   return <View style={{ flex: 1, backgroundColor: colors().bg, paddingTop: "env(safe-area-inset-top)", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)", paddingBottom: "env(safe-area-inset-bottom)", flexDirection: compact() ? "column" : "row" }}>
     <If when={!compact()}><Navigation /></If><View style={{ flex: 1, minHeight: 0 }}>
       <If when={compact()}><View style={{ flexDirection: "row", gap: 8, alignItems: "center", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}><Image src={logo} style={{ width: 26, height: 26, objectFit: "contain" }} /><Label text="Gopurr" size={16} bold /></View></If>
       <If when={!!props.preview}><View style={{ paddingHorizontal: 16, paddingVertical: 6, backgroundColor: colors().selected }}><Text style={{ fontSize: 11, color: colors().accent }}>{tr("界面预览 · 演示数据，不连接真实代理", "UI preview · Fixture data, no live proxy")}</Text></View></If>
       <If when={!!error()}><View testID="error-banner" role="alert" style={{ margin: 16, marginBottom: 0, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors().danger, backgroundColor: colors().surface, gap: 8 }}><Text style={{ color: colors().danger, fontSize: 12 }}>{error()}</Text><View style={{ flexDirection: "row", gap: 8 }}><Action label={tr("重试", "Retry")} disabled={false} onPress={() => void refresh()} /><Action label={tr("关闭提示", "Dismiss")} disabled={false} onPress={() => error.set("")} /></View></View></If>
-      <View style={{ flex: 1, minHeight: 0, opacity: pageProgress(), transform: [{ translateY: 4 * (1 - pageProgress()) }] }}>
+      <View style={{ flex: 1, minHeight: 0, opacity: pageProgress, transform: [{ translateY: pageProgress.interpolate({ inputRange: [0, 1], outputRange: [4, 0] }) }] }}>
         <If when={!subpage() && page() === "overview"}><Overview /></If><If when={!subpage() && page() === "profiles"}><Profiles /></If><If when={!subpage() && page() === "proxies"}><Proxies /></If><If when={!subpage() && page() === "settings"}><Settings /></If><If when={subpage() === "apps"}><AppsPage /></If><If when={subpage() === "logs"}><LogsPage /></If>
       </View>
     </View><If when={compact() && !subpage()}><Navigation /></If>

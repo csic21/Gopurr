@@ -1,4 +1,4 @@
-import { cleanup, effect, lifecycle, reduceMotion, signal, View } from 'nsh';
+import { Animated, cleanup, createAnimatedValue, effect, lifecycle, reduceMotion, signal, View } from 'nsh';
 import { Progress } from 'nsh/base';
 import type { PageProps } from './types';
 import { Action, Label, Modal, Row, fmtBytes, RADIUS } from './ui';
@@ -6,20 +6,21 @@ import { colors } from './theme';
 import { tr } from './i18n';
 
 // Animate only while the backend reports work with an unknown extent.
-function UpdateProgress(p:{value:number;indeterminate:boolean}) {
-  const width=signal(0),position=signal(0);let frame=0;
+function UpdateProgress(p:{value:number;indeterminate:()=>boolean}) {
+  const width=signal(0),position=createAnimatedValue(0);let animation:ReturnType<typeof Animated.loop>|undefined;
   effect(()=>{
-    cancelAnimationFrame(frame);
-    if(!p.indeterminate||reduceMotion()||lifecycle()==='background'){position.set(.5);return;}
-    const start=Date.now();
-    const tick=()=>{position.set(((Date.now()-start)%1400)/1400);frame=requestAnimationFrame(tick);};
-    frame=requestAnimationFrame(tick);
+    animation?.stop();animation=undefined;
+    if(!p.indeterminate()||reduceMotion()||lifecycle()==='background'||width()<=0){position.set(.5);return;}
+    position.set(0);
+    animation=Animated.loop(Animated.timing(position,{toValue:1,duration:1400,easing:'linear'}));
+    void animation.start();
   });
-  cleanup(()=>cancelAnimationFrame(frame));
+  cleanup(()=>animation?.stop());
+  const shift=position.interpolate({inputRange:[0,1],outputRange:[-.3*width(),width()]});
   return <View onLayout={({bounds})=>width.set(bounds.size.width)}>
-    <Progress testID="desktop-update-progress" value={p.value} indeterminate={p.indeterminate} accessibilityLabel={tr('更新进度','Update progress')}
+    <Progress testID="desktop-update-progress" value={p.value} indeterminate={p.indeterminate()} accessibilityLabel={tr('更新进度','Update progress')}
       trackStyle={{height:6,borderRadius:3,backgroundColor:colors().border,overflow:'hidden'}}
-      indicatorStyle={{height:6,borderRadius:3,backgroundColor:colors().accent,...(p.indeterminate?{width:'30%',transform:[{translateX:(position()*1.3-.3)*width()}]}:{})}}/>
+      indicatorStyle={{height:6,borderRadius:3,backgroundColor:colors().accent,...(p.indeterminate()?{width:'30%',transform:[{translateX:shift}]}:{})}}/>
   </View>;
 }
 
@@ -64,7 +65,7 @@ export function UpdateDialog(p:PageProps) {
         <Label text={fmtBytes(update().downloaded??0)+' / '+fmtBytes(update().total)} muted size={11.5} tabular lines={1}/>
         <Label text={String(Math.round(percent()))+'%'} size={11.5} weight={600} tabular lines={1}/>
       </Row></If>
-      <UpdateProgress value={percent()} indeterminate={!!update().visible&&(checking()||!(update().total>0))}/>
+      <UpdateProgress value={percent()} indeterminate={()=>!!update().visible&&(checking()||!(update().total>0))}/>
     </Inset></If>
   </Modal>;
 }

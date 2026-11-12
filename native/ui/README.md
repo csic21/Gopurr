@@ -71,8 +71,16 @@ mobile pages do not require a ShaderView/Vulkan transition surface.
 The desktop entry includes subscription/aggregate and proxy editors, connections,
 mesh, rules and template library, logs, and seven settings categories. It keeps
 unsaved drafts and filters across navigation, supports reduced motion, and uses
-320 ms navigation transitions and 400 ms traffic history interpolation. It does
-not substitute fixture data when the host is unavailable.
+a 320 ms navigation transition committed once through NSH's native
+`LayoutAnimation` (not per-frame JavaScript relayout), plus 400 ms traffic
+history interpolation. It does not substitute fixture data when the host is
+unavailable.
+
+Finite opacity, transform and progress motion uses `createAnimatedValue` or CSS
+style transitions, so it runs on NSH's native animation clock. The traffic chart
+is the one intentional JavaScript frame loop: it interpolates real sample
+geometry inside a canvas for at most 400 ms after a sample arrives and never
+animates layout.
 
 `DesktopPreview.tsx` and `DesktopMotionPreview.tsx` are separate visual fixtures.
 Run the real native AppKit renderer (one instance at a time):

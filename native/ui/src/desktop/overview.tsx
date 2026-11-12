@@ -1,4 +1,4 @@
-import { Text, View, windowSize, signal, effect, cleanup, reduceMotion, colorScheme } from "nsh";
+import { Text, View, windowSize, signal, effect, cleanup, reduceMotion, colorScheme, createAnimatedValue } from "nsh";
 import { colors } from "./theme";
 import { TrafficChart, TrafficRate } from "./traffic-chart";
 import { tr } from "./i18n";
@@ -11,13 +11,13 @@ export function resolveExit(groups:any[],name:string):string {
   for(let i=0;i<32;i++){if(seen.has(current))return tr("循环策略","Circular policy");seen.add(current);const g=groups.find(v=>v.name===current);if(!g)return current;if(!g.now||g.type.toLowerCase()==="loadbalance")return g.name;current=g.now;}return current;
 }
  const details=signal(false); const service=signal(false); const feature=signal<"dns"|"sniffer"|null>(null);const featureSource=signal("config");
-const exitCurrent=signal(""),exitPrevious=signal(""),exitProgress=signal(1);let lastExit="",seenExit=false;
+const exitCurrent=signal(""),exitPrevious=signal(""),exitProgress=createAnimatedValue(1);let lastExit="",seenExit=false;
 function ExitName(p:{value:()=>string;size?:number}) {
- const current=exitCurrent,previous=exitPrevious,progress=exitProgress;let frameId=0;
- effect(()=>{const next=p.value();if(next===lastExit)return;lastExit=next;cancelAnimationFrame(frameId);if(!next||!seenExit||reduceMotion()){seenExit=!!next;current.set(next);previous.set("");progress.set(1);return;}previous.set(current());current.set(next);progress.set(0);const start=Date.now();const frame=()=>{if(reduceMotion()){progress.set(1);previous.set("");return;}const t=Math.min(1,(Date.now()-start)/280);progress.set(t*t*(3-2*t));if(t<1)frameId=requestAnimationFrame(frame);else previous.set("");};frameId=requestAnimationFrame(frame);});
- cleanup(()=>{cancelAnimationFrame(frameId);progress.set(1);previous.set("");});
+ const current=exitCurrent,previous=exitPrevious,progress=exitProgress;
+ effect(()=>{const next=p.value();if(next===lastExit)return;lastExit=next;void progress.stop();if(!next||!seenExit||reduceMotion()){progress.set(1);seenExit=!!next;current.set(next);previous.set("");return;}previous.set(current());current.set(next);progress.set(0);void progress.timing(1,{duration:280,easing:"easeInOut"}).then(({finished})=>{if(finished)previous.set("");});});
+ cleanup(()=>{void progress.stop();progress.set(1);previous.set("");});
  const size=p.size??32,lineHeight=size+8;
- return <View style={{minHeight:lineHeight}}><If when={!!previous()}><Text accessibilityElementsHidden style={{position:"absolute",left:0,right:0,top:0,fontSize:size,lineHeight,fontWeight:"600",letterSpacing:-1,color:colors().text,numberOfLines:2,textOverflow:"ellipsis",opacity:1-progress(),transform:[{translateY:-5*progress()}]}}>{previous()}</Text></If><Text testID="overview-exit" style={{fontSize:size,lineHeight,fontWeight:"600",letterSpacing:-1,color:colors().text,numberOfLines:2,textOverflow:"ellipsis",opacity:progress(),transform:[{translateY:5*(1-progress())}]}}>{current()||tr("尚未选择配置","No profile selected")}</Text></View>;
+ return <View style={{minHeight:lineHeight}}><If when={!!previous()}><Text accessibilityElementsHidden style={{position:"absolute",left:0,right:0,top:0,fontSize:size,lineHeight,fontWeight:"600",letterSpacing:-1,color:colors().text,numberOfLines:2,textOverflow:"ellipsis",opacity:progress.interpolate({inputRange:[0,1],outputRange:[1,0]}),transform:[{translateY:progress.interpolate({inputRange:[0,1],outputRange:[-5,0]})}]}}>{previous()}</Text></If><Text testID="overview-exit" style={{fontSize:size,lineHeight,fontWeight:"600",letterSpacing:-1,color:colors().text,numberOfLines:2,textOverflow:"ellipsis",opacity:progress,transform:[{translateY:progress.interpolate({inputRange:[0,1],outputRange:[5,0]})}]}}>{current()||tr("尚未选择配置","No profile selected")}</Text></View>;
 }
 /**
  * Connection first, then the live instrument: a wide console card carries the
