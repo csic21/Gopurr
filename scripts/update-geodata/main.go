@@ -42,7 +42,7 @@ func run() error {
 		}
 		*ref = fields[0]
 	}
-	client := &http.Client{Timeout: 2 * time.Minute}
+	client := &http.Client{Timeout: 3 * time.Minute}
 	compressed := map[string][]byte{}
 	manifest := struct {
 		Repository string            `json:"repository"`
@@ -55,9 +55,12 @@ func run() error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		source := "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/" + *ref + "/" + geodata.Files[name]
-		data, err := download(client, source)
+		data, err := download(client, geodataSources(*ref, geodata.Files[name]))
 		if err != nil {
+			if baselineReady() {
+				fmt.Fprintf(os.Stderr, "warning: keeping the existing offline geodata baseline: %v\n", err)
+				return nil
+			}
 			return err
 		}
 		if err := geodata.Validate(name, data); err != nil {
@@ -86,7 +89,47 @@ func run() error {
 	return os.WriteFile(filepath.Join(dir, "manifest.json"), append(data, '\n'), 0o644)
 }
 
-func download(client *http.Client, source string) ([]byte, error) {
+func geodataSources(ref, name string) []string {
+	return []string{
+		"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/" + ref + "/" + name,
+		"https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@" + ref + "/" + name,
+	}
+}
+
+func baselineReady() bool {
+	dir := filepath.Join("internal", "geodata", "data")
+	for name := range geodata.Files {
+		info, err := os.Stat(filepath.Join(dir, name+".gz"))
+		if err != nil || info.Size() == 0 {
+			return false
+		}
+	}
+	info, err := os.Stat(filepath.Join(dir, "manifest.json"))
+	return err == nil && info.Size() > 0
+}
+
+func download(client *http.Client, sources []string) ([]byte, error) {
+	var last error
+	for attempt := 1; attempt <= 2; attempt++ {
+		for _, source := range sources {
+			data, err := downloadOnce(client, source)
+			if err == nil {
+				return data, nil
+			}
+			last = err
+			fmt.Fprintf(os.Stderr, "geodata download attempt %d: %v\n", attempt, err)
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+		}
+	}
+	if last == nil {
+		last = fmt.Errorf("no geodata source")
+	}
+	return nil, last
+}
+
+func downloadOnce(client *http.Client, source string) ([]byte, error) {
 	resp, err := client.Get(source)
 	if err != nil {
 		return nil, err
