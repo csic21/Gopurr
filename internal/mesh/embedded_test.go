@@ -272,6 +272,9 @@ func TestOfficialLoginURLsAndUntrustedNames(t *testing.T) {
 	if got := clean("A\u202e\nB"); got != "AB" {
 		t.Fatal("untrusted display controls")
 	}
+	if d := device(&wirePeer{Active: true, Relay: "cn-cloud\u202e"}, nil); d.Path != "加密中继 (cn-cloud)" {
+		t.Fatalf("unexpected relay path %q", d.Path)
+	}
 }
 
 func TestSynchronousRevocationSurvivesPolicyStorageFailure(t *testing.T) {

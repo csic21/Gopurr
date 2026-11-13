@@ -72,6 +72,9 @@ func device(p *wirePeer, users map[int64]wireUser) Device {
 			d.Path = localize.Text("设备中继")
 		case p.Relay != "":
 			d.Path = localize.Text("加密中继")
+			if relay := clean(p.Relay); relay != "" {
+				d.Path += " (" + relay + ")"
+			}
 		}
 	}
 	return d
