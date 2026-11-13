@@ -95,7 +95,24 @@ func nativeDMG(app, output string) error {
 	if err = os.Symlink("/Applications", filepath.Join(work, "Applications")); err != nil {
 		return err
 	}
-	b, err := exec.Command("/usr/bin/hdiutil", "create", "-volname", "Gopurr", "-srcfolder", work, "-ov", "-format", "UDZO", output).CombinedOutput()
+	var total int64
+	if err = filepath.WalkDir(work, func(_ string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.IsDir() {
+			if info, infoErr := d.Info(); infoErr == nil {
+				total += info.Size()
+			}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("measure native DMG: %w", err)
+	}
+	// Give hdiutil ample headroom so filesystem metadata never exhausts the
+	// temporary /Volumes/Gopurr image; UDZO compresses away unused space.
+	sizeMB := max(total/(1024*1024)*2+128, 256)
+	b, err := exec.Command("/usr/bin/hdiutil", "create", "-volname", "Gopurr", "-size", fmt.Sprintf("%dm", sizeMB), "-srcfolder", work, "-ov", "-format", "UDZO", output).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("create native DMG: %v: %s", err, b)
 	}
