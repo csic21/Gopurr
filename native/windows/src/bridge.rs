@@ -32,11 +32,12 @@ use windows::{
         Security::{
             Authorization::{
                 ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-                SDDL_REVISION_1, SE_FILE_OBJECT, SetNamedSecurityInfoW,
+                GetNamedSecurityInfoW, SDDL_REVISION_1, SE_FILE_OBJECT, SetNamedSecurityInfoW,
             },
             Cryptography::{BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom},
-            DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, GetTokenInformation,
-            PROTECTED_DACL_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER, TokenUser,
+            DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, GetSecurityDescriptorOwner,
+            OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+            PSID,
         },
         Storage::FileSystem::{
             BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_FLAG_BACKUP_SEMANTICS,
@@ -46,7 +47,7 @@ use windows::{
         },
         System::{
             IO::OVERLAPPED,
-            Threading::{GetCurrentProcess, GetCurrentProcessId, OpenProcessToken},
+            Threading::{GetCurrentProcessId},
         },
     },
     core::{HSTRING, PWSTR},
@@ -632,34 +633,48 @@ fn random_bytes(bytes: &mut [u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn current_user_sid() -> Result<String, String> {
-    unsafe {
-        let process = GetCurrentProcess();
-        let mut token = HANDLE::default();
-        OpenProcessToken(process, TOKEN_QUERY, &mut token).map_err(|e| e.to_string())?;
-        let token = OwnedHandle(token);
-        let mut length = 0u32;
-        let _ = GetTokenInformation(token.0, TokenUser, None, 0, &mut length);
-        if length == 0 {
-            return Err("Could not read the current Windows identity".into());
-        }
-        let mut buffer = vec![0u8; length as usize];
-        GetTokenInformation(
-            token.0,
-            TokenUser,
-            Some(buffer.as_mut_ptr().cast()),
-            length,
-            &mut length,
+fn path_owner_sid(path: &Path) -> Result<String, String> {
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            &HSTRING::from(path.as_os_str()),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            None,
+            None,
+            None,
+            None,
+            &mut descriptor,
         )
-        .map_err(|e| e.to_string())?;
-        let user: TOKEN_USER = ptr::read_unaligned(buffer.as_ptr().cast());
+    };
+    if status != ERROR_SUCCESS {
+        return Err(format!(
+            "Could not read the native session owner: {}",
+            status.0
+        ));
+    }
+    let mut owner = PSID::default();
+    let mut defaulted = windows::core::BOOL::default();
+    unsafe {
+        GetSecurityDescriptorOwner(descriptor, &mut owner, &mut defaulted)
+            .map_err(|e| e.to_string())?;
+    }
+    let result = sid_string(owner);
+    unsafe {
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+    }
+    result
+}
+
+fn sid_string(sid: PSID) -> Result<String, String> {
+    if sid.0.is_null() {
+        return Err("The native session has no owner".into());
+    }
+    unsafe {
         let mut text = PWSTR::null();
-        ConvertSidToStringSidW(user.User.Sid, &mut text).map_err(|e| e.to_string())?;
+        ConvertSidToStringSidW(sid, &mut text).map_err(|e| e.to_string())?;
         let mut wide = Vec::new();
         let mut at = text.0;
-        if at.is_null() {
-            return Err("The current Windows identity is empty".into());
-        }
         loop {
             let value = std::ptr::read(at);
             if value == 0 {
@@ -674,9 +689,9 @@ fn current_user_sid() -> Result<String, String> {
 }
 
 fn set_private_dacl(path: &Path, directory: bool) -> Result<(), String> {
-    let sid = current_user_sid()?;
+    let owner = path_owner_sid(path)?;
     let inherit = if directory { "OICI" } else { "" };
-    let sddl = format!("D:P(A;{inherit};FA;;;SY)(A;{inherit};FA;;;BA)(A;{inherit};FA;;;{sid})");
+    let sddl = format!("D:P(A;{inherit};FA;;;SY)(A;{inherit};FA;;;BA)(A;{inherit};FA;;;{owner})");
     let mut descriptor = windows::Win32::Security::PSECURITY_DESCRIPTOR::default();
     unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
