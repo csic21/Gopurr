@@ -727,9 +727,10 @@ mod tests {
     fn parses_line_delimited_response() {
         assert_eq!(
             frame_response(b"{\"result\":{\"ready\":true}}\n").unwrap(),
-            b"{\"result\":{\"ready\":true}}".to_vec()
+            Some(b"{\"result\":{\"ready\":true}}".to_vec())
         );
-        assert!(frame_response(b"").is_err());
+        assert_eq!(frame_response(b"").unwrap(), None);
+        assert!(frame_response(&[b'x'; MAX_RESPONSE + 1]).is_err());
     }
 
     #[test]
