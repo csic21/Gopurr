@@ -1,10 +1,9 @@
-use libloading::Library;
+use crate::bridge::NativeBridge;
 use nsh_engine::{HostChannel, Policy, parse_capabilities};
 use nsh_platform_windows::{App, AppOptions, AppView, Appearance, AssetBase, Bundle};
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
-    ffi::{CStr, CString, c_char},
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -62,7 +61,7 @@ fn trace(message: &str) {
 struct DiagnosticLogger;
 impl log::Log for DiagnosticLogger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= log::Level::Warn
+        metadata.level() <= diagnostic_level()
     }
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {
@@ -77,6 +76,18 @@ impl log::Log for DiagnosticLogger {
     fn flush(&self) {}
 }
 static LOGGER: DiagnosticLogger = DiagnosticLogger;
+
+fn perf_diagnostics() -> bool {
+    std::env::var_os("GOPURR_NATIVE_PERF").is_some()
+}
+
+fn diagnostic_level() -> log::Level {
+    if perf_diagnostics() {
+        log::Level::Info
+    } else {
+        log::Level::Warn
+    }
+}
 
 const EVENT: u32 = WM_APP + 0x47;
 const TRAY: u32 = WM_APP + 0x48;
@@ -109,91 +120,6 @@ const CHANNELS: &[&str] = &[
     "desktop.window.dirty",
     "desktop.window.repaint",
 ];
-type Open = unsafe extern "C" fn(*const c_char) -> *mut c_char;
-type Call = unsafe extern "C" fn(u64, *const c_char) -> *mut c_char;
-type Free = unsafe extern "C" fn(*mut c_char);
-
-struct Bridge {
-    call: Call,
-    free: Free,
-    handle: u64,
-    pid: u32,
-}
-impl Bridge {
-    unsafe fn open(root: &Path, home: &Path) -> Result<(Arc<Self>, Value), String> {
-        // The Go runtime owns live threads until process exit. Keep its DLL
-        // mapped for the entire process; unloading it is never safe.
-        let library = Box::leak(Box::new(
-            unsafe { Library::new(root.join("GopurrBridge.dll")) }.map_err(|e| e.to_string())?,
-        ));
-        let open: Open =
-            *unsafe { library.get(b"GopurrDesktopOpen\0") }.map_err(|e| e.to_string())?;
-        let call: Call =
-            *unsafe { library.get(b"GopurrDesktopCall\0") }.map_err(|e| e.to_string())?;
-        let free: Free = *unsafe { library.get(b"GopurrFree\0") }.map_err(|e| e.to_string())?;
-        let options = CString::new(json!({"home":home,"executable":root.join("gopurr-desktop.exe"),"frontend":root.join("Gopurr.exe"),"productionHome":true}).to_string()).unwrap();
-        let value = unsafe { take_json(open(options.as_ptr()), free) }?;
-        if let Some(error) = value.get("error") {
-            let code = if error["code"] == "already_running" && error["activate"] == true {
-                "already_running_canonical"
-            } else {
-                error["code"].as_str().unwrap_or("open_failed")
-            };
-            return Err(code.to_owned()
-                + ": "
-                + error["message"]
-                    .as_str()
-                    .unwrap_or("Desktop backend unavailable"));
-        }
-        let handle = value["handle"]
-            .as_u64()
-            .ok_or("Missing desktop bridge handle")?;
-        let pid = value["backendPID"]
-            .as_u64()
-            .and_then(|pid| u32::try_from(pid).ok())
-            .ok_or("Missing desktop backend PID")?;
-        Ok((
-            Arc::new(Self {
-                call,
-                free,
-                handle,
-                pid,
-            }),
-            value,
-        ))
-    }
-    fn request(&self, method: &str, params: Value) -> Result<Value, String> {
-        let request = CString::new(json!({"method":method,"params":params}).to_string())
-            .map_err(|e| e.to_string())?;
-        unsafe { take_json((self.call)(self.handle, request.as_ptr()), self.free) }
-    }
-    fn result(&self, method: &str, params: Value) -> Result<Value, String> {
-        let reply = self.request(method, params)?;
-        if let Some(error) = reply.get("error") {
-            return Err(error["message"]
-                .as_str()
-                .unwrap_or("Desktop operation failed")
-                .into());
-        }
-        Ok(reply["result"].clone())
-    }
-    fn visible(self: &Arc<Self>, visible: bool) {
-        let bridge = self.clone();
-        thread::spawn(move || {
-            let _ = bridge.result("host.visible", json!({"visible":visible}));
-        });
-    }
-}
-unsafe fn take_json(ptr: *mut c_char, free: Free) -> Result<Value, String> {
-    if ptr.is_null() {
-        return Err("Empty desktop bridge response".into());
-    }
-    let result = serde_json::from_slice(unsafe { CStr::from_ptr(ptr) }.to_bytes())
-        .map_err(|e| e.to_string());
-    unsafe { free(ptr) };
-    result
-}
-
 fn taskbar_dark() -> bool {
     let mut light = 0u32;
     let mut size = std::mem::size_of::<u32>() as u32;
@@ -353,7 +279,7 @@ fn build_tray_menu(items: &Value, commands: &mut Vec<String>) -> Option<HMENU> {
 struct Window {
     view: Rc<AppView>,
     channel: HostChannel,
-    bridge: Arc<Bridge>,
+    bridge: Arc<NativeBridge>,
     bundle: Bundle,
     prefs: RefCell<Value>,
     page: RefCell<String>,
@@ -677,7 +603,11 @@ pub fn run() -> Result<(), String> {
 fn run_on_ui_thread() -> Result<(), String> {
     if std::env::var_os("GOPURR_NATIVE_SESSION_OUTPUT").is_some() {
         let _ = log::set_logger(&LOGGER);
-        log::set_max_level(log::LevelFilter::Warn);
+        log::set_max_level(if perf_diagnostics() {
+            log::LevelFilter::Info
+        } else {
+            log::LevelFilter::Warn
+        });
     }
     trace("starting frontend");
     let args: Vec<String> = std::env::args().collect();
@@ -734,7 +664,7 @@ fn run_on_ui_thread() -> Result<(), String> {
     if !home.is_absolute() {
         return Err("An absolute desktop data directory is required".into());
     }
-    let (bridge, session) = match unsafe { Bridge::open(root, &home) } {
+    let (bridge, session) = match NativeBridge::open(root, &home, true, false) {
         Ok(value) => value,
         Err(error) if error.starts_with("already_running_canonical:") => {
             use std::os::windows::process::CommandExt;
@@ -786,6 +716,9 @@ fn run_on_ui_thread() -> Result<(), String> {
     let view = AppView::new(
         None,
         AppOptions {
+            // `GOPURR_NATIVE_PERF=1` makes the host log a real `nsh::perf`
+            // line every second for the disposable acceptance session.
+            fps: perf_diagnostics(),
             app_id: "io.github.gopurr.app".into(),
             title: "Gopurr".into(),
             size: (width, height),

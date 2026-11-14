@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -46,6 +47,34 @@ func windowsHostVisible(pid uint32) bool {
 	}
 	visible, _, _ := user32.NewProc("IsWindowVisible").Call(hwnd)
 	return visible != 0
+}
+
+// assertFrontendModules rejects the legacy Go bridge DLL in the actual UI
+// process. Checking the install payload alone would not catch a stale build
+// that still loads it dynamically.
+func assertFrontendModules(t *testing.T, pid uint32) {
+	t.Helper()
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE|windows.TH32CS_SNAPMODULE32, pid)
+	if err != nil {
+		t.Fatalf("module snapshot for Gopurr.exe: %v", err)
+	}
+	defer windows.CloseHandle(snapshot)
+	entry := windows.ModuleEntry32{Size: uint32(windows.SizeofModuleEntry32)}
+	if err := windows.Module32First(snapshot, &entry); err != nil {
+		t.Fatalf("first module of Gopurr.exe: %v", err)
+	}
+	for {
+		name := windows.UTF16ToString(entry.Module[:])
+		if strings.EqualFold(name, "GopurrBridge.dll") {
+			t.Fatalf("Gopurr.exe loaded the removed Go bridge DLL")
+		}
+		if err := windows.Module32Next(snapshot, &entry); err != nil {
+			if err == windows.ERROR_NO_MORE_FILES {
+				return
+			}
+			t.Fatalf("next module of Gopurr.exe: %v", err)
+		}
+	}
 }
 
 type windowRect struct{ Left, Top, Right, Bottom int32 }

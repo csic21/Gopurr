@@ -61,16 +61,9 @@ $flags = "-s -w -H=windowsgui -X gopurr/internal/buildinfo.Version=$Version -X g
 # which prevents the packager from verifying the embedded updater feed/key.
 & go build -ldflags $flags -o "$stage/gopurr-desktop.exe" .
 if ($LASTEXITCODE) { throw 'Build desktop backend failed' }
-$gcc = @('C:/msys64/mingw64/bin/gcc.exe', 'C:/mingw64/bin/gcc.exe', 'C:/msys64/ucrt64/bin/gcc.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $gcc) { $gcc = (Get-Command gcc -ErrorAction Stop).Source }
-$env:CC = $gcc
-$env:CGO_ENABLED = '1'
-& go build -trimpath -buildmode=c-shared -ldflags "-s -w -X gopurr/internal/buildinfo.Version=$Version" -o "$stage/GopurrBridge.dll" ./cmd/gopurr-bridge
-if ($LASTEXITCODE) { throw 'Build desktop C ABI failed' }
-Remove-Item "$stage/GopurrBridge.h"
-# Go's c-shared build uses MinGW. The NSH MSVC target must discover its own
-# Visual Studio compiler and SDK, rather than inheriting Go's GCC setting.
-$env:CC = $null
+# The frontend's bridge starts gopurr-desktop.exe and speaks its private
+# authenticated Unix-socket protocol directly. No Go runtime or C ABI DLL
+# is loaded into the UI process.
 if (-not $SkipRust) {
     & cargo +1.99.1 build --locked --release --manifest-path native/windows/Cargo.toml
     if ($LASTEXITCODE) { throw 'Build NSH Windows frontend failed' }

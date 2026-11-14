@@ -1,15 +1,15 @@
-Gopurr 0.6.46 修复 Windows 托盘图标缺失。
+Gopurr 0.6.47 优化 Windows 前端与界面刷新。
 
-- 0.6.41 移除旧窗口工具包后，Windows 通知区没有创建托盘图标；原生前端现在重新接管托盘。
-- 浅色和深色任务栏分别使用对应图标；左键或双击显示窗口，右键打开实时状态菜单。
-- 桌面资源管理器重启后自动恢复图标，并保留原托盘图标编号。
+- Windows 界面进程不再加载 Go bridge DLL。启动 Go 业务后端和转发本地 RPC 由 Rust 宿主完成，后台、内核与系统服务保持独立运行。
+- 降低可见页面的空闲重渲染：每秒快照会复用未变化的数据，非概览页忽略实时流量、连接数和历史采样。代理列表、弹窗和编辑状态不再因为后台刷新而无谓重建。
+- 新增性能诊断日志，便于验证实际帧率和掉帧情况。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.46-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.46-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.46-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.46-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.47-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.47-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.47-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.47-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

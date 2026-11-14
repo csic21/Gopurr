@@ -37,7 +37,7 @@ try {
     $env:GOPURR_NATIVE_SESSION_OUTPUT = $session
     $process = Start-Process ([IO.Path]::GetFullPath($Installer)) -ArgumentList @('/S', "/D=$install") -PassThru -Wait
     if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
-    foreach ($file in @('Gopurr.exe','gopurr-desktop.exe','GopurrBridge.dll','nsh/bundle.nshc','Uninstall.exe')) {
+    foreach ($file in @('Gopurr.exe','gopurr-desktop.exe','nsh/bundle.nshc','Uninstall.exe')) {
         if (-not (Test-Path (Join-Path $install $file))) { throw "Incomplete installed NSH payload: $file" }
     }
     $entry = Get-ItemProperty 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/io.github.gopurr.app'

@@ -60,6 +60,13 @@ jobs:
           "TMP=C:/gp-tmp" >> $env:GITHUB_ENV
           rustup toolchain install 1.99.1 --profile minimal
           rustup override set 1.99.1
+      - name: Test the Rust bridge and backend protocol
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          cargo test --locked --manifest-path native/windows/Cargo.toml --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Rust bridge tests failed' }
       - name: Test Windows migration, authentication and backend
         env:
           CGO_ENABLED: '0'
@@ -69,14 +76,12 @@ jobs:
         run: |
           go run ./scripts/release -platform windows/amd64 -out bin/native
           if ($LASTEXITCODE) { throw 'Default Windows release builder failed' }
-      - name: Verify the actual Windows C ABI
+      - name: Verify the native Windows bridge payload
         shell: pwsh
         run: |
-          $env:CGO_ENABLED = '1'
-          $env:CC = @('C:/msys64/mingw64/bin/gcc.exe','C:/mingw64/bin/gcc.exe','C:/msys64/ucrt64/bin/gcc.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $env:CC) { $env:CC = (Get-Command gcc -ErrorAction Stop).Source }
-          go test -v ./cmd/gopurr-bridge -timeout=5m
-          if ($LASTEXITCODE) { throw 'Windows C ABI tests failed' }
+          if (Test-Path "bin/native/windows-amd64/GopurrBridge.dll") { throw 'The frontend payload still contains the Go bridge DLL' }
+          if (-not (Test-Path "bin/native/windows-amd64/gopurr-desktop.exe")) { throw 'The desktop backend is missing' }
+          if (-not (Test-Path "bin/native/windows-amd64/Gopurr.exe")) { throw 'The NSH frontend is missing' }
       - name: Verify installed migration, protocols and graceful uninstall
         shell: pwsh
         run: |

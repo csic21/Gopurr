@@ -27,7 +27,7 @@ import (
 	"gopurr/internal/securefs"
 )
 
-// Actual Win32 host + Go DLL + backend. Every installation/data directory and
+// Actual Win32 host + Rust bridge + backend. Every installation/data directory and
 // key is disposable; updates travel over loopback only. No OS proxy/TUN change
 // or user profile is permitted by the fixture.
 func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
@@ -278,6 +278,7 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(output)) != "Gopurr 0.0.2" {
 		t.Fatalf("new Rust frontend was not installed: %s %v", output, err)
 	}
+	assertFrontendModules(t, session.FrontendPID)
 	windowsMust(t, session, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"silentStart": true}})
 	windowsMust(t, session, "host.shutdown", nil)
 	waitWindows(t, 20*time.Second, func() bool { _, err := session.request("host.ping", nil); return err != nil })
@@ -333,7 +334,7 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 	}
 	t.Log("Frontend login entry, silent launch, activation and updated graceful uninstaller passed; old data retained")
 	session = windowsSession{}
-	t.Log("NSH -> NSH passed: invalid signature refused, mapped EXE/DLL replaced, new Rust frontend relaunched and old data retained")
+	t.Log("NSH -> NSH passed: invalid signature refused, mapped EXE replaced, new Rust frontend relaunched and old data retained")
 }
 
 type windowsSession struct {

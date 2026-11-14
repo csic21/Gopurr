@@ -2,7 +2,12 @@
 
 Status: Windows NSH is accepted by [run 42488199190](https://github.com/csic21/Gopurr/actions/runs/42488199190), including the in-app replacement uninstaller, production-key verification and actual Win32 lifecycle. Native screenshots were visually reviewed at both sizes/themes, including hover states. The release builder selects NSH; publication requires complete CI and the official Release gates.
 
-The Win32 frontend (`native/windows`) embeds NSH 0.4.0 at upstream commit `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`. It runs the shared `native/ui/Desktop.tsx` eight-page desktop and calls the existing Go desktop backend through `GopurrBridge.dll`. The host, bridge, backend, UI assets and graceful NSH uninstaller ship in the same installation directory so the existing updater replaces the complete payload. NSIS emits the replacement uninstaller without installing files or writing registry entries on the builder.
+The Rust-bridge replacement described below has not yet been through that
+Windows host run. Treat the linked run as evidence for the earlier DLL bridge
+only until the checks in [Performance checks](#performance-checks) and the
+Windows workflow have been repeated on the new payload.
+
+The Win32 frontend (`native/windows`) embeds NSH 0.4.0 at upstream commit `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`. It runs the shared `native/ui/Desktop.tsx` eight-page desktop. A Rust bridge (`native/windows/src/bridge.rs`) starts the existing Go `gopurr-desktop.exe` backend in its own process and speaks its private authenticated Unix-socket JSON protocol; the UI process does not load a Go DLL or run a second Go runtime. The host, backend, UI assets and graceful NSH uninstaller ship in the same installation directory so the existing updater replaces the complete payload. NSIS emits the replacement uninstaller without installing files or writing registry entries on the builder.
 
 ## Preserved contracts
 
@@ -11,7 +16,7 @@ The Win32 frontend (`native/windows`) embeds NSH 0.4.0 at upstream commit `e626a
 - The existing Ed25519 public key in `mygo.json`. `update-windows-amd64.json` and `update-native-windows-amd64.json` contain identical archive URLs, sizes and signatures. Production signing requires the explicitly named environment variable; no fallback key file or key rotation is accepted.
 - Existing core, service, Wintun, proxy recovery and shortcut implementations. Privileged operations use the Go helper and its protected service executable. Since the legacy toolkit was retired, the Win32 frontend owns the notification-area icon; it keeps the historical `main` icon number, light/dark 16/20/24/32 px ICO assets, left-click activation, right-click state menu and `TaskbarCreated` recovery.
 - First-close confirmation, tray activation, silent launch and light-mode view release. Unsaved drafts prevent releasing the view. RPC replies are complete JSON values; event polling retries with sequenced IDs and a bounded transport timeout, without waiting for connection teardown.
-- Update restart starts the new `Gopurr.exe`, waits for the old helper to exit, then loads the new DLL and takes the data lock. It never relaunches the helper as the frontend.
+- Update restart starts the new `Gopurr.exe`, waits for the old helper to exit, then opens the new helper over the private socket and takes the data lock. It never relaunches the helper as the frontend.
 - The complete update includes `Uninstall.exe`, replacing the legacy force-stop uninstaller. The NSH uninstaller requests graceful network/core shutdown and preserves user data, migration snapshots and the managed service.
 
 The NSH Windows runtime requires Windows 10 1809 or later. This minimum must appear in release notes before production selection. Validation runs on disposable Windows x64 GitHub runners, independently of macOS.
@@ -31,11 +36,35 @@ The build verifies the pinned NSH SDK archive SHA-256, uses Rust 1.99.1 and the 
 
 ## Acceptance evidence
 
-[Run 42488199190](https://github.com/csic21/Gopurr/actions/runs/42488199190) passed the real Win32 host, bridge DLL, backend and core. Its production-key check installs the signed archive through the old mygo updater. A separate disposable-key integration fixture drives `mygo 0.0.0 → NSH 0.0.1 → NSH 0.0.2` through real checks, downloads, verification, replacement and process restart. It retains seeded credentials/profiles/preferences, verifies real HTTP through the migrated mixed proxy after both upgrades, refuses an invalid signature without changing the frontend, and tests login registration, silent launch and activation.
+[Run 42488199190](https://github.com/csic21/Gopurr/actions/runs/42488199190) passed the real Win32 host, DLL bridge, backend and core. Its production-key check installs the signed archive through the old mygo updater. A separate disposable-key integration fixture drove `mygo 0.0.0 → NSH 0.0.1 → NSH 0.0.2` through real checks, downloads, verification, replacement and process restart. It retains seeded credentials/profiles/preferences, verifies real HTTP through the migrated mixed proxy after both upgrades, refuses an invalid signature without changing the frontend, and tests login registration, silent launch and activation. The same lifecycle and module checks are required again for the Rust bridge.
 
 Native window navigation is verified through Windows UI Automation before every screenshot. The 32 actual-host images, Windows SDK page renders, collapsed navigation, editors and dialogs were reviewed at 1060×720 and 840×560, light and dark. The minimum overview keeps system proxy, TUN, DNS and sniffing controls visible. Screenshots alone do not replace the real core/update checks.
 
-- [x] Windows x64 host build, C ABI, clean runtime PATH and actual startup.
+## Performance checks
+
+The frontend accepts no Go DLL and opens one authenticated socket per backend
+session. Bridge calls run off the UI thread; the UI still requests a page
+snapshot once a second. Snapshot merging reuses unchanged arrays and objects
+and keeps traffic sampling, connection counts and history out of non-Overview
+pages, so an idle static page does not commit every second.
+
+For a same-machine A/B run, keep a disposable session and set both
+`GOPURR_NATIVE_PERF=1` and `GOPURR_NATIVE_SESSION_OUTPUT`. The host writes
+`session.host.log` with one `nsh::perf` line per second:
+
+```text
+fps <measured>/<refresh> frame <mean/p50/p95/max> gap <…> over <dropped %>
+tick … drain … paint … present … canvas … commits <n> js … core …
+items <n> engine …% cpu … mem …
+```
+
+Compare HEAD and the bridge patch at 1060×720 and 840×560 while idle, during
+traffic changes, scrolling a 120+ node Proxies list, and on long Logs and
+Settings pages. Check `fps`, `over`, frame `p95`, `paint`, `commits`, `items`,
+CPU and working set. Recheck light/dark screenshots at both sizes after UI
+changes; test results alone do not establish visual quality.
+
+- [ ] Windows x64 host build, Rust bridge, clean runtime PATH and actual startup.
 - [x] Private ACL rejection, authenticated IPC, canonical-home locking and durable migration snapshots.
 - [x] Eight pages, collapsed navigation, long text, hover, selected/disabled controls, editors and dialogs visually reviewed in both sizes/themes.
 - [x] Windows dialog rendering in 0.6.43: the shared Modal uses a plain scrim instead of NSH 0.4.0's back-buffer blur and asks the host for `desktop.window.repaint` after closing, because the Win32 backend stops drawing once a dialog's exit animation ends. On a live Windows host running the 0.6.43 UI bundle, the built-in DNS and domain-sniffing dialogs opened through Windows UI Automation at 1060×720 in light theme rendered without blurred-background boxes, disappeared when closed, and normal traffic updates resumed after the whole-window frame.

@@ -1,7 +1,7 @@
 fn main() {
     println!("cargo:rerun-if-env-changed=GOPURR_VERSION");
     println!("cargo:rerun-if-env-changed=GOPURR_WINDOWS_ICON");
-    let version = std::env::var("GOPURR_VERSION").unwrap_or_else(|_| "0.6.25".into());
+    let version = std::env::var("GOPURR_VERSION").unwrap_or_else(|_| "0.6.47".into());
     println!("cargo:rustc-env=GOPURR_VERSION={version}");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let mut resource = winresource::WindowsResource::new();

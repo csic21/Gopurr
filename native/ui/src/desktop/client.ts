@@ -1,5 +1,6 @@
 import { host, signal, setColorScheme, cleanup } from "nsh";
 import { language } from "./i18n";
+import { mergeDesktopSnapshot } from "./snapshot";
 import type { DesktopSnapshot, Page } from "./types";
 export const desktopPlatform = signal(String(host.params.platform??"darwin"));
 export const page = signal<Page>((["overview","subs","proxies","conns","mesh","rules","logs","settings"].includes(String(host.params.page)) ? host.params.page : "overview") as Page);
@@ -29,12 +30,19 @@ export async function call<T=any>(method:string,params:any={}):Promise<T> {
   if(!("result" in reply)) throw new Error("The desktop service returned an invalid reply.");
   return reply.result as T;
 }
+
 export async function refresh():Promise<void> {
   if(refreshing) return;
   refreshing=true;
-  try { const next=await call<DesktopSnapshot>("desktop.snapshot",{page:page(),scopeId});
+  try {
+    const requestedPage=page();
+    const next=await call<DesktopSnapshot>("desktop.snapshot",{page:requestedPage,scopeId});
     if(next.apiVersion!==2) throw new Error("The desktop service and UI versions do not match.");
-    state.set(next); loaded.set(true);
+    // Object identities survive a JSON round trip only through this merge;
+    // unchanged rows and controls then remain the same NSH nodes.
+    const merged=mergeDesktopSnapshot(state(),next,requestedPage);
+    if(merged!==state())state.set(merged);
+    loaded.set(true);
     const appearance=next.prefs?.appearance;
     if(["system","light","dark"].includes(appearance)) setColorScheme(appearance);
     const lang=next.prefs?.language;

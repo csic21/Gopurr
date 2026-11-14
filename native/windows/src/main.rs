@@ -1,6 +1,9 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod bridge;
+
+#[cfg(windows)]
 mod desktop;
 
 #[cfg(windows)]

@@ -138,7 +138,7 @@ Android 应用更新使用独立宿主方法 `android.update`、`android.update.
 
 ## Windows 正式桌面
 
-Windows 10 1809 及以上 x64 使用 `Gopurr.exe` NSH 宿主、`GopurrBridge.dll` 与 `gopurr-desktop.exe` 后台。正式构建默认选择 NSH，并在发布前验收生产更新签名、实际宿主连续升级、旧数据、安装/卸载、核心流量、Wintun 和系统服务。
+Windows 10 1809 及以上 x64 使用 `Gopurr.exe` NSH 宿主与 `gopurr-desktop.exe` 后台。宿主内的 Rust bridge 直接启动后台并访问其私有认证 Unix socket；UI 进程不再加载 Go DLL。正式构建默认选择 NSH，并在发布前验收生产更新签名、实际宿主连续升级、旧数据、安装/卸载、核心流量、Wintun 和系统服务。
 
 原 `%APPDATA%\Gopurr` 数据原位保留，首次接管保存私有 `migration-nsh-v1` 快照。`update-windows-amd64.json` 与 `update-native-windows-amd64.json` 指向同一签名整包；包内同时提供新卸载器。现有正式版可直接应用内更新，程序身份、安装路径、协议和快捷方式沿用原值。
 
