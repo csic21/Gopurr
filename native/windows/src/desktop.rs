@@ -239,8 +239,9 @@ impl TrayIcon {
         let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
         let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, dpi) }.max(16);
         let fallback = load_icon_file(&root.join("Gopurr.ico"), size).ok();
-        let light = load_icon_file(&root.join("tray-windows-light.ico"), size)
-            .or_else(|_| fallback.ok_or_else(|| "tray-windows-light.ico unavailable".into()))?;
+        let light = load_icon_file(&root.join("tray-windows-light.ico"), size).or_else(|_| {
+            fallback.ok_or_else(|| String::from("tray-windows-light.ico unavailable"))
+        })?;
         let dark = load_icon_file(&root.join("tray-windows-dark.ico"), size).unwrap_or(light);
         Ok(Self {
             id: TRAY_ID,
