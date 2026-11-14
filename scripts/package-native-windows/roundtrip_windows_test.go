@@ -113,6 +113,12 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 		c.Updates.PublicKey = base64.StdEncoding.EncodeToString(pub)
 		flags := "-H=windowsgui -X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageName=Gopurr -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageVersion=" + version + " -X gopurr/internal/buildinfo.Version=" + version + " -X gopurr/internal/update.feed=" + feed(c) + " -X gopurr/internal/update.publicKey=" + c.Updates.PublicKey
 		fixtureCommand(t, repo, nil, "go", "build", "-ldflags", flags, "-o", filepath.Join(app, "gopurr-desktop.exe"), ".")
+		if err := os.WriteFile(filepath.Join(app, "tray-windows-light.ico"), []byte("tray light fixture"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(app, "tray-windows-dark.ico"), []byte("tray dark fixture"), 0644); err != nil {
+			t.Fatal(err)
+		}
 		env := append(os.Environ(), "GOPURR_VERSION="+version, "GOPURR_WINDOWS_ICON="+filepath.Join(app, "Gopurr.ico"), "RUSTFLAGS=-C target-feature=+crt-static", "LIBCLANG_PATH=C:/Program Files/LLVM/bin")
 		fixtureCommand(t, repo, env, "cargo", "+1.99.1", "build", "--locked", "--release", "--manifest-path", "native/windows/Cargo.toml")
 		cargoTarget := os.Getenv("CARGO_TARGET_DIR")

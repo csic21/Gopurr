@@ -50,6 +50,11 @@ if ($LASTEXITCODE) { throw 'Build shared desktop UI failed' }
 # Runtime and installer share the rendered brand, with real ICO dimensions.
 & go run ./scripts/windows-icon -out "$stage/Gopurr.ico"
 if ($LASTEXITCODE) { throw 'Build Windows icon failed' }
+# The notification-area icons are explicit light/dark badges, not templates.
+& go run ./scripts/windows-icon -source internal/brand/tray-windows-light.png -sizes "16,20,24,32" -out "$stage/tray-windows-light.ico"
+if ($LASTEXITCODE) { throw 'Build light Windows tray icon failed' }
+& go run ./scripts/windows-icon -source internal/brand/tray-windows-dark.png -sizes "16,20,24,32" -out "$stage/tray-windows-dark.ico"
+if ($LASTEXITCODE) { throw 'Build dark Windows tray icon failed' }
 $env:CGO_ENABLED = '0'
 $flags = "-s -w -H=windowsgui -X gopurr/internal/buildinfo.Version=$Version -X github.com/egoist/mygo.production=1 -X github.com/egoist/mygo.packageName=Gopurr -X github.com/egoist/mygo.packageIdentifier=io.github.gopurr.app -X github.com/egoist/mygo.packageURLSchemes=gopurr,clash -X github.com/egoist/mygo.packageVersion=$Version -X gopurr/internal/update.feed=$UpdateFeed -X gopurr/internal/update.publicKey=$($config.updates.publicKey)"
 # Preserve Go linker provenance: -trimpath omits -ldflags from build info,

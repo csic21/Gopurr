@@ -1,23 +1,28 @@
-// windows-icon converts the unchanged shared brand PNG into Windows ICO sizes.
+// windows-icon converts a brand PNG into a multi-size Windows ICO.
 package main
 
 import (
 	"bytes"
 	"encoding/binary"
 	"flag"
-	"golang.org/x/image/draw"
 	"image"
 	"image/png"
 	"os"
+	"strconv"
+	"strings"
+
+	"golang.org/x/image/draw"
 )
 
 func main() {
+	sourcePath := flag.String("source", "internal/brand/logo.png", "source PNG")
+	iconSizes := flag.String("sizes", "16,32,48,128,256", "comma-separated square icon sizes")
 	out := flag.String("out", "", "output ICO")
 	flag.Parse()
 	if *out == "" {
 		panic("-out is required")
 	}
-	file, err := os.Open("internal/brand/logo.png")
+	file, err := os.Open(*sourcePath)
 	if err != nil {
 		panic(err)
 	}
@@ -26,7 +31,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	sizes := []int{16, 32, 48, 128, 256}
+	var sizes []int
+	for _, raw := range strings.Split(*iconSizes, ",") {
+		size, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || size < 1 || size > 256 {
+			panic("sizes must be comma-separated integers from 1 to 256")
+		}
+		sizes = append(sizes, size)
+	}
 	chunks := make([][]byte, len(sizes))
 	offset := 6 + 16*len(sizes)
 	var output bytes.Buffer

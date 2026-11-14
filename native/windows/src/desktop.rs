@@ -16,24 +16,27 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Foundation::{ERROR_SUCCESS, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
         System::{
             Ole::{OleInitialize, OleUninitialize},
+            Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
             Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
         },
         UI::{
             HiDpi::{
                 AdjustWindowRectExForDpi, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-                GetDpiForWindow, SetProcessDpiAwarenessContext,
+                GetDpiForWindow, GetSystemMetricsForDpi, SetProcessDpiAwarenessContext,
             },
             Shell::{
-                DefSubclassProc, RemoveWindowSubclass, SetCurrentProcessExplicitAppUserModelID,
-                SetWindowSubclass,
+                DefSubclassProc, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE,
+                NIM_MODIFY, NIN_SELECT, NOTIFY_ICON_DATA_FLAGS, NOTIFYICONDATAW,
+                RemoveWindowSubclass, SetCurrentProcessExplicitAppUserModelID, SetWindowSubclass,
+                Shell_NotifyIconW,
             },
             WindowsAndMessaging::*,
         },
     },
-    core::{HSTRING, PCWSTR},
+    core::{HSTRING, PCWSTR, w},
 };
 
 // Enabled only for a disposable acceptance session. Never record RPC payloads
@@ -76,7 +79,25 @@ impl log::Log for DiagnosticLogger {
 static LOGGER: DiagnosticLogger = DiagnosticLogger;
 
 const EVENT: u32 = WM_APP + 0x47;
+const TRAY: u32 = WM_APP + 0x48;
 const TIMER: usize = 0x4750;
+const TRAY_TIMER: usize = 0x4751;
+const TRAY_TIP: &str = "Gopurr · 左键显示窗口，右键打开菜单";
+
+// Keep the number mygo gave the "main" tray icon: Windows remembers whether
+// the user shows an icon in the notification area by its executable and id.
+const fn tray_number(id: &str) -> u32 {
+    let bytes = id.as_bytes();
+    let mut hash = 2166136261u32;
+    let mut i = 0;
+    while i < bytes.len() {
+        hash ^= bytes[i] as u32;
+        hash = hash.wrapping_mul(16777619);
+        i += 1;
+    }
+    hash | (1 << 31)
+}
+const TRAY_ID: u32 = tray_number("main");
 const CHANNELS: &[&str] = &[
     "desktop.dispatch",
     "desktop.file.open",
@@ -173,6 +194,161 @@ unsafe fn take_json(ptr: *mut c_char, free: Free) -> Result<Value, String> {
     result
 }
 
+fn taskbar_dark() -> bool {
+    let mut light = 0u32;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+            w!("SystemUsesLightTheme"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&mut light as *mut u32).cast()),
+            Some(&mut size),
+        )
+    };
+    status == ERROR_SUCCESS && light == 0
+}
+
+fn load_icon_file(path: &Path, size: i32) -> Result<HICON, String> {
+    let path = HSTRING::from(path.to_string_lossy().as_ref());
+    unsafe {
+        LoadImageW(
+            None,
+            PCWSTR(path.as_ptr()),
+            IMAGE_ICON,
+            size,
+            size,
+            LR_LOADFROMFILE,
+        )
+        .map(|handle| HICON(handle.0))
+        .map_err(|error| error.to_string())
+    }
+}
+
+struct TrayIcon {
+    id: u32,
+    light: HICON,
+    dark: HICON,
+    appearance_dark: Cell<bool>,
+    added: Cell<bool>,
+}
+impl TrayIcon {
+    fn new(root: &Path, hwnd: HWND) -> Result<Self, String> {
+        let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+        let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, dpi) }.max(16);
+        let fallback = load_icon_file(&root.join("Gopurr.ico"), size).ok();
+        let light = load_icon_file(&root.join("tray-windows-light.ico"), size)
+            .or_else(|_| fallback.ok_or_else(|| "tray-windows-light.ico unavailable".into()))?;
+        let dark = load_icon_file(&root.join("tray-windows-dark.ico"), size).unwrap_or(light);
+        Ok(Self {
+            id: TRAY_ID,
+            light,
+            dark,
+            appearance_dark: Cell::new(taskbar_dark()),
+            added: Cell::new(false),
+        })
+    }
+    fn icon(&self) -> HICON {
+        if self.appearance_dark.get() {
+            self.dark
+        } else {
+            self.light
+        }
+    }
+    fn data(&self, hwnd: HWND, flags: NOTIFY_ICON_DATA_FLAGS) -> NOTIFYICONDATAW {
+        let mut data = NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: hwnd,
+            uID: self.id,
+            uFlags: flags | NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP,
+            uCallbackMessage: TRAY,
+            hIcon: self.icon(),
+            ..Default::default()
+        };
+        let tip: Vec<u16> = TRAY_TIP.encode_utf16().take(127).collect();
+        data.szTip[..tip.len()].copy_from_slice(&tip);
+        data
+    }
+    fn add(&self, hwnd: HWND) -> bool {
+        let data = self.data(hwnd, NIF_MESSAGE);
+        let added = unsafe { Shell_NotifyIconW(NIM_ADD, &data) }.as_bool();
+        self.added.set(added);
+        if !added {
+            trace("tray add failed");
+        }
+        added
+    }
+    fn refresh(&self, hwnd: HWND) {
+        let dark = taskbar_dark();
+        if self.appearance_dark.replace(dark) == dark || !self.added.get() {
+            return;
+        }
+        let data = self.data(hwnd, NIF_ICON);
+        if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool() {
+            trace("tray appearance update failed");
+        }
+    }
+    fn remove(&self, hwnd: HWND) {
+        if !self.added.replace(false) {
+            return;
+        }
+        let data = self.data(hwnd, NIF_MESSAGE);
+        let _ = unsafe { Shell_NotifyIconW(NIM_DELETE, &data) };
+    }
+}
+
+fn append_tray_items(menu: HMENU, items: &[Value], commands: &mut Vec<String>) {
+    for item in items {
+        let kind = item["type"].as_str().unwrap_or("");
+        if kind == "separator" {
+            let _ = unsafe { AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null()) };
+            continue;
+        }
+        let label = item["label"].as_str().unwrap_or("").replace('&', "&&");
+        let label: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
+        let mut flags = MF_STRING;
+        if item["disabled"].as_bool() == Some(true) {
+            flags |= MF_GRAYED;
+        }
+        if item["checked"].as_bool() == Some(true) {
+            flags |= MF_CHECKED;
+        }
+        if let Some(submenu_items) = item["submenu"].as_array() {
+            let Ok(submenu) = (unsafe { CreatePopupMenu() }) else {
+                continue;
+            };
+            append_tray_items(submenu, submenu_items, commands);
+            flags |= MF_POPUP;
+            let _ = unsafe { AppendMenuW(menu, flags, submenu.0 as usize, PCWSTR(label.as_ptr())) };
+            continue;
+        }
+        match item["command"]
+            .as_str()
+            .filter(|command| !command.is_empty())
+        {
+            Some(command) => {
+                commands.push(command.to_owned());
+                let _ = unsafe { AppendMenuW(menu, flags, commands.len(), PCWSTR(label.as_ptr())) };
+            }
+            None => {
+                let _ = unsafe { AppendMenuW(menu, flags | MF_GRAYED, 0, PCWSTR(label.as_ptr())) };
+            }
+        }
+    }
+}
+
+fn build_tray_menu(items: &Value, commands: &mut Vec<String>) -> Option<HMENU> {
+    let items = items.as_array()?;
+    if items.is_empty() {
+        return None;
+    }
+    let menu = unsafe { CreatePopupMenu() }.ok()?;
+    append_tray_items(menu, items, commands);
+    Some(menu)
+}
+
 struct Window {
     view: Rc<AppView>,
     channel: HostChannel,
@@ -185,6 +361,9 @@ struct Window {
     dirty: Cell<bool>,
     hidden_at: Cell<Instant>,
     running: Arc<AtomicBool>,
+    tray: RefCell<Option<TrayIcon>>,
+    tray_menu_pending: Cell<bool>,
+    taskbar_created: u32,
 }
 impl Window {
     fn hide(&self) {
@@ -208,6 +387,68 @@ impl Window {
             let _ = SetForegroundWindow(self.view.hwnd());
         }
     }
+    fn refresh_tray(&self) {
+        if let Some(tray) = self.tray.borrow().as_ref() {
+            tray.refresh(self.view.hwnd());
+        }
+    }
+    fn request_tray_menu(&self) {
+        if self.tray_menu_pending.replace(true) {
+            return;
+        }
+        let bridge = self.bridge.clone();
+        let hwnd = self.view.hwnd().0 as usize;
+        thread::spawn(move || {
+            let value = match bridge.result("host.tray.menu", json!({})) {
+                Ok(items) => json!({"items":items}),
+                Err(error) => json!({"error":error}),
+            };
+            post(hwnd, json!({"kind":"tray-menu","value":value}));
+        });
+    }
+    fn show_tray_menu(&self, items: &Value) {
+        let mut commands = Vec::new();
+        let Some(menu) = build_tray_menu(items, &mut commands) else {
+            return;
+        };
+        let hwnd = self.view.hwnd();
+        let mut point = POINT::default();
+        unsafe {
+            let _ = GetCursorPos(&mut point);
+            let _ = SetForegroundWindow(hwnd);
+        }
+        let chosen = unsafe {
+            TrackPopupMenuEx(
+                menu,
+                (TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY).0,
+                point.x,
+                point.y,
+                hwnd,
+                None,
+            )
+            .0 as usize
+        };
+        unsafe {
+            let _ = DestroyMenu(menu);
+            // The menu needs a message after it closes for Windows to return
+            // focus to the foreground application.
+            let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
+        }
+        if let Some(command) = commands.get(chosen.wrapping_sub(1)) {
+            self.activate_tray_command(command.clone());
+        }
+    }
+    fn activate_tray_command(&self, command: String) {
+        let bridge = self.bridge.clone();
+        let hwnd = self.view.hwnd().0 as usize;
+        thread::spawn(move || {
+            if let Err(error) = bridge.result("host.tray.activate", json!({"command":command})) {
+                trace(&format!("tray command failed: {error}"));
+                post(hwnd, json!({"kind":"show"}));
+                post(hwnd, json!({"kind":"error","value":error}));
+            }
+        });
+    }
     fn event(&self, event: Value) {
         if event["kind"] != "snapshot" {
             trace(&format!(
@@ -225,6 +466,18 @@ impl Window {
                     trace("destroying window");
                     let _ = DestroyWindow(self.view.hwnd());
                     trace("window destroyed");
+                }
+                return;
+            }
+            "tray-menu" => {
+                self.tray_menu_pending.set(false);
+                if let Some(error) = event["value"]["error"].as_str() {
+                    self.show();
+                    let _ = self
+                        .channel
+                        .send("desktop.event", json!({"kind":"error","value":error}));
+                } else {
+                    self.show_tray_menu(&event["value"]["items"]);
                 }
                 return;
             }
@@ -289,6 +542,14 @@ unsafe extern "system" fn subclass(
 ) -> LRESULT {
     let state = unsafe { &*(data as *const Window) };
     match message {
+        TRAY => {
+            match (l.0 as u32) & 0xffff {
+                WM_LBUTTONUP | WM_LBUTTONDBLCLK | NIN_SELECT => state.show(),
+                WM_RBUTTONUP | WM_CONTEXTMENU => state.request_tray_menu(),
+                _ => (),
+            }
+            return LRESULT(0);
+        }
         EVENT => {
             let event = unsafe { Box::from_raw(l.0 as *mut Value) };
             state.event(*event);
@@ -326,6 +587,16 @@ unsafe extern "system" fn subclass(
             info.ptMinTrackSize.y = rect.bottom - rect.top;
             return LRESULT(0);
         }
+        WM_TIMER if w.0 == TRAY_TIMER => {
+            if let Some(tray) = state.tray.borrow().as_ref() {
+                if tray.add(hwnd) {
+                    unsafe {
+                        let _ = KillTimer(Some(hwnd), TRAY_TIMER);
+                    }
+                }
+            }
+            return LRESULT(0);
+        }
         WM_TIMER if w.0 == TIMER => {
             if !state.visible.get()
                 && state.loaded.get()
@@ -344,9 +615,27 @@ unsafe extern "system" fn subclass(
             }
             return LRESULT(0);
         }
-        WM_NCDESTROY => unsafe {
-            let _ = RemoveWindowSubclass(hwnd, Some(subclass), 1);
-        },
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DWMCOLORIZATIONCOLORCHANGED | WM_SYSCOLORCHANGE => {
+            state.refresh_tray()
+        }
+        message if message == state.taskbar_created => {
+            if let Some(tray) = state.tray.borrow().as_ref() {
+                if !tray.add(hwnd) {
+                    unsafe {
+                        SetTimer(Some(hwnd), TRAY_TIMER, 1000, None);
+                    }
+                }
+            }
+            return LRESULT(0);
+        }
+        WM_NCDESTROY => {
+            if let Some(tray) = state.tray.borrow().as_ref() {
+                tray.remove(hwnd);
+            }
+            unsafe {
+                let _ = RemoveWindowSubclass(hwnd, Some(subclass), 1);
+            }
+        }
         _ => (),
     }
     unsafe { DefSubclassProc(hwnd, message, w, l) }
@@ -571,6 +860,14 @@ fn run_on_ui_thread() -> Result<(), String> {
             });
         });
     }
+    let tray = match TrayIcon::new(root, view.hwnd()) {
+        Ok(tray) => Some(tray),
+        Err(error) => {
+            trace(&format!("tray unavailable: {error}"));
+            None
+        }
+    };
+    let taskbar_created = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
     let running = Arc::new(AtomicBool::new(true));
     let state = Box::new(Window {
         view: view.clone(),
@@ -584,6 +881,9 @@ fn run_on_ui_thread() -> Result<(), String> {
         dirty: Cell::new(false),
         hidden_at: Cell::new(Instant::now()),
         running: running.clone(),
+        tray: RefCell::new(tray),
+        tray_menu_pending: Cell::new(false),
+        taskbar_created,
     });
     unsafe {
         if !SetWindowSubclass(
@@ -613,9 +913,20 @@ fn run_on_ui_thread() -> Result<(), String> {
                 Some(LPARAM(icon.0 as isize)),
             );
         }
+        if let Some(tray) = state.tray.borrow().as_ref() {
+            if !tray.add(view.hwnd()) {
+                SetTimer(Some(view.hwnd()), TRAY_TIMER, 1000, None);
+            }
+        }
     }
+    let tray_ready = state
+        .tray
+        .borrow()
+        .as_ref()
+        .is_some_and(|tray| tray.added.get());
     view.load(App::Js(bundle));
-    if state.prefs.borrow()["silentStart"].as_bool() == Some(true)
+    if tray_ready
+        && state.prefs.borrow()["silentStart"].as_bool() == Some(true)
         && !show_window_on_launch
         && !explicit_relaunch
     {
@@ -671,6 +982,9 @@ fn run_on_ui_thread() -> Result<(), String> {
     }
     trace("message loop exited");
     running.store(false, Ordering::Release);
+    if let Some(tray) = state.tray.borrow().as_ref() {
+        tray.remove(view.hwnd());
+    }
     view.stop();
     trace("view stopped");
     drop(state);

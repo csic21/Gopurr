@@ -170,7 +170,7 @@ func validate(root string, c config) error {
 	if !info.IsDir() {
 		return errors.New("installation must be a real directory")
 	}
-	required := []string{"Gopurr.exe", "gopurr-desktop.exe", "GopurrBridge.dll", "Uninstall.exe", "Gopurr.ico", "native-build.json", "nsh/bundle.nshc", "nsh/app.json", "nsh/capabilities.json", "LICENSE", "THIRD_PARTY_NOTICES.md"}
+	required := []string{"Gopurr.exe", "gopurr-desktop.exe", "GopurrBridge.dll", "Uninstall.exe", "Gopurr.ico", "tray-windows-light.ico", "tray-windows-dark.ico", "native-build.json", "nsh/bundle.nshc", "nsh/app.json", "nsh/capabilities.json", "LICENSE", "THIRD_PARTY_NOTICES.md"}
 	for _, name := range required {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil {

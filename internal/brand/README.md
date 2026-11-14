@@ -8,7 +8,7 @@
 - `logo.png`、`icon.png`、`sidebar.png`：从渲染源派生的 1024、512、128 像素版本。
 - `tray.png`：从菜单栏矢量派生的 32 像素模板，由 macOS 适配明暗。
 - `tray-face.svg`：Windows 托盘专用的宽脸双耳剪影，32×32 视口，无眼、鼻或其他五官。选用设计对比中的 C：圆底与反色猫头。
-- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图，非模板。浅色任务栏用纯黑圆底与纯白猫头，深色任务栏反转；边缘仅使用中性灰抗锯齿，圆外透明。圆半径 15.5px，猫头视口按 75% 等比缩放并置于 (4,3)，保留双耳和圆周之间的空间，不裁切耳尖。`main` 按任务栏明暗切换。
+- `tray-windows-light.png` / `tray-windows-dark.png`：Windows 托盘专用 32 像素实色图，非模板。浅色任务栏用纯黑圆底与纯白猫头，深色任务栏反转；边缘仅使用中性灰抗锯齿，圆外透明。圆半径 15.5px，猫头视口按 75% 等比缩放并置于 (4,3)，保留双耳和圆周之间的空间，不裁切耳尖。构建时由 `scripts/windows-icon` 生成含 16/20/24/32 像素的 `tray-windows-light.ico` / `tray-windows-dark.ico`；Win32 前端按任务栏明暗切换。
 - `make icons preview-icons` 统一更新两平台运行资源与预览。`go run scripts/generate-windows-tray.go -preview` 可额外更新旧布局对比图；备选 PNG 默认写入 `.cache/tray-mockups/`。macOS 仍使用独立的蜷睡猫 `tray.svg` / `tray.png`。
 - `docs/tray-windows-preview-1060x720.png` 与 `docs/tray-windows-preview-840x560.png`：从实际嵌入 PNG 绘制的明暗背景、16/20/24/32px 尺寸与像素放大预览。`docs/tray-face-concept.png` 保留早期带五官的概念，不再是运行图标的来源。
 
