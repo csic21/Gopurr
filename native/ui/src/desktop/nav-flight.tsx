@@ -20,13 +20,22 @@ const items: { id: Page; zh: string; en: string }[] = [
 // The visible half of the sidebar transition. The app's real navigation
 // commits once; this copy draws the old layout sliding and the new top bar
 // taking its place. It takes no input and duplicates no screen-reader targets.
-export const BRAND_TRAVEL = { fromX: 20, fromGap: 10, fromIcon: 30, fromText: 15, toIcon: 24, toText: 13 } as const;
-export const brandInterpolation = (titlebarInset: number, titlebarHeight: number) => ({
-  x: [BRAND_TRAVEL.fromX, titlebarInset + 8],
-  y: [titlebarHeight + 15, (titlebarHeight - 24) / 2],
-  iconScale: [1, BRAND_TRAVEL.toIcon / BRAND_TRAVEL.fromIcon],
-  textScale: [1, BRAND_TRAVEL.toText / BRAND_TRAVEL.fromText],
-});
+export const BRAND_TRAVEL = { fromX: 20, fromGap: 10, fromIcon: 30, fromText: 15, toInset: 8, toGap: 6, toIcon: 24, toText: 13 } as const;
+export const brandLayout = (titlebarInset: number, titlebarHeight: number, collapsed: boolean) => collapsed
+  ? { left: titlebarInset + BRAND_TRAVEL.toInset, top: (titlebarHeight - BRAND_TRAVEL.toIcon) / 2, gap: BRAND_TRAVEL.toGap, icon: BRAND_TRAVEL.toIcon, text: BRAND_TRAVEL.toText }
+  : { left: BRAND_TRAVEL.fromX, top: titlebarHeight + 15, gap: BRAND_TRAVEL.fromGap, icon: BRAND_TRAVEL.fromIcon, text: BRAND_TRAVEL.fromText };
+export const brandInterpolation = (titlebarInset: number, titlebarHeight: number) => {
+  const from = brandLayout(titlebarInset, titlebarHeight, false);
+  const to = brandLayout(titlebarInset, titlebarHeight, true);
+  return {
+    x: [from.left, to.left],
+    y: [from.top, to.top],
+    iconScale: [1, to.icon / from.icon],
+    textScale: [1, to.text / from.text],
+    textShiftX: [0, (to.left + to.icon + to.gap) - (to.left + from.icon + from.gap)],
+    textShiftY: [0, (to.top + to.icon / 2) - (to.top + from.icon / 2)],
+  };
+};
 
 export function NavigationFlight(p: {
   progress: AnimatedValue;
@@ -50,6 +59,8 @@ export function NavigationFlight(p: {
   const brandY = progress.interpolate({ inputRange: [0, 1], outputRange: brand.y });
   const iconScale = progress.interpolate({ inputRange: [0, 1], outputRange: brand.iconScale });
   const brandScale = progress.interpolate({ inputRange: [0, 1], outputRange: brand.textScale });
+  const brandTextX = progress.interpolate({ inputRange: [0, 1], outputRange: brand.textShiftX });
+  const brandTextY = progress.interpolate({ inputRange: [0, 1], outputRange: brand.textShiftY });
   return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ pointerEvents: "none", position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
     <View style={{ position: "absolute", left: 0, top: 0, width: 184, height: "100%", backgroundColor: colors().side, backgroundImage: "linear-gradient(180deg, " + colors().side + " 0%, " + colors().bg + " 100%)", borderRightWidth: 1, borderColor: colors().border, opacity: fade, transform: [{ translateX: slide }] }}>
       {items.map((item, index) => {
@@ -65,8 +76,8 @@ export function NavigationFlight(p: {
       </View>
     </View>
     <View style={{ position: "absolute", left: 20, top: titlebarHeight + 15, flexDirection: "row", alignItems: "center", gap: 10, transform: [{ translateX: brandX.sub(20) }, { translateY: brandY.sub(titlebarHeight + 15) }] }}>
-      <Image src={logo} style={{ width: 30, height: 30, objectFit: "contain", transform: [{ scale: iconScale }] }} />
-      <Text style={{ fontSize: 15, fontWeight: "600", color: colors().text, numberOfLines: 1, transform: [{ scale: brandScale }], transformOrigin: "left center" }}>Gopurr</Text>
+      <Image src={logo} style={{ width: 30, height: 30, objectFit: "contain", transform: [{ scale: iconScale }], transformOrigin: "left top" }} />
+      <Text style={{ fontSize: 15, fontWeight: "600", color: colors().text, numberOfLines: 1, transform: [{ translateX: brandTextX }, { translateY: brandTextY }, { scale: brandScale }], transformOrigin: "left center" }}>Gopurr</Text>
     </View>
     <View style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
       {items.map((item, index) => {

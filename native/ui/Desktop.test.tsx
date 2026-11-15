@@ -2,7 +2,7 @@ import { test, open, expect } from "nsh/test";
 import { desktopFixtureTransport } from "./src/desktop/fixture";
 import { mergeDiff } from "./src/desktop/proxies";
 import { navigationLayout } from "./src/desktop/navigation";
-import { brandInterpolation } from "./src/desktop/nav-flight";
+import { brandInterpolation, brandLayout } from "./src/desktop/nav-flight";
 import { switchThumbTransform } from "./src/desktop/ui";
 function host(reject=false) { const dispatch=desktopFixtureTransport();return {handlers:{"desktop.window.dirty":()=>{},"desktop.dispatch":async(value:unknown)=>{const v=value as {method:string;params:any};if(reject&&v.method==="desktop.profiles.import")return {error:{message:"Download failed; draft retained."}};return {result:await dispatch(v.method,v.params)};}}}; }
 test("desktop proxy latency testing never switches selection",async()=>{
@@ -51,6 +51,19 @@ test("the sidebar toggle settles before navigation returns",async()=>{
  await app.press("id:desktop-nav-logs");
  await app.waitFor("id:logs-search");
 });
+test("the settled title-bar brand stays mounted across repeated sidebar toggles",async()=>{
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN",clock:{}});
+ await app.waitFor("id:desktop-brand");
+ expect(app.count("id:desktop-brand")).toBe(1);
+ for(const step of [80,80,240])await app.clock!.runFor(step);
+ expect(app.count("id:desktop-brand")).toBe(1);
+ await app.press("id:desktop-toggle-sidebar");
+ await app.clock!.runFor(360);
+ expect(app.count("id:desktop-brand")).toBe(1);
+ await app.press("id:desktop-toggle-sidebar");
+ await app.clock!.runFor(360);
+ expect(app.count("id:desktop-brand")).toBe(1);
+});
 test("native titlebar controls, brand, navigation and status never overlap",()=>{
  for(const inset of [0,80,100])for(const width of [840,1060])for(const labels of [[25,25,25,25,25,25,25,25],[56,44,43,76,32,31,28,47]]) {
   const l=navigationLayout(width,inset,labels,48,76);
@@ -70,6 +83,10 @@ test("the title-bar brand keeps the established 30-to-24 and 15-to-13 travel",()
  expect(travel.y).toEqual([53,7]);
  expect(travel.iconScale).toEqual([1,24/30]);
  expect(travel.textScale).toEqual([1,13/15]);
+ expect(travel.textShiftX).toEqual([0,-10]);
+ expect(travel.textShiftY).toEqual([0,-3]);
+ const to=brandLayout(80,38,true);
+ expect({iconLeft:travel.x[1],iconTop:travel.y[1],iconSize:30*travel.iconScale[1],textLeft:travel.x[1]+30+10+travel.textShiftX[1],textCenter:travel.y[1]+15+travel.textShiftY[1],textSize:15*travel.textScale[1]}).toEqual({iconLeft:to.left,iconTop:to.top,iconSize:to.icon,textLeft:to.left+to.icon+to.gap,textCenter:to.top+to.icon/2,textSize:to.text});
 });
 test("first close cancels without hiding and persists acknowledgment before backgrounding",async()=>{
  const h=host();(h.handlers as Record<string,any>)["desktop.window.close"]=()=>({ok:true});

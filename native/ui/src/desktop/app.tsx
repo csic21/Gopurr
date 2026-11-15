@@ -17,7 +17,7 @@ import type { Page, PageProps } from "./types";
 import { hasUnsavedDesktopDraft, watchDesktopDraft } from "./drafts";
 export { hasUnsavedDesktopDraft } from "./drafts";
 import { navigationLayout } from "./navigation";
-import { NavigationFlight } from "./nav-flight";
+import { NavigationFlight, brandLayout } from "./nav-flight";
 import logo from "../../assets/sidebar.png";
 const nav:{id:Page;zh:string;en:string}[]=[{id:"overview",zh:"概览",en:"Overview"},{id:"subs",zh:"订阅",en:"Profiles"},{id:"proxies",zh:"代理",en:"Proxies"},{id:"conns",zh:"连接",en:"Connections"},{id:"mesh",zh:"组网",en:"Mesh"},{id:"rules",zh:"规则",en:"Rules"},{id:"logs",zh:"日志",en:"Logs"},{id:"settings",zh:"设置",en:"Settings"}];
 // NSH does not rebuild a Button's content when only the appearance changes;
@@ -52,6 +52,7 @@ export function DesktopApp(preview:{motionProgress?:number}={}) {
  const topWidth=(index:number)=>layout().widths[index]??46;
  const topX=(index:number)=>layout().left+layout().widths.slice(0,index).reduce((sum,width)=>sum+width+2,0);
  const toggleAnchor=()=>Math.max(192,layout().leading)+4;
+ const brand=()=>brandLayout(titlebarInset(),titlebarHeight(),collapsed());
  cleanup(()=>void navProgress.stop());
  return <View style={{flex:1,height:"100%",overflow:"hidden",flexDirection:"row",backgroundColor:colors().bg}}>
  <View style={{width:lerp(184,0),backgroundColor:colors().side,backgroundImage:"linear-gradient(180deg, "+colors().side+" 0%, "+colors().bg+" 100%)",borderRightWidth:collapsed()?0:1,borderColor:colors().border,opacity:moving()?0:1}}/>
@@ -61,7 +62,7 @@ export function DesktopApp(preview:{motionProgress?:number}={}) {
  </View>
  <View role="navigation" style={{pointerEvents:"box-none",position:"absolute",left:0,top:0,width:"100%",height:"100%"}}>
 
- <If when={!moving()}><View style={{pointerEvents:"none",position:"absolute",left:collapsed()?titlebarInset()+8:20,top:collapsed()?(titlebarHeight()-24)/2:titlebarHeight()+15,flexDirection:"row",alignItems:"center",gap:collapsed()?6:10}}><Image src={logo} style={{width:collapsed()?24:30,height:collapsed()?24:30,objectFit:"contain"}}/><Label text="Gopurr" size={collapsed()?13:15} weight={600}/></View></If>
+ <View testID="desktop-brand" style={{pointerEvents:"none",position:"absolute",left:brand().left,top:brand().top,opacity:moving()?0:1,flexDirection:"row",alignItems:"center",gap:brand().gap}}><Image src={logo} style={{width:brand().icon,height:brand().icon,objectFit:"contain"}}/><Label text="Gopurr" size={brand().text} weight={600}/></View>
  <If when={moving()}><NavigationFlight progress={navProgress} page={page()} titlebarInset={titlebarInset()} titlebarHeight={titlebarHeight()} layout={layout()} status={statusLabel()} proxies={state().status.proxies??0} rules={state().status.rules??0}/></If>
  <NativeTabs style={{pointerEvents:"box-none",position:"absolute",left:0,top:0,width:"100%",height:"100%",flexDirection:collapsed()?"row":"column",opacity:moving()?0:1}} indicatorStyle={{...(collapsed()?{top:(titlebarHeight()-30)/2,height:30}:{left:8,width:167}),borderRadius:9,backgroundColor:colors().selected,borderWidth:1,borderColor:tint(colors().accent,"26"),boxShadow:[{x:0,y:1,blur:2,color:tint(colors().accent,"14")}],borderLeftWidth:collapsed()?1:2.5,borderLeftColor:colors().accent}}><Each of={nav}>{(n,index)=><Tab testID={`desktop-nav-${n().id}`} disabled={moving()} selected={page()===n().id} onPress={()=>goto(n().id)} style={{pointerEvents:moving()?"none":"auto",position:"absolute",left:collapsed()?topX(index()):8,top:collapsed()?(titlebarHeight()-30)/2:titlebarHeight()+62+index()*38+(index()===7?12:0),width:collapsed()?topWidth(index()):167,height:collapsed()?30:36,flexDirection:"row",alignItems:"center",gap:collapsed()?0:10,paddingHorizontal:collapsed()?layout().padding:13,borderRadius:9,backgroundColor:page()===n().id?colors().selected:"transparent",transitionProperty:"background-color, color",transitionDuration:140}} hoverStyle={{backgroundColor:page()===n().id?"transparent":colors().hover}} focusStyle={{outlineWidth:2,outlineColor:colors().accent}}><View style={{width:collapsed()?0:17,opacity:collapsed()?0:1,overflow:"hidden"}}><Icon name={n().id} size={17} color={page()===n().id?colors().accent:colors().muted}/></View><Text style={{fontSize:collapsed()?12.5:13,numberOfLines:1,fontWeight:page()===n().id?"600":"500",letterSpacing:-0.1,color:page()===n().id?colors().accent:colors().muted}}>{tr(n().zh,n().en)}</Text></Tab>}</Each></NativeTabs>
  <Button testID="desktop-toggle-sidebar" accessibilityLabel={tr("切换侧栏","Toggle sidebar")} onPress={toggle} style={{position:"absolute",left:preview.motionProgress===undefined?toggleAnchor():layout().toggle,top:(titlebarHeight()-30)/2,width:30,height:30,alignItems:"center",justifyContent:"center",borderRadius:6,transform:[{translateX:navProgress.interpolate({inputRange:[0,1],outputRange:[0,layout().toggle-toggleAnchor()]})}],transitionProperty:"background-color",transitionDuration:120}} hoverStyle={{backgroundColor:colors().hover}} activeStyle={{backgroundColor:colors().selected}} focusStyle={{outlineWidth:2,outlineColor:colors().accent,outlineOffset:1}}><Icon name="panel" size={15}/></Button>
