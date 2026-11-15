@@ -20,6 +20,14 @@ const items: { id: Page; zh: string; en: string }[] = [
 // The visible half of the sidebar transition. The app's real navigation
 // commits once; this copy draws the old layout sliding and the new top bar
 // taking its place. It takes no input and duplicates no screen-reader targets.
+export const BRAND_TRAVEL = { fromX: 20, fromGap: 10, fromIcon: 30, fromText: 15, toIcon: 24, toText: 13 } as const;
+export const brandInterpolation = (titlebarInset: number, titlebarHeight: number) => ({
+  x: [BRAND_TRAVEL.fromX, titlebarInset + 8],
+  y: [titlebarHeight + 15, (titlebarHeight - 24) / 2],
+  iconScale: [1, BRAND_TRAVEL.toIcon / BRAND_TRAVEL.fromIcon],
+  textScale: [1, BRAND_TRAVEL.toText / BRAND_TRAVEL.fromText],
+});
+
 export function NavigationFlight(p: {
   progress: AnimatedValue;
   page: Page;
@@ -37,9 +45,11 @@ export function NavigationFlight(p: {
   const compactWidth = (index: number) => layout.widths[index];
   const slide = progress.interpolate({ inputRange: [0, 1], outputRange: [0, -184] });
   const fade = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
-  const brandX = progress.interpolate({ inputRange: [0, 1], outputRange: [20, titlebarInset + 8] });
-  const brandY = progress.interpolate({ inputRange: [0, 1], outputRange: [titlebarHeight + 15, (titlebarHeight - 24) / 2] });
-  const brandScale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.8] });
+  const brand = brandInterpolation(titlebarInset, titlebarHeight);
+  const brandX = progress.interpolate({ inputRange: [0, 1], outputRange: brand.x });
+  const brandY = progress.interpolate({ inputRange: [0, 1], outputRange: brand.y });
+  const iconScale = progress.interpolate({ inputRange: [0, 1], outputRange: brand.iconScale });
+  const brandScale = progress.interpolate({ inputRange: [0, 1], outputRange: brand.textScale });
   return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ pointerEvents: "none", position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
     <View style={{ position: "absolute", left: 0, top: 0, width: 184, height: "100%", backgroundColor: colors().side, backgroundImage: "linear-gradient(180deg, " + colors().side + " 0%, " + colors().bg + " 100%)", borderRightWidth: 1, borderColor: colors().border, opacity: fade, transform: [{ translateX: slide }] }}>
       {items.map((item, index) => {
@@ -54,9 +64,9 @@ export function NavigationFlight(p: {
         <Text style={{ fontSize: 10.5, color: colors().faint, numberOfLines: 1, fontVariant: "tabular-nums" }}>{`${p.proxies} ${tr("代理", "proxies")} · ${p.rules} ${tr("规则", "rules")}`}</Text>
       </View>
     </View>
-    <View style={{ position: "absolute", left: 20, top: titlebarHeight + 15, flexDirection: "row", alignItems: "center", gap: 10, transform: [{ translateX: brandX.sub(20) }, { translateY: brandY.sub(titlebarHeight + 15) }, { scale: brandScale }] }}>
-      <Image src={logo} style={{ width: 30, height: 30, objectFit: "contain" }} />
-      <Text style={{ fontSize: 15, fontWeight: "600", color: colors().text, numberOfLines: 1 }}>Gopurr</Text>
+    <View style={{ position: "absolute", left: 20, top: titlebarHeight + 15, flexDirection: "row", alignItems: "center", gap: 10, transform: [{ translateX: brandX.sub(20) }, { translateY: brandY.sub(titlebarHeight + 15) }] }}>
+      <Image src={logo} style={{ width: 30, height: 30, objectFit: "contain", transform: [{ scale: iconScale }] }} />
+      <Text style={{ fontSize: 15, fontWeight: "600", color: colors().text, numberOfLines: 1, transform: [{ scale: brandScale }], transformOrigin: "left center" }}>Gopurr</Text>
     </View>
     <View style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
       {items.map((item, index) => {

@@ -2,6 +2,7 @@ import { test, open, expect } from "nsh/test";
 import { desktopFixtureTransport } from "./src/desktop/fixture";
 import { mergeDiff } from "./src/desktop/proxies";
 import { navigationLayout } from "./src/desktop/navigation";
+import { brandInterpolation } from "./src/desktop/nav-flight";
 import { switchThumbTransform } from "./src/desktop/ui";
 function host(reject=false) { const dispatch=desktopFixtureTransport();return {handlers:{"desktop.window.dirty":()=>{},"desktop.dispatch":async(value:unknown)=>{const v=value as {method:string;params:any};if(reject&&v.method==="desktop.profiles.import")return {error:{message:"Download failed; draft retained."}};return {result:await dispatch(v.method,v.params)};}}}; }
 test("desktop proxy latency testing never switches selection",async()=>{
@@ -62,6 +63,13 @@ test("native titlebar controls, brand, navigation and status never overlap",()=>
 test("switch thumbs travel across their tracks",()=>{
  expect(switchThumbTransform(false)).toBe("none");
  expect(switchThumbTransform(true)).toBe("translateX(16px)");
+});
+test("the title-bar brand keeps the established 30-to-24 and 15-to-13 travel",()=>{
+ const travel=brandInterpolation(80,38);
+ expect(travel.x).toEqual([20,88]);
+ expect(travel.y).toEqual([53,7]);
+ expect(travel.iconScale).toEqual([1,24/30]);
+ expect(travel.textScale).toEqual([1,13/15]);
 });
 test("first close cancels without hiding and persists acknowledgment before backgrounding",async()=>{
  const h=host();(h.handlers as Record<string,any>)["desktop.window.close"]=()=>({ok:true});

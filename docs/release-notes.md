@@ -1,15 +1,15 @@
-Gopurr 0.6.48 恢复桌面侧栏的收展动画。
+Gopurr 0.6.49 修复桌面侧栏动画的轨迹回退。
 
-- 点击标题栏侧栏按钮后，侧栏滑出、品牌迁移、八个导航项移动到标题栏，按钮跟随同一动画进度。
-- 页面卡片仍只做一次布局提交，不在整页逐帧重排，避免切换过程中露出窗口底色和卡片缝隙。
-- 支持快速反向切换与系统「减少动态效果」；包含 0.6.47 的 Windows 前端与界面刷新改进。
+- 恢复原轨迹：LOGO 从左上角移到标题栏，图标由 30 缩到 24，文字由 15 缩到 13，时长 320ms 缓入缓出。
+- 动画期间只保留一套导航和 LOGO，不再叠字或到终点后跳位。
+- 页面卡片仍只做一次布局提交；保留快速反向与系统「减少动态效果」。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.48-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.48-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.48-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.48-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.49-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.49-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.49-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.49-android-x86_64.apk`。
 
 也可在应用内检查更新。
 
