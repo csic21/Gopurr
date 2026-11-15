@@ -106,6 +106,10 @@ test("empty traffic history explains that it is waiting for real samples",async(
  const h=host(),dispatch=h.handlers["desktop.dispatch"];h.handlers["desktop.dispatch"]=async(value:unknown)=>{const result=await dispatch(value);if((value as any).method==="desktop.snapshot"){(result.result as any).history=[];(result.result as any).status.traffic.stale=true;}return result;};
  const app=await open("./Desktop.tsx",{host:h,width:840,height:560,locale:"zh-CN"});await app.waitFor("text:等待真实流量采样");expect(app.texts()).toContain("—");
 });
+test("desktop logs tolerate incomplete entries while the page settles",async()=>{
+ const h=host(),dispatch=h.handlers["desktop.dispatch"];h.handlers["desktop.dispatch"]=async(value:unknown)=>{const result=await dispatch(value);if((value as any).method==="desktop.snapshot")(result.result as any).logs=[null,{}, {at:"2026-11-07T08:00:00Z",text:"partial log"}];return result;};
+ const app=await open("./Desktop.tsx",{host:h,width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-logs");await app.waitFor("id:logs-list");expect(app.texts()).toContain("partial log");
+});
 test("a failed first-close preference save keeps the window open",async()=>{
  const h=host(),dispatch=h.handlers["desktop.dispatch"];h.handlers["desktop.dispatch"]=async(value:unknown)=>{if((value as any).params?.prefs?.closeToTrayAcknowledged)return {error:{message:"Could not save preferences."}} as any;return dispatch(value);};(h.handlers as Record<string,any>)["desktop.window.close"]=()=>({ok:true});
  const app=await open("./Desktop.tsx",{host:h,width:840,height:560,locale:"zh-CN"});await app.host.send("desktop.event",{kind:"closeRequested"});await app.press("id:desktop-close-background");await app.waitFor("text:Could not save preferences.");expect(app.host.calls().some(c=>c.name==="desktop.window.close")).toBe(false);expect(app.enabled("id:desktop-close-background")).toBe(true);

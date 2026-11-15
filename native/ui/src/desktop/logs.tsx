@@ -6,6 +6,13 @@ import { Action, Empty, Heading, Label, Modal, RADIUS, Row, SearchField, Select,
 import type { PageProps } from "./types";
 
 const query=signal(""),level=signal("all"),paused=signal(false),frozen=signal<any[]>([]),confirm=signal(false);
+type LogEntry={at:string;level:string;text:string};
+const normalize=(entry:any):LogEntry=>{
+  const at=typeof entry?.at==="string"?entry.at:"";
+  const entryLevel=typeof entry?.level==="string"&&entry.level?entry.level:"debug";
+  const text=typeof entry?.text==="string"?entry.text:String(entry?.text??"");
+  return {at,level:entryLevel,text};
+};
 
 const levelTone=(value:string)=>value==="error"?colors().danger:value==="warning"?colors().warn:value==="info"?colors().muted:colors().faint;
 const levelRail=(value:string)=>value==="error"?tint(colors().danger,"a6"):value==="warning"?tint(colors().warn,"a6"):"transparent";
@@ -14,9 +21,9 @@ const levelRail=(value:string)=>value==="error"?tint(colors().danger,"a6"):value
 export function LogsPage(p:PageProps) {
   const compact=()=>windowSize().width<960||windowSize().height<660;
   const pad=()=>compact()?16:24;
-  const all=()=>paused()?frozen():p.snapshot().logs??[];
-  const filtered=()=>all().filter((v:any)=>(level()==="all"||v.level.toLowerCase()===level())&&(v.level+" "+v.text).toLowerCase().includes(query().toLowerCase()));
-  const body=()=>filtered().map((v:any)=>fmtTime(v.at)+" ["+v.level+"] "+v.text).join("\n");
+  const all=():LogEntry[]=>(paused()?frozen():p.snapshot().logs??[]).map(normalize);
+  const filtered=()=>all().filter(v=>(level()==="all"||v.level.toLowerCase()===level())&&(v.level+" "+v.text).toLowerCase().includes(query().toLowerCase()));
+  const body=()=>filtered().map(v=>fmtTime(v.at)+" ["+v.level+"] "+v.text).join("\n");
   const filtering=()=>!!query().trim()||level()!=="all";
   const reset=()=>{query.set("");level.set("all");};
   const pause=()=>{if(!paused())frozen.set([...all()]);paused.set(!paused());};
@@ -34,12 +41,12 @@ export function LogsPage(p:PageProps) {
         </Row>
       </View>
       <List testID="logs-list" each={filtered()} keyExtractor={(v:any,i:number)=>v.at+"-"+i} style={{flex:1,minHeight:0}} empty={<View style={{flex:1,justifyContent:"center"}}><Empty icon={filtering()?"search":"logs"} title={tr("暂无日志","No logs")} description={filtering()?tr("没有日志匹配当前条件。","No logs match the current filters."):tr("内核事件会显示在这里。","Kernel events appear here.")} action={filtering()?()=><Action label={tr("重置筛选","Reset filters")} onPress={reset}/>:undefined}/></View>}>
-        {item=><View hoverStyle={{backgroundColor:colors().hover}} style={{flexDirection:"row",alignItems:"flex-start",gap:10,paddingLeft:12,paddingRight:16,paddingVertical:8,minHeight:36,borderBottomWidth:1,borderColor:colors().border,backgroundColor:colors().surface,transitionProperty:"background-color, border-color",transitionDuration:120,transitionTimingFunction:"ease-out"}}>
-          <View style={{width:2,alignSelf:"stretch",borderRadius:1,backgroundColor:levelRail(item().level)}}/>
-          <View style={{width:compact()?62:68,paddingTop:2}}><Label text={time(item().at)} muted size={10.5} mono tabular lines={1}/></View>
-          <Row gap={5} style={{width:compact()?58:64,paddingTop:2}}><View style={{width:5,height:5,borderRadius:2.5,backgroundColor:levelTone(item().level)}}/><Label text={item().level} size={10.5} weight={600} color={levelTone(item().level)} lines={1}/></Row>
-          <Text style={{flex:1,minWidth:0,fontSize:12,lineHeight:17,fontFamily:"monospace",color:colors().text}}>{item().text}</Text>
-        </View>}
+        {item=>{const entry=()=>normalize(item());return <View hoverStyle={{backgroundColor:colors().hover}} style={{flexDirection:"row",alignItems:"flex-start",gap:10,paddingLeft:12,paddingRight:16,paddingVertical:8,minHeight:36,borderBottomWidth:1,borderColor:colors().border,backgroundColor:colors().surface,transitionProperty:"background-color, border-color",transitionDuration:120,transitionTimingFunction:"ease-out"}}>
+          <View style={{width:2,alignSelf:"stretch",borderRadius:1,backgroundColor:levelRail(entry().level)}}/>
+          <View style={{width:compact()?62:68,paddingTop:2}}><Label text={time(entry().at)} muted size={10.5} mono tabular lines={1}/></View>
+          <Row gap={5} style={{width:compact()?58:64,paddingTop:2}}><View style={{width:5,height:5,borderRadius:2.5,backgroundColor:levelTone(entry().level)}}/><Label text={entry().level} size={10.5} weight={600} color={levelTone(entry().level)} lines={1}/></Row>
+          <Text style={{flex:1,minWidth:0,fontSize:12,lineHeight:17,fontFamily:"monospace",color:colors().text}}>{entry().text}</Text>
+        </View>;}}
       </List>
       <View style={{height:30,minHeight:30,flexDirection:"row",alignItems:"center",justifyContent:"space-between",gap:12,paddingHorizontal:14,borderTopWidth:1,borderColor:colors().border}}>
         <Row gap={6} style={{flexShrink:1,minWidth:0}}><If when={paused()}><View style={{width:6,height:6,borderRadius:3,backgroundColor:colors().warn}}/><Label text={tr("已暂停显示，内核仍在记录","Display paused; the kernel continues logging")} color={colors().warn} size={11.5} lines={1}/></If></Row>
