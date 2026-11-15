@@ -70,10 +70,11 @@ mobile pages do not require a ShaderView/Vulkan transition surface.
 
 The desktop entry includes subscription/aggregate and proxy editors, connections,
 mesh, rules and template library, logs, and seven settings categories. It keeps
-unsaved drafts and filters across navigation, supports reduced motion, and uses
-sidebar layout switches in one commit. The title-bar button then slides with a
-180 ms native transform, and the page never runs a full-tree layout animation
-over cards and scroll regions, so intermediate frames cannot expose the window.
+unsaved drafts and filters across navigation and supports reduced motion. The
+sidebar layout switches in one commit; a 240 ms native overlay then slides the
+sidebar out and fans its destinations into the title bar, so the button visibly
+starts the transition. The page never runs a full-tree layout animation over
+cards and scroll regions, so intermediate frames cannot expose the window.
 Traffic history interpolates for 400 ms. It does not substitute fixture data
 when the host is unavailable.
 

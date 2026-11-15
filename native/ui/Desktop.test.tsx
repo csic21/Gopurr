@@ -26,8 +26,29 @@ test("desktop navigation retains searches and an unfinished import draft",async(
 test("rapid navigation reversals persist the final layout and preserve the page",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-proxies");await app.type("id:proxy-search","Tokyo");await Promise.all([app.keyboard.press("mod+\\"),app.keyboard.press("mod+\\"),app.keyboard.press("mod+\\")]);await app.waitUntil(()=>app.host.calls().filter(c=>(c.data as any)?.method==="desktop.prefs.save").length===3);const writes=app.host.calls().filter(c=>(c.data as any)?.method==="desktop.prefs.save");expect((writes[2].data as any).params.prefs.sidebarCollapsed).toBe(true);expect(app.value("id:proxy-search")).toBe("Tokyo");
 });
+test("a reversal keeps the newer sidebar animation active",async()=>{
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN",clock:{}});
+ await app.waitFor("id:desktop-toggle-sidebar");
+ const first=app.press("id:desktop-toggle-sidebar");
+ await app.clock!.runFor(80);
+ const second=app.press("id:desktop-toggle-sidebar");
+ await Promise.all([first,second]);
+ await app.clock!.runFor(80);
+ await app.clock!.runFor(260);
+ await app.press("id:desktop-nav-logs");
+ await app.waitFor("id:logs-search");
+});
 test("reduced motion keeps desktop layout controls usable",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN",reducedMotion:true});await app.press("id:desktop-toggle-sidebar");await app.press("id:desktop-nav-logs");await app.type("id:logs-search","DNS");expect(app.value("id:logs-search")).toBe("DNS");
+});
+test("the sidebar toggle settles before navigation returns",async()=>{
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN",clock:{}});
+ await app.waitFor("id:desktop-toggle-sidebar");
+ await app.press("id:desktop-toggle-sidebar");
+ await app.clock!.runFor(260);
+ expect(app.enabled("id:desktop-nav-logs")).toBe(true);
+ await app.press("id:desktop-nav-logs");
+ await app.waitFor("id:logs-search");
 });
 test("native titlebar controls, brand, navigation and status never overlap",()=>{
  for(const inset of [0,80,100])for(const width of [840,1060])for(const labels of [[25,25,25,25,25,25,25,25],[56,44,43,76,32,31,28,47]]) {

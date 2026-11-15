@@ -1,15 +1,15 @@
-Gopurr 0.6.47 优化 Windows 前端与界面刷新。
+Gopurr 0.6.48 恢复桌面侧栏的收展动画。
 
-- Windows 界面进程不再加载 Go bridge DLL。启动 Go 业务后端和转发本地 RPC 由 Rust 宿主完成，后台、内核与系统服务保持独立运行。
-- 降低可见页面的空闲重渲染：每秒快照会复用未变化的数据，非概览页忽略实时流量、连接数和历史采样。代理列表、弹窗和编辑状态不再因为后台刷新而无谓重建。
-- 新增性能诊断日志，便于验证实际帧率和掉帧情况。
+- 点击标题栏侧栏按钮后，侧栏滑出、品牌迁移、八个导航项移动到标题栏，按钮跟随同一动画进度。
+- 页面卡片仍只做一次布局提交，不在整页逐帧重排，避免切换过程中露出窗口底色和卡片缝隙。
+- 支持快速反向切换与系统「减少动态效果」；包含 0.6.47 的 Windows 前端与界面刷新改进。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.47-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.47-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.47-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.47-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.48-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.48-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.48-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.48-android-x86_64.apk`。
 
 也可在应用内检查更新。
 
