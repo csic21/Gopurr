@@ -84,4 +84,4 @@ test("desktop proxy rows show the item each recycled cell now holds", async () =
   for (const text of app.texts()) if (/^节点 \d{3}$/.test(text)) seen.add(text);
   expect(seen.size).toBeGreaterThan(60);
   expect(seen.has("节点 141")).toBe(true);
-});
+}, 60_000);

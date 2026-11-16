@@ -1,4 +1,4 @@
-Gopurr 0.6.56 修复桌面侧栏收展结束时导航文字左右晃动。
+Gopurr 0.6.57 修复桌面侧栏收展结束时导航文字左右晃动。
 
 - 点击侧栏开关后，「概览」等导航文字在动画结束时不再横跳。
 - 飞行动画的落点与静止导航一致：选中竖线不挤进文字，收起后的标签在胶囊内居中且不被拉宽。
@@ -6,10 +6,10 @@ Gopurr 0.6.56 修复桌面侧栏收展结束时导航文字左右晃动。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.56-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.56-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.56-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.56-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.57-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.57-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.57-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.57-android-x86_64.apk`。
 
 也可在应用内检查更新。
 
