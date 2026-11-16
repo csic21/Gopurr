@@ -73,8 +73,10 @@ mesh, rules and template library, logs, and seven settings categories. It keeps
 unsaved drafts and filters across navigation and supports reduced motion. The
 sidebar width and its content use a 240 ms native layout animation while an
 input-free overlay slides the sidebar out and fans its destinations into the
-title bar. The page stays visible throughout the transition instead of fading
-the whole surface. Traffic history interpolates for 400 ms. It does not
+title bar. The overlay ends on the same label positions as the resting
+navigation, and the real labels take over only then, so the text does not
+shift sideways when the animation finishes. The page stays visible throughout
+the transition instead of fading the whole surface. Traffic history interpolates for 400 ms. It does not
 substitute fixture data when the host is unavailable.
 
 Finite opacity, transform and progress motion uses `createAnimatedValue` or CSS

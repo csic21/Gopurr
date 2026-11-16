@@ -65,9 +65,13 @@ export function NavigationFlight(p: {
     <View style={{ position: "absolute", left: 0, top: 0, width: 184, height: "100%", backgroundColor: colors().side, backgroundImage: "linear-gradient(180deg, " + colors().side + " 0%, " + colors().bg + " 100%)", borderRightWidth: 1, borderColor: colors().border, opacity: fade, transform: [{ translateX: slide }] }}>
       {items.map((item, index) => {
         const selected = p.page === item.id;
-        return <View style={{ position: "absolute", left: 8, top: top(index), width: 167, height: 36, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderRadius: 9, backgroundColor: selected ? colors().selected : "transparent", borderLeftWidth: selected ? 2.5 : 0, borderLeftColor: colors().accent }}>
+        // The accent is painted over the row. A left border on the row itself
+        // insets the label, and the resting tab draws that accent on the
+        // indicator behind it, so the label jumped sideways when the flight ended.
+        return <View style={{ position: "absolute", left: 8, top: top(index), width: 167, height: 36, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderRadius: 9, backgroundColor: selected ? colors().selected : "transparent" }}>
+          {selected ? <View style={{ position: "absolute", left: 0, top: 0, width: 2.5, height: 36, backgroundColor: colors().accent, borderTopLeftRadius: 9, borderBottomLeftRadius: 9 }} /> : null}
           <Icon name={item.id} size={17} color={selected ? colors().accent : colors().muted} />
-          <Text style={{ fontSize: 13, fontWeight: selected ? "600" : "500", color: selected ? colors().accent : colors().muted, numberOfLines: 1 }}>{tr(item.zh, item.en)}</Text>
+          <Text style={{ fontSize: 13, fontWeight: selected ? "600" : "500", letterSpacing: -0.1, color: selected ? colors().accent : colors().muted, numberOfLines: 1 }}>{tr(item.zh, item.en)}</Text>
         </View>;
       })}
       <View style={{ position: "absolute", left: 14, bottom: 14, width: 156, padding: 12, gap: 7, borderRadius: 13, backgroundColor: colors().surface, borderWidth: 1, borderColor: colors().border, boxShadow: elevation("surface") }}>
@@ -84,8 +88,12 @@ export function NavigationFlight(p: {
         const selected = p.page === item.id;
         const startX = 8, endX = compactLeft(index), startY = top(index), endY = compactTop;
         const startW = 167, endW = compactWidth(index);
-        return <View style={{ position: "absolute", left: endX, top: endY, width: endW, height: 30, alignItems: "center", justifyContent: "center", paddingHorizontal: layout.padding, borderRadius: 9, backgroundColor: selected ? colors().selected : "transparent", boxShadow: selected ? [{ x: 0, y: 1, blur: 2, color: tint(colors().accent, "14") }] : undefined, opacity: progress, transformOrigin: "left center", transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [startX - endX, 0] }) }, { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [startY - endY, 0] }) }, { scaleX: progress.interpolate({ inputRange: [0, 1], outputRange: [startW / endW, 1] }) }] }}>
-          <Text style={{ fontSize: 12.5, fontWeight: selected ? "600" : "500", color: selected ? colors().accent : colors().muted, numberOfLines: 1 }}>{tr(item.zh, item.en)}</Text>
+        const pillScale = progress.interpolate({ inputRange: [0, 1], outputRange: [startW / endW, 1] });
+        // The pill scales about its left edge. Dividing cancels that on the
+        // glyphs for the whole flight; a second linear interpolate would not.
+        const textScale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1] }).div(pillScale);
+        return <View style={{ position: "absolute", left: endX, top: endY, width: endW, height: 30, alignItems: "center", justifyContent: "center", paddingHorizontal: layout.padding, borderRadius: 9, backgroundColor: selected ? colors().selected : "transparent", boxShadow: selected ? [{ x: 0, y: 1, blur: 2, color: tint(colors().accent, "14") }] : undefined, opacity: progress, transformOrigin: "left center", transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [startX - endX, 0] }) }, { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [startY - endY, 0] }) }, { scaleX: pillScale }] }}>
+          <Text style={{ fontSize: 12.5, fontWeight: selected ? "600" : "500", letterSpacing: -0.1, color: selected ? colors().accent : colors().muted, numberOfLines: 1, transformOrigin: "center", transform: [{ scaleX: textScale }] }}>{tr(item.zh, item.en)}</Text>
         </View>;
       })}
     </View>
