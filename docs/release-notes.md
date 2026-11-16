@@ -1,16 +1,15 @@
-Gopurr 0.6.52 修复日志页的空值崩溃并发布侧栏选中项样式修复。
+Gopurr 0.6.53 修复桌面侧栏当前页选中态。
 
-- 日志页在收到不完整条目时不再读取缺失的等级字段；筛选、计数和复制导出统一使用安全数据。
-- 桌面侧栏选中项恢复为干净的浅蓝圆角块，不再叠加整圈描边、多余竖线和重投影。
-- 动画叠层终点与静止导航共用同一选中样式。
-- 保留 0.6.50 的品牌终点对齐与 0.6.49 的原轨迹；快速反向与系统「减少动态效果」不变。
+- 当前页的浅蓝选中底色与左缘蓝色竖线不再依赖悬停，切页后持续显示。
+- 选中面改由导航的原生滑动指示层独占绘制，消除重复背景遮挡并恢复单层选中动画。
+- 未选中导航仍保留悬停反馈；键盘选中语义、快速切换与系统「减少动态效果」不变。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.52-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.52-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.52-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.52-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.53-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.53-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.53-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.53-android-x86_64.apk`。
 
 也可在应用内检查更新。
 
