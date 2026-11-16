@@ -51,6 +51,16 @@ test("the sidebar toggle settles before navigation returns",async()=>{
  await app.press("id:desktop-nav-logs");
  await app.waitFor("id:logs-search");
 });
+test("the overview stays visible while the sidebar moves",async()=>{
+  const app=await open("./Desktop.tsx",{host:host(),width:1060,height:720,locale:"zh-CN",clock:{}});
+  await app.waitFor("id:desktop-content");
+  await app.press("id:desktop-toggle-sidebar");
+  await app.clock!.runFor(80);
+  expect(app.texts()).toContain("概览");
+  expect(app.shows("id:desktop-content")).toBe(true);
+  await app.clock!.runFor(300);
+  expect(app.shows("id:desktop-content")).toBe(true);
+});
 test("the settled title-bar brand stays mounted across repeated sidebar toggles",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN",clock:{}});
  await app.waitFor("id:desktop-brand");

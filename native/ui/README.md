@@ -71,12 +71,11 @@ mobile pages do not require a ShaderView/Vulkan transition surface.
 The desktop entry includes subscription/aggregate and proxy editors, connections,
 mesh, rules and template library, logs, and seven settings categories. It keeps
 unsaved drafts and filters across navigation and supports reduced motion. The
-sidebar layout switches in one commit; a 240 ms native overlay then slides the
-sidebar out and fans its destinations into the title bar, so the button visibly
-starts the transition. The page never runs a full-tree layout animation over
-cards and scroll regions, so intermediate frames cannot expose the window.
-Traffic history interpolates for 400 ms. It does not substitute fixture data
-when the host is unavailable.
+sidebar width and its content use a 240 ms native layout animation while an
+input-free overlay slides the sidebar out and fans its destinations into the
+title bar. The page stays visible throughout the transition instead of fading
+the whole surface. Traffic history interpolates for 400 ms. It does not
+substitute fixture data when the host is unavailable.
 
 Finite opacity, transform and progress motion uses `createAnimatedValue` or CSS
 style transitions, so it runs on NSH's native animation clock. The traffic chart

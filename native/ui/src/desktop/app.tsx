@@ -1,4 +1,4 @@
-import { batch, Canvas, cleanup, createAnimatedValue, effect, host, Image, keymap, lifecycle, Text, View, signal, windowSize, reduceMotion, colorScheme } from "nsh";
+import { batch, Canvas, cleanup, createAnimatedValue, effect, host, Image, keymap, LayoutAnimation, lifecycle, Text, View, signal, windowSize, reduceMotion, colorScheme } from "nsh";
 import { Button, Tabs as NativeTabs, Tab } from "nsh/base";
 import { colors } from "./theme";
 import { tr } from "./i18n";
@@ -35,7 +35,7 @@ export function DesktopApp(preview:{motionProgress?:number}={}) {
  let navRun=0;
  const lerp=(from:number,to:number)=>from+(to-from)*(collapsed()?1:0);
  let sidebarSave=Promise.resolve();
- const toggle=()=>{const value=!collapsed();const target=value?1:0;const run=++navRun;if(reduceMotion()){collapsed.set(value);navProgress.set(target);navMoving.set(false);}else{batch(()=>{collapsed.set(value);navMoving.set(true);});void navProgress.timing(target,{duration:320,easing:"easeInOut"}).then(({finished})=>{if(finished&&run===navRun)navMoving.set(false);});}sidebarSave=sidebarSave.then(()=>call("desktop.prefs.save",{prefs:{sidebarCollapsed:value}})).catch(e=>error.set(e instanceof Error?e.message:String(e)));};
+ const toggle=()=>{const value=!collapsed();const target=value?1:0;const run=++navRun;if(reduceMotion()){collapsed.set(value);navProgress.set(target);navMoving.set(false);}else{if(preview.motionProgress===undefined)LayoutAnimation.configureNext({duration:240,update:{type:"easeInEaseOut",duration:240}});batch(()=>{collapsed.set(value);navMoving.set(true);});void navProgress.timing(target,{duration:240,easing:"easeInOut"}).then(({finished})=>{if(finished&&run===navRun)navMoving.set(false);});}sidebarSave=sidebarSave.then(()=>call("desktop.prefs.save",{prefs:{sidebarCollapsed:value}})).catch(e=>error.set(e instanceof Error?e.message:String(e)));};
  const goto=(value:Page)=>{navigate(value);void call("desktop.page.set",{page:value}).catch(e=>error.set(String(e)));};
  const p:PageProps={snapshot:state,call,refresh,busy,run,navigate:goto};
  const reload=()=>void refresh().then(()=>{if(!initial()){collapsed.set(!!state().prefs.sidebarCollapsed);if(preview.motionProgress===undefined)navProgress.set(collapsed()?1:0);initial.set(true);}}).catch(e=>error.set(e instanceof Error?e.message:String(e)));
@@ -58,7 +58,7 @@ export function DesktopApp(preview:{motionProgress?:number}={}) {
  <View style={{width:lerp(184,0),backgroundColor:colors().side,backgroundImage:"linear-gradient(180deg, "+colors().side+" 0%, "+colors().bg+" 100%)",borderRightWidth:collapsed()?0:1,borderColor:colors().border,opacity:moving()?0:1}}/>
  <View style={{flex:1,minWidth:0,pointerEvents:moving()?"none":"auto",backgroundColor:colors().bg,backgroundImage:"radial-gradient(ellipse 980px 520px at 90% 0%, "+colors().accent+(colorScheme()==="dark"?"16":"12")+", transparent 64%)"}}><View style={{height:titlebarHeight(),paddingLeft:16,paddingRight:14,flexDirection:"row",alignItems:"center",gap:10}}><View style={{flex:1}}/><If when={!!busy()&&!collapsed()}><Label text={tr("处理中…","Working…")} muted size={11}/></If><View testID="desktop-top-kernel-status" style={{flexDirection:"row",alignItems:"center",gap:8,flexShrink:0,height:28,paddingHorizontal:12,borderRadius:14,borderWidth:1,borderColor:state().status.kernel?tint(colors().success,"38"):colors().border,backgroundColor:state().status.kernel?tint(colors().success,"12"):colors().surface,boxShadow:state().status.kernel?[{x:0,y:1,blur:2,color:tint(colors().success,"1a")}]:[]}}><StatusDot on={!!state().status.kernel} size={6} glow={!!state().status.kernel}/><Text style={{fontSize:11.5,fontWeight:"600",letterSpacing:0.1,color:state().status.kernel?colors().success:colors().muted,numberOfLines:1}}>{statusLabel()}</Text></View></View>
  <If when={!!error()}><View style={{paddingHorizontal:windowSize().width<960?16:24,paddingBottom:10,gap:8}}><Feedback text={error()} danger/><Row><Action label={tr("重试","Retry")} onPress={reload}/><Action label={tr("关闭提示","Dismiss")} onPress={()=>error.set("")}/></Row></View></If>
- <If when={colorScheme()==="light"}><DesktopPageStack page={page()} p={p}/></If><If when={colorScheme()==="dark"}><DesktopPageStack page={page()} p={p}/></If>
+ <View testID="desktop-content" style={{flex:1,minWidth:0}}><If when={colorScheme()==="light"}><DesktopPageStack page={page()} p={p}/></If><If when={colorScheme()==="dark"}><DesktopPageStack page={page()} p={p}/></If></View>
  </View>
  <View role="navigation" style={{pointerEvents:"box-none",position:"absolute",left:0,top:0,width:"100%",height:"100%"}}>
 

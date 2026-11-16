@@ -47,3 +47,41 @@ test("desktop proxy list keeps its visible rows through fresh snapshots", async 
   expect(after).toEqual(before);
   expect(app.texts()).not.toEqual(beforeTexts);
 });
+
+test("desktop proxy rows show the item each recycled cell now holds", async () => {
+  const fixture = desktopFixtureTransport();
+  const base: any = await fixture("desktop.snapshot");
+  const nodes = Array.from({ length: 142 }, (_, index) => ({
+    name: `节点 ${String(index).padStart(3, "0")}`,
+    type: "Vless",
+    delay: 100,
+    delayKnown: true,
+  }));
+  base.groups = [{ name: "节点选择", type: "Selector", now: "节点 000", hidden: false, members: nodes }];
+  const app = await open("./Desktop.tsx", {
+    width: 1060,
+    height: 720,
+    platform: "macos",
+    locale: "zh-CN",
+    host: {
+      params: { page: "proxies" },
+      handlers: {
+        "desktop.window.dirty": () => {},
+        "desktop.dispatch": async (data: unknown) => {
+          const request = data as { method: string; params: any };
+          if (request.method === "desktop.snapshot") return { result: base };
+          return { result: (await fixture(request.method, request.params)) ?? {} };
+        },
+      },
+    },
+  });
+  await app.waitFor("id:proxy-节点 000");
+  const seen = new Set<string>();
+  for (let step = 0; step < 6; step++) {
+    for (const text of app.texts()) if (/^节点 \d{3}$/.test(text)) seen.add(text);
+    await app.scroll("id:proxies-list", 1200);
+  }
+  for (const text of app.texts()) if (/^节点 \d{3}$/.test(text)) seen.add(text);
+  expect(seen.size).toBeGreaterThan(60);
+  expect(seen.has("节点 141")).toBe(true);
+});

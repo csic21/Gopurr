@@ -62,19 +62,19 @@ export function ProxiesPage(p:PageProps) {
    <Text style={{fontSize:16,fontWeight:"600",letterSpacing:-0.2,color:colors().text,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={selected()?.name??""}>{selected()?.name??""}</Text>
    <Text style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={groupCaption()}>{groupCaption()}</Text>
  </View>;
- const nodeRow=(item:any)=> <View style={{flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderColor:colors().border,backgroundColor:selected()?.now===item.name?colors().selected:colors().surface,...MOTION}} hoverStyle={{backgroundColor:selected()?.now===item.name?colors().selected:colors().hover}}>
-   <If when={selected()?.now===item.name}><View style={{position:"absolute",left:0,top:0,bottom:0,width:3,backgroundColor:colors().accent}}/></If>
-   <Button testID={"proxy-"+item.name} selected={selected()?.now===item.name} disabled={!!p.busy()||!['selector','select'].includes(String(selected()?.type).toLowerCase())} onPress={()=>void p.run("select-proxy",()=>p.call("desktop.group.select",{group:selected()?.name,member:item.name}))}
+ const nodeRow=(item:()=>any)=> <View style={{flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderColor:colors().border,backgroundColor:selected()?.now===item().name?colors().selected:colors().surface,...MOTION}} hoverStyle={{backgroundColor:selected()?.now===item().name?colors().selected:colors().hover}}>
+   <If when={selected()?.now===item().name}><View style={{position:"absolute",left:0,top:0,bottom:0,width:3,backgroundColor:colors().accent}}/></If>
+   <Button testID={"proxy-"+item().name} selected={selected()?.now===item().name} disabled={!!p.busy()||!['selector','select'].includes(String(selected()?.type).toLowerCase())} onPress={()=>void p.run("select-proxy",()=>p.call("desktop.group.select",{group:selected()?.name,member:item().name}))}
      style={{flex:1,minWidth:0,flexDirection:"row",alignItems:"center",gap:10,paddingLeft:15,paddingRight:8,height:ROW_HEIGHT,backgroundColor:"transparent"}}
      hoverStyle={{backgroundColor:"transparent"}} activeStyle={{backgroundColor:colors().selected}} focusStyle={{outlineWidth:2,outlineColor:colors().accent}} disabledStyle={{opacity:0.72}}>
-     <Icon name={selected()?.now===item.name?"check":"circle"} size={16} color={selected()?.now===item.name?colors().accent:colors().faint}/>
+     <Icon name={selected()?.now===item().name?"check":"circle"} size={16} color={selected()?.now===item().name?colors().accent:colors().faint}/>
      <View style={{flex:1,minWidth:0,gap:1}}>
-       <Text style={{fontSize:13,fontWeight:selected()?.now===item.name?"600":"500",color:selected()?.now===item.name?colors().accent:colors().text,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={item.name}>{item.name}</Text>
-       <Text style={{fontSize:11,color:selected()?.now===item.name?colors().muted:colors().faint,numberOfLines:1,textOverflow:"ellipsis"}}>{selected()?.now===item.name?tr("当前使用","In use")+" · "+nodeKind(latest(item.name)):nodeKind(latest(item.name))}</Text>
+       <Text style={{fontSize:13,fontWeight:selected()?.now===item().name?"600":"500",color:selected()?.now===item().name?colors().accent:colors().text,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={item().name}>{item().name}</Text>
+       <Text style={{fontSize:11,color:selected()?.now===item().name?colors().muted:colors().faint,numberOfLines:1,textOverflow:"ellipsis"}}>{selected()?.now===item().name?tr("当前使用","In use")+" · "+nodeKind(latest(item().name)):nodeKind(latest(item().name))}</Text>
      </View>
-     <View style={{width:84,alignItems:"flex-end",flexShrink:0}}><DelayTag item={latest(item.name)}/></View>
+     <View style={{width:84,alignItems:"flex-end",flexShrink:0}}><DelayTag item={latest(item().name)}/></View>
    </Button>
-   <View style={{paddingLeft:2,paddingRight:12,flexShrink:0}}><IconButton testID={"test-proxy-"+item.name} size={28} icon="refresh" label={tr("测试 "+item.name+" 的连通性与延迟","Test connectivity and latency for "+item.name)} disabled={!!p.busy()} onPress={()=>void p.run("node-delay",()=>p.call("desktop.node.delay",{name:item.name}))}/></View>
+   <View style={{paddingLeft:2,paddingRight:12,flexShrink:0}}><IconButton testID={"test-proxy-"+item().name} size={28} icon="refresh" label={tr("测试 "+item().name+" 的连通性与延迟","Test connectivity and latency for "+item().name)} disabled={!!p.busy()} onPress={()=>void p.run("node-delay",()=>p.call("desktop.node.delay",{name:item().name}))}/></View>
  </View>;
  return <View testID="desktop-proxies" style={{flex:1,paddingHorizontal:padX(),paddingTop:padY(),paddingBottom:padY(),gap:gap()}}>
  <Heading title={tr("代理","Proxies")} description={tr("策略组与节点选择 · 测速不会改变当前出口","Policy groups and proxies · latency tests do not change selection")} action={()=><Row gap={8} style={{flexShrink:0}}>
@@ -114,7 +114,7 @@ export function ProxiesPage(p:PageProps) {
      <View style={{width:84,alignItems:"flex-end"}}><Text style={{fontSize:10.5,fontWeight:"500",letterSpacing:0.3,color:colors().faint,numberOfLines:1}}>{tr("延迟","Latency")}</Text></View>
     </View>
     <List testID="proxies-list" each={listMembers()} keyExtractor={(v:any)=>v.name} style={{flex:1,minHeight:0}} empty={<View style={{flex:1,justifyContent:"center"}}><Empty icon="search" title={tr("没有匹配节点","No matching proxies")} description={tr("试试更短的名称或清空搜索。","Try a shorter name or clear your search.")} action={()=><Action label={tr("清空搜索","Clear search")} onPress={()=>query.set("")}/>}/></View>}>
-     {item=>nodeRow(item())}
+     {item=>nodeRow(item)}
     </List>
     <View style={{flexDirection:"row",alignItems:"center",height:30,paddingHorizontal:15,borderTopWidth:1,borderColor:colors().border,backgroundColor:colorScheme()==="dark"?tint(colors().surface,"00"):tint(colors().bg,"55")}}>
      <Text style={{fontSize:11,color:colors().faint,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={tr("显示","Showing")+" "+String(listMembers().length)+" / "+String(selected()?.members?.length??0)+" · "+tr("延迟反映连通性与响应时间","Latency reflects connectivity and response time")}>{tr("显示","Showing")+" "+String(listMembers().length)+" / "+String(selected()?.members?.length??0)+" · "+tr("延迟反映连通性与响应时间","Latency reflects connectivity and response time")}</Text>

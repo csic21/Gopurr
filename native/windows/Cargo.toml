@@ -1,6 +1,6 @@
 [package]
 name = "gopurr-nsh-windows"
-version = "0.6.53"
+version = "0.6.55"
 edition = "2024"
 rust-version = "1.95"
 publish = false
