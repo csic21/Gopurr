@@ -1,14 +1,14 @@
-Gopurr 0.6.58 修复大量节点测速时只测到前 100 个的问题。
+Gopurr 0.6.59 修复 macOS 开启 TUN 后，不走代理端口的程序访问 HTTPS 一直等到超时。
 
-- 「测试本组」和「测试全部」会测完当前可测节点，后面的节点不再一直显示未测试。
-- 同时测多少个仍由设置里的并发数决定，可选 1 到 32，默认 8。
+- macOS 的 TUN 出厂协议栈改为 gvisor，TCP 在用户态结束，不再经过会丢掉 TLS 数据的内核改写。
+- 已经存成出厂 mixed 的配置会在下次启动时改成 gvisor，只改这一次。设置里仍可以手动选择 mixed 或 system。Windows 默认不变。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.58-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.58-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.58-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.58-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.59-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.59-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.59-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.59-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

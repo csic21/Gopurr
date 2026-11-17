@@ -62,7 +62,7 @@ func TestApplyTun(t *testing.T) {
 	if tun["enable"] != true {
 		t.Fatalf("tun not enabled: %v", tun)
 	}
-	if tun["stack"] != "mixed" || tun["auto-route"] != true {
+	if tun["stack"] != ov.TunStack || tun["auto-route"] != true {
 		t.Fatalf("tun keys: %v", tun)
 	}
 	dns, ok := doc["dns"].(map[string]any)
@@ -262,7 +262,7 @@ rules:
 	}
 	tun := doc["tun"].(map[string]any)
 	for key, want := range map[string]any{
-		"enable": true, "stack": "mixed", "auto-route": true,
+		"enable": true, "stack": ov.TunStack, "auto-route": true,
 		"auto-detect-interface": true, "mtu": 1400,
 	} {
 		if tun[key] != want {

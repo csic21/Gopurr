@@ -76,7 +76,7 @@ func (a *App) resetNetworkDraft() {
 	a.unifiedOn = a.ov.Unified
 	a.tunStackPick = a.ov.TunStack
 	if a.tunStackPick == "" {
-		a.tunStackPick = "mixed"
+		a.tunStackPick = patch.DefaultTunStack(runtime.GOOS)
 	}
 }
 
@@ -196,7 +196,7 @@ func (a *App) settingsPage(c *ui.Context) {
 						softSwitch(c, &a.unifiedOn).Label(tr("统一延迟")).Disabled(busyNetwork(a))
 					})
 					hairline(c)
-					settingsRow(c, tr("TUN 协议栈"), tr("推荐 mixed；启用 TUN 时使用此设置"), func() {
+					settingsRow(c, tr("TUN 协议栈"), tunStackHint(), func() {
 						ui.Select(c, &a.tunStackPick, settingsOptions(settingsTunStacks, a.tunStackPick)).
 							Width(140).Label(tr("TUN 协议栈")).Disabled(busyNetwork(a))
 					})
@@ -365,10 +365,17 @@ func (a *App) networkSettingsDirty() bool {
 	}
 	stack := base.TunStack
 	if stack == "" {
-		stack = "mixed"
+		stack = patch.DefaultTunStack(runtime.GOOS)
 	}
 	return strings.TrimSpace(a.mixedPortDraft) != strconv.Itoa(port) || a.lanOn != base.AllowLAN ||
 		a.ipv6On != base.IPv6 || a.unifiedOn != base.Unified || a.tunStackPick != stack
+}
+
+func tunStackHint() string {
+	if runtime.GOOS == "darwin" {
+		return tr("推荐 gvisor；启用 TUN 时使用此设置")
+	}
+	return tr("推荐 mixed；启用 TUN 时使用此设置")
 }
 
 func parseSettingsPort(raw string) (int, error) {

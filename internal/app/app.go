@@ -344,9 +344,15 @@ func (a *App) loadOverrides() {
 	if err != nil {
 		return
 	}
-	ov := patch.Default()
-	if json.Unmarshal(b, &ov) == nil {
-		a.ov = ov
+	ov, changed, err := patch.NormalizeStoredOverrides(b, runtime.GOOS)
+	if err != nil {
+		return
+	}
+	a.ov = ov
+	if changed {
+		if err := writeSettingsFile(a.ovPath, ov); err != nil {
+			log.Printf("save migrated tun stack: %v", err)
+		}
 	}
 }
 

@@ -321,6 +321,7 @@
   "统一延迟": "Unified Latency",
   "TUN 协议栈": "TUN Stack",
   "推荐 mixed；启用 TUN 时使用此设置": "Recommended: mixed; used when TUN is enabled",
+  "推荐 gvisor；启用 TUN 时使用此设置": "Recommended: gvisor; used when TUN is enabled",
   "切换节点时断开原连接": "Close Connections on Proxy Change",
   "立即保存；只断开经过该策略组的连接": "Saves immediately; closes connections using that group",
   "切换节点时断开原连接开关": "Close connections on proxy change",

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -85,9 +86,11 @@ func (a *App) prepareRestore(s *backup.Snapshot) (Prefs, patch.Overrides, int, e
 	if err := validatePrefs(prefs); err != nil {
 		return fail(err)
 	}
-	if err := json.Unmarshal(s.Files["overrides.json"], &ov); err != nil {
-		return fail(fmt.Errorf(tr("覆写文件无效: %w"), err))
+	normalized, _, normErr := patch.NormalizeStoredOverrides(s.Files["overrides.json"], runtime.GOOS)
+	if normErr != nil {
+		return fail(fmt.Errorf(tr("覆写文件无效: %w"), normErr))
 	}
+	ov = normalized
 	// Login registration and active network listeners belong to this machine.
 	prefs.AutoLaunch = a.Prefs().AutoLaunch
 	ov.MixedPort, ov.TunEnable = a.ov.MixedPort, a.ov.TunEnable

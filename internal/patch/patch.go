@@ -3,6 +3,8 @@
 package patch
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"runtime"
 
@@ -27,6 +29,10 @@ type Overrides struct {
 	TunEnable   bool   `json:"tunEnable"`
 	TunStack    string `json:"tunStack"`
 	TunAutoRout bool   `json:"tunAutoRoute"`
+	// TunStackMigrated records the one-time darwin move off the old factory
+	// stack. While it is false, mixed still means that factory value. After
+	// it is true, a manual mixed or system choice is left alone.
+	TunStackMigrated bool `json:"tunStackMigrated,omitempty"`
 
 	// Ephemeral, authenticated tailnet destinations. Never imported from a
 	// subscription, persisted as user overrides, or exported in a backup.
@@ -59,19 +65,82 @@ type ProfileOverrides struct {
 	ProxyEdits  *ProxyEdits  `json:"proxyEdits,omitempty"`
 }
 
+// LegacyFactoryTunStack is the TUN stack Default used before darwin stopped
+// handing TCP to sing-tun's system NAT.
+const LegacyFactoryTunStack = "mixed"
+
+// DefaultTunStack is the factory TUN stack for a GOOS. Darwin uses gVisor so
+// TCP terminates in userspace. mixed and system rewrite TCP through the
+// kernel between 198.18.0.1 and 198.18.0.2, and that return path drops the
+// TLS payload after the handshake on macOS. Windows keeps mixed.
+func DefaultTunStack(goos string) string {
+	if goos == "darwin" {
+		return "gvisor"
+	}
+	return LegacyFactoryTunStack
+}
+
 // Default is what a fresh install runs with: mixed port 7890, rule mode, TUN
 // off until the user asks for it.
 func Default() Overrides {
+	return DefaultFor(runtime.GOOS)
+}
+
+// DefaultFor is Default for an explicit GOOS. Tests use it to lock darwin
+// and Windows without depending on the runner.
+func DefaultFor(goos string) Overrides {
 	return Overrides{
-		MixedPort:   7890,
-		AllowLAN:    false,
-		IPv6:        false,
-		Unified:     true,
-		Mode:        "rule",
-		TunEnable:   false,
-		TunStack:    "mixed",
-		TunAutoRout: true,
+		MixedPort:        7890,
+		AllowLAN:         false,
+		IPv6:             false,
+		Unified:          true,
+		Mode:             "rule",
+		TunEnable:        false,
+		TunStack:         DefaultTunStack(goos),
+		TunAutoRout:      true,
+		TunStackMigrated: goos == "darwin",
 	}
+}
+
+// MigrateTunStack performs the one-time darwin migration. A stored mixed or
+// empty stack is still the old factory value and becomes gvisor. system, an
+// already chosen gvisor, and any choice made after the flag is set stay as
+// they are. Other platforms are not modified. The bool is true when the
+// stored file should be rewritten.
+func MigrateTunStack(ov Overrides, goos string) (Overrides, bool) {
+	if goos != "darwin" || ov.TunStackMigrated {
+		return ov, false
+	}
+	if ov.TunStack == "" || ov.TunStack == LegacyFactoryTunStack {
+		ov.TunStack = "gvisor"
+	}
+	ov.TunStackMigrated = true
+	return ov, true
+}
+
+// NormalizeStoredOverrides decodes overrides.json. Missing fields keep the
+// factory values for goos. A file that omits tunStackMigrated has not been
+// through the darwin migration, even when DefaultFor would already set the
+// flag. changed reports that the file should be rewritten.
+func NormalizeStoredOverrides(data []byte, goos string) (Overrides, bool, error) {
+	ov := DefaultFor(goos)
+	if len(bytes.TrimSpace(data)) == 0 {
+		return ov, false, nil
+	}
+	var seen struct {
+		TunStackMigrated *bool `json:"tunStackMigrated"`
+	}
+	if err := json.Unmarshal(data, &ov); err != nil {
+		return Overrides{}, false, err
+	}
+	if err := json.Unmarshal(data, &seen); err != nil {
+		return Overrides{}, false, err
+	}
+	if seen.TunStackMigrated == nil {
+		ov.TunStackMigrated = false
+	}
+	next, changed := MigrateTunStack(ov, goos)
+	return next, changed, nil
 }
 
 // Apply builds a runtime config without changing the subscription bytes. User

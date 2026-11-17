@@ -1,5 +1,10 @@
 # 更新记录
 
+## 0.6.59
+
+- macOS 的 TUN 出厂协议栈改为 gvisor。mixed 和 system 的 TCP 仍走内核地址改写，握手之后的 TLS 数据会丢；gvisor 在用户态结束 TCP。
+- 仍保存为出厂 mixed 的 macOS 配置在下次启动时迁到 gvisor，只迁这一次。之后在设置里选回 mixed 或 system 会保留。Windows 默认仍是 mixed。
+
 ## 0.6.58
 
 - 修复节点测速只覆盖前 100 个、其余一直显示未测试。「测试本组」「测试全部」和远程控制台现在会测完所有可测节点。
