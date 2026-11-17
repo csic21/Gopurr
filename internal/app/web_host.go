@@ -282,19 +282,16 @@ func (h webHost) Delay(ctx context.Context, group string, names []string) (map[s
 	if len(names) == 0 {
 		return map[string]remote.DelayResult{}, nil
 	}
-	if len(names) > 100 {
-		names = names[:100]
-	}
 
 	prefs := a.Prefs()
 	testURL := prefs.TestURL
 	timeout := prefs.TestTimeoutMS
 	concurrency := prefs.TestConcurrency
 	if concurrency < 1 {
-		concurrency = 4
-	}
-	if concurrency > 8 {
 		concurrency = 8
+	}
+	if concurrency > 32 {
+		concurrency = 32
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

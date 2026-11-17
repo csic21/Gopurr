@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -389,6 +390,40 @@ func TestConfigValidation(t *testing.T) {
 	}
 	if cfg := (Config{}).Normalize(); cfg.Bind != DefaultBind || cfg.Port != DefaultPort {
 		t.Fatalf("normalize = %+v", cfg)
+	}
+}
+
+func TestDelayForwardsEveryNamedNode(t *testing.T) {
+	_, host, httpSrv, client := newTestServer(t)
+	base := httpSrv.URL
+	csrf := login(t, client, base)
+
+	names := make([]string, 101)
+	for i := range names {
+		names[i] = fmt.Sprintf("n-%03d", i+1)
+	}
+	body, err := json.Marshal(map[string]any{"group": "Proxy", "names": names})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := postJSON(t, client, base+"/api/delay", string(body), csrf)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	host.mu.Lock()
+	got := append([]string(nil), host.delayed...)
+	host.mu.Unlock()
+	if len(got) != 102 || got[100] != "n-101" || got[101] != "Proxy" {
+		t.Fatalf("forwarded = %v", got)
+	}
+
+	for _, body := range []string{`{}`, `{"names":[" "]}`, `{"names":["` + strings.Repeat("a", 257) + `"]}`} {
+		resp = postJSON(t, client, base+"/api/delay", body, csrf)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("body %s status = %d", body, resp.StatusCode)
+		}
 	}
 }
 

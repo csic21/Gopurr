@@ -206,10 +206,6 @@ func (s *Server) handleDelay(w http.ResponseWriter, r *http.Request, _ session) 
 		return
 	}
 	req.Group = strings.TrimSpace(req.Group)
-	if len(req.Names) > 100 {
-		writeError(w, http.StatusBadRequest, "too many nodes")
-		return
-	}
 	for i := range req.Names {
 		req.Names[i] = strings.TrimSpace(req.Names[i])
 		if req.Names[i] == "" || len(req.Names[i]) > 256 {

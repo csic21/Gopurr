@@ -1,15 +1,14 @@
-Gopurr 0.6.57 修复桌面侧栏收展结束时导航文字左右晃动。
+Gopurr 0.6.58 修复大量节点测速时只测到前 100 个的问题。
 
-- 点击侧栏开关后，「概览」等导航文字在动画结束时不再横跳。
-- 飞行动画的落点与静止导航一致：选中竖线不挤进文字，收起后的标签在胶囊内居中且不被拉宽。
-- 侧栏宽度仍用 240ms 原生动画收展。快速反向切换与系统「减少动态效果」继续可用。
+- 「测试本组」和「测试全部」会测完当前可测节点，后面的节点不再一直显示未测试。
+- 同时测多少个仍由设置里的并发数决定，可选 1 到 32，默认 8。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.57-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.57-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.57-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.57-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.58-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.58-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.58-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.58-android-x86_64.apk`。
 
 也可在应用内检查更新。
 
