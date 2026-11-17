@@ -1,5 +1,10 @@
 # 更新记录
 
+## 0.6.60
+
+- 设置里的 TUN 协议栈名称与官方对齐，可选 mixed、system、gvisor、mips，说明改为建议 mips。
+- 网络详情中的协议栈显示为官方小写名。macOS 出厂仍是 gvisor，Windows 仍是 mixed，已有配置不会被迁到 mips。
+
 ## 0.6.59
 
 - macOS 的 TUN 出厂协议栈改为 gvisor。mixed 和 system 的 TCP 仍走内核地址改写，握手之后的 TLS 数据会丢；gvisor 在用户态结束 TCP。

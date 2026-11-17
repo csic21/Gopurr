@@ -45,7 +45,7 @@ type settingsState struct {
 
 var settingsTimeoutOptions = []string{"3000", "6000", "10000", "15000", "30000"}
 var settingsConcurrencyOptions = []string{"1", "4", "8", "16", "32"}
-var settingsTunStacks = []string{"mixed", "system", "gvisor"}
+var settingsTunStacks = []string{"mixed", "system", "gvisor", "mips"}
 
 func (a *App) initSettings() {
 	if a.settingsReady {
@@ -372,10 +372,7 @@ func (a *App) networkSettingsDirty() bool {
 }
 
 func tunStackHint() string {
-	if runtime.GOOS == "darwin" {
-		return tr("推荐 gvisor；启用 TUN 时使用此设置")
-	}
-	return tr("推荐 mixed；启用 TUN 时使用此设置")
+	return tr("建议 mips；官方默认栈")
 }
 
 func parseSettingsPort(raw string) (int, error) {

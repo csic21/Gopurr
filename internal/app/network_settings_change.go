@@ -77,7 +77,7 @@ func (a *App) prepareNetworkSettings() (networkSettingsChange, error) {
 		return networkSettingsChange{}, err
 	}
 	if !containsString(settingsTunStacks, a.tunStackPick) {
-		return networkSettingsChange{}, fmt.Errorf("%s", tr("TUN 协议栈须为 mixed、system 或 gvisor"))
+		return networkSettingsChange{}, fmt.Errorf("%s", tr("TUN 协议栈须为 system、gvisor、mixed 或 mips"))
 	}
 	if port != a.mixedPort() && !portFree(port) {
 		return networkSettingsChange{}, fmt.Errorf(tr("端口 %d 已被占用，请更换端口"), port)

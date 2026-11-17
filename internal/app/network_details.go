@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 
 	ui "gopurr/internal/appui"
 )
@@ -67,7 +68,7 @@ func (a *App) networkDetails(c *ui.Context) {
 						networkDetail(c, tr("TUN 状态"), a.tunHint())
 						if a.networkFresh() && a.networkRuntime.TunEnabled {
 							networkDetail(c, tr("虚拟网卡"), a.networkRuntime.TunDevice)
-							networkDetail(c, tr("协议栈"), a.networkRuntime.TunStack)
+							networkDetail(c, tr("协议栈"), officialTunStackName(a.networkRuntime.TunStack))
 							networkDetail(c, tr("自动路由"), featureEnabledLabel(a.networkRuntime.AutoRoute))
 							networkDetail(c, tr("内置 DNS"), featureEnabledLabel(a.networkRuntime.DNSReady))
 						}
@@ -95,6 +96,16 @@ func (a *App) networkDetails(c *ui.Context) {
 			})
 		})
 	})
+}
+
+// mihomo reports gVisor, System, Mixed and Mips. Upstream documents the lowercase names.
+func officialTunStackName(name string) string {
+	switch strings.ToLower(name) {
+	case "system", "gvisor", "mixed", "mips":
+		return strings.ToLower(name)
+	default:
+		return name
+	}
 }
 
 func featureEnabledLabel(enabled bool) string {
