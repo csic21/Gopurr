@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"gopurr/internal/nativehost"
+	"gopurr/internal/patch"
 )
 
 // This opt-in test launches only disposable bundles and uses generated keys,
@@ -336,11 +338,22 @@ func assertFixtureData(t *testing.T, s fixtureSession, home string, seed map[str
 			t.Fatalf("initial snapshot changed: %s (%v)", name, e)
 		}
 	}
-	for _, name := range []string{"profiles.json", "profiles/legacy.yaml", "overrides.json"} {
+	for _, name := range []string{"profiles.json", "profiles/legacy.yaml"} {
 		b, e := os.ReadFile(filepath.Join(home, name))
 		if e != nil || string(b) != seed[name] {
 			t.Fatalf("durable state changed: %s (%v)", name, e)
 		}
+	}
+	b, e := os.ReadFile(filepath.Join(home, "overrides.json"))
+	var stored, expected patch.Overrides
+	if e == nil {
+		e = json.Unmarshal(b, &stored)
+	}
+	if e == nil {
+		expected, _, e = patch.NormalizeStoredOverrides([]byte(seed["overrides.json"]), runtime.GOOS)
+	}
+	if e != nil || !reflect.DeepEqual(stored, expected) {
+		t.Fatalf("durable overrides changed: %s (%v)", b, e)
 	}
 }
 func runFixtureCommand(t *testing.T, dir, name string, args ...string) {

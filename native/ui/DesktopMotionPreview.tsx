@@ -1,4 +1,5 @@
-// Explicit visual fixture: the real navigation geometry at its midpoint.
+// Explicit visual fixture: the real navigation geometry at its midpoint,
+// after the content has already committed to its compact width.
 import { mount } from "nsh";
 import { DesktopApp } from "./src/desktop/app";
 import { usePreviewTransport } from "./src/desktop/client";

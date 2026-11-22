@@ -136,7 +136,7 @@ export function ConnectionsPage(p:PageProps) {
         </Card>
       </If>
     </View>
-    <Modal title={tr("连接详情","Connection details")} open={!!selected()&&!wide()} onClose={()=>selected.set(null)} width={560} footer={detailActions}>{detailBody()}</Modal>
+    <Modal title={tr("连接详情","Connection details")} closeTestID="connection-detail-modal-close" open={!!selected()&&!wide()} onClose={()=>selected.set(null)} width={560} footer={detailActions}>{detailBody()}</Modal>
     <Modal title={tr("断开所有连接？","Disconnect all connections?")} open={confirm()} onClose={()=>confirm.set(false)} footer={()=><Row justify="flex-end" gap={8}><Action label={tr("取消","Cancel")} onPress={()=>confirm.set(false)}/><Action danger label={tr("断开全部","Disconnect all")} onPress={()=>void p.run("close-all",async()=>{await p.call("desktop.connections.closeAll");confirm.set(false);selected.set(null);})}/></Row>}><Label text={tr("现有连接将中断，应用可能自动重新建立连接。","Existing connections will be interrupted. Applications may reconnect automatically.")}/></Modal>
   </View>;
 }

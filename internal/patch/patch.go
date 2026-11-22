@@ -32,7 +32,7 @@ type Overrides struct {
 	// TunStackMigrated records the one-time darwin move off the old factory
 	// stack. While it is false, mixed still means that factory value. After
 	// it is true, a manual mixed or system choice is left alone.
-	TunStackMigrated bool `json:"tunStackMigrated,omitempty"`
+	TunStackMigrated bool `json:"tunStackMigrated"`
 
 	// Ephemeral, authenticated tailnet destinations. Never imported from a
 	// subscription, persisted as user overrides, or exported in a backup.

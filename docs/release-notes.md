@@ -1,14 +1,15 @@
-Gopurr 0.6.59 修复 macOS 开启 TUN 后，不走代理端口的程序访问 HTTPS 一直等到超时。
+Gopurr 0.6.61 修复 macOS 桌面侧栏收展时右下角出现灰色方块。
 
-- macOS 的 TUN 出厂协议栈改为 gvisor，TCP 在用户态结束，不再经过会丢掉 TLS 数据的内核改写。
-- 已经存成出厂 mixed 的配置会在下次启动时改成 gvisor，只改这一次。设置里仍可以手动选择 mixed 或 system。Windows 默认不变。
+- 侧栏切换不再对整棵内容树做布局插值，内容宽度一次提交到目标值；侧栏滑出、品牌迁移和导航移动继续由 240ms 导航叠层完成。
+- macOS AppKit 的中间帧不再保留旧宽度的卡片与分组行，右侧裁切处不会露出分组分隔线底色。Windows 行为不变。
+- 展开／收起、明暗主题、中英文导航在 840×560 与 1060×720 下均已重新截图核对。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.59-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.59-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.59-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.59-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.61-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.61-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.61-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.61-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

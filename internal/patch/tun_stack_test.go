@@ -83,6 +83,20 @@ func TestWindowsDoesNotMigrateFactoryMixed(t *testing.T) {
 	}
 }
 
+func TestStoredOverridesKeepMigrationFlagAfterRoundTrip(t *testing.T) {
+	for _, goos := range []string{"darwin", "windows"} {
+		ov := DefaultFor(goos)
+		b, err := json.Marshal(ov)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, changed, err := NormalizeStoredOverrides(b, goos)
+		if err != nil || changed || got.TunStackMigrated != ov.TunStackMigrated {
+			t.Fatalf("%s round trip = %+v changed=%v err=%v", goos, got, changed, err)
+		}
+	}
+}
+
 func TestNormalizeStoredOverridesRejectsBrokenJSON(t *testing.T) {
 	if _, _, err := NormalizeStoredOverrides([]byte(`{"tunStack":`), "darwin"); err == nil {
 		t.Fatal("expected JSON error")

@@ -87,12 +87,13 @@ export function NavigationFlight(p: {
       {items.map((item, index) => {
         const selected = p.page === item.id;
         const startX = 8, endX = compactLeft(index), startY = top(index), endY = compactTop;
-        const startW = 167, endW = compactWidth(index);
-        const pillScale = progress.interpolate({ inputRange: [0, 1], outputRange: [startW / endW, 1] });
+        const layoutW = 167, endW = compactWidth(index);
+        const pillScale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, endW / layoutW] });
+        const pillX = progress.interpolate({ inputRange: [0, 1], outputRange: [startX - endX, 0] });
         // The pill scales about its left edge. Dividing cancels that on the
         // glyphs for the whole flight; a second linear interpolate would not.
         const textScale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1] }).div(pillScale);
-        return <View style={{ position: "absolute", left: endX, top: endY, width: endW, height: 30, alignItems: "center", justifyContent: "center", paddingHorizontal: layout.padding, borderRadius: 9, backgroundColor: selected ? colors().selected : "transparent", boxShadow: selected ? [{ x: 0, y: 1, blur: 2, color: tint(colors().accent, "14") }] : undefined, opacity: progress, transformOrigin: "left center", transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [startX - endX, 0] }) }, { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [startY - endY, 0] }) }, { scaleX: pillScale }] }}>
+        return <View style={{ position: "absolute", left: endX, top: endY, width: layoutW, height: 30, alignItems: "center", justifyContent: "center", paddingHorizontal: layout.padding, borderRadius: 9, backgroundColor: selected ? colors().selected : "transparent", boxShadow: selected ? [{ x: 0, y: 1, blur: 2, color: tint(colors().accent, "14") }] : undefined, opacity: progress, transformOrigin: "left center", transform: [{ translateX: pillX }, { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [startY - endY, 0] }) }, { scaleX: pillScale }] }}>
           <Text style={{ fontSize: 12.5, fontWeight: selected ? "600" : "500", letterSpacing: -0.1, color: selected ? colors().accent : colors().muted, numberOfLines: 1, transformOrigin: "center", transform: [{ scaleX: textScale }] }}>{tr(item.zh, item.en)}</Text>
         </View>;
       })}

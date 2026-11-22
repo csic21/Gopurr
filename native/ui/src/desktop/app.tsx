@@ -1,4 +1,4 @@
-import { batch, Canvas, cleanup, createAnimatedValue, effect, host, Image, keymap, LayoutAnimation, lifecycle, Text, View, signal, windowSize, reduceMotion, colorScheme } from "nsh";
+import { batch, Canvas, cleanup, createAnimatedValue, effect, host, Image, keymap, lifecycle, Text, View, signal, windowSize, reduceMotion, colorScheme } from "nsh";
 import { Button, Tabs as NativeTabs, Tab } from "nsh/base";
 import { colors } from "./theme";
 import { tr } from "./i18n";
@@ -23,12 +23,16 @@ const nav:{id:Page;zh:string;en:string}[]=[{id:"overview",zh:"概览",en:"Overvi
 // NSH does not rebuild a Button's content when only the appearance changes;
 // remount the page stack per scheme so labels always use the current palette.
 function DesktopPageStack(q:{page:Page;p:PageProps}) {const p=q.p;return <View style={{flex:1,minWidth:0}}><If when={q.page==="overview"}><OverviewPage {...p}/></If><If when={q.page==="subs"}><ProfilesPage {...p}/></If><If when={q.page==="proxies"}><ProxiesPage {...p}/></If><If when={q.page==="conns"}><ConnectionsPage {...p}/></If><If when={q.page==="mesh"}><MeshPage {...p}/></If><If when={q.page==="rules"}><RulesPage {...p}/></If><If when={q.page==="logs"}><LogsPage {...p}/></If><If when={q.page==="settings"}><SettingsPage {...p}/></If></View>;}
-export function DesktopApp(preview:{motionProgress?:number}={}) {
+export function DesktopApp(preview:{motionProgress?:number;motionCollapsed?:boolean}={}) {
  // `settled` is the resting navigation. It changes only once the flight has
- // reached that pose, so the real labels are not shown while a layout
- // animation still has them short of the end.
- const collapsed=signal(false), settled=signal(false), initial=signal(false),navMoving=signal(false);
- const navProgress=createAnimatedValue(preview.motionProgress??0);
+ // reached that pose, so the real labels are not shown while the overlay still
+ // has them short of the end.
+ const previewInitial=preview.motionProgress!==undefined||preview.motionCollapsed!==undefined;
+ const collapsed=signal(preview.motionCollapsed??(preview.motionProgress!==undefined));
+ const settled=signal(preview.motionCollapsed===true);
+ const initial=signal(previewInitial);
+ const navMoving=signal(preview.motionProgress!==undefined);
+ const navProgress=createAnimatedValue(preview.motionProgress??(preview.motionCollapsed===true?1:0));
  const closeBusy=signal(false),closeError=signal("");
  const continueInBackground=async()=>{if(closeBusy())return;closeBusy.set(true);closeError.set("");try{await call("desktop.prefs.save",{prefs:{closeToTrayAcknowledged:true}});await nativeCall("desktop.window.close");closeRequested.set(false);}catch(e){closeError.set(e instanceof Error?e.message:String(e));}finally{closeBusy.set(false);}};
  watchDesktopDraft("operations",()=>!!busy()||closeBusy());
@@ -38,10 +42,18 @@ export function DesktopApp(preview:{motionProgress?:number}={}) {
  let navRun=0;
  const lerp=(from:number,to:number)=>from+(to-from)*(collapsed()?1:0);
  let sidebarSave=Promise.resolve();
- const toggle=()=>{const value=!collapsed();const target=value?1:0;const run=++navRun;if(reduceMotion()){batch(()=>{collapsed.set(value);settled.set(value);navProgress.set(target);navMoving.set(false);});}else{if(preview.motionProgress===undefined)LayoutAnimation.configureNext({duration:240,update:{type:"easeInEaseOut",duration:240}});batch(()=>{collapsed.set(value);navMoving.set(true);});void navProgress.timing(target,{duration:240,easing:"easeInOut"}).then(({finished})=>{if(finished&&run===navRun)batch(()=>{navProgress.set(target);settled.set(value);navMoving.set(false);});});}sidebarSave=sidebarSave.then(()=>call("desktop.prefs.save",{prefs:{sidebarCollapsed:value}})).catch(e=>error.set(e instanceof Error?e.message:String(e)));};
+ const toggle=()=>{const value=!collapsed();const target=value?1:0;const run=++navRun;if(reduceMotion()){batch(()=>{collapsed.set(value);settled.set(value);navProgress.set(target);navMoving.set(false);});}else{
+  // AppKit does not reflow the descendants of a resized container during a
+  // LayoutAnimation frame. Interpolating the content tree leaves cards and
+  // group rows at their old width, exposing the Group separator as a gray
+  // corner while the window is cropped. Commit the content width once and let
+  // the input-free navigation flight carry the visible transition instead.
+  batch(()=>{collapsed.set(value);navMoving.set(true);});
+  void navProgress.timing(target,{duration:240,easing:"easeInOut"}).then(({finished})=>{if(finished&&run===navRun)batch(()=>{navProgress.set(target);settled.set(value);navMoving.set(false);});});
+ }sidebarSave=sidebarSave.then(()=>call("desktop.prefs.save",{prefs:{sidebarCollapsed:value}})).catch(e=>error.set(e instanceof Error?e.message:String(e)));};
  const goto=(value:Page)=>{navigate(value);void call("desktop.page.set",{page:value}).catch(e=>error.set(String(e)));};
  const p:PageProps={snapshot:state,call,refresh,busy,run,navigate:goto};
- const reload=()=>void refresh().then(()=>{if(!initial()){collapsed.set(!!state().prefs.sidebarCollapsed);settled.set(collapsed());if(preview.motionProgress===undefined)navProgress.set(collapsed()?1:0);initial.set(true);}}).catch(e=>error.set(e instanceof Error?e.message:String(e)));
+ const reload=()=>void refresh().then(()=>{if(!initial()){collapsed.set(!!state().prefs.sidebarCollapsed);settled.set(collapsed());navProgress.set(collapsed()?1:0);initial.set(true);}}).catch(e=>error.set(e instanceof Error?e.message:String(e)));
  reload();
  listenDesktopEvents();
  const timer=setInterval(()=>{if(lifecycle()!=="background"&&!busy())reload();},1000);cleanup(()=>clearInterval(timer));
@@ -69,7 +81,7 @@ export function DesktopApp(preview:{motionProgress?:number}={}) {
  <If when={moving()}><NavigationFlight progress={navProgress} page={page()} titlebarInset={titlebarInset()} titlebarHeight={titlebarHeight()} layout={layout()} status={statusLabel()} proxies={state().status.proxies??0} rules={state().status.rules??0}/></If>
  <NativeTabs style={{pointerEvents:"box-none",position:"absolute",left:0,top:0,width:"100%",height:"100%",flexDirection:settled()?"row":"column",opacity:moving()?0:1}} indicatorStyle={{...(settled()?{top:(titlebarHeight()-30)/2,height:30,borderRadius:8,backgroundColor:colors().selected}:{left:8,width:167,borderRadius:9,backgroundColor:colors().selected,borderLeftWidth:2.5,borderLeftColor:colors().accent,boxShadow:[{x:0,y:1,blur:2,color:tint(colors().accent,"14")}]})}}><Each of={nav}>{(n,index)=><Tab testID={`desktop-nav-${n().id}`} disabled={moving()} selected={page()===n().id} onPress={()=>goto(n().id)} style={{pointerEvents:moving()?"none":"auto",position:"absolute",left:settled()?topX(index()):8,top:settled()?(titlebarHeight()-30)/2:titlebarHeight()+62+index()*38+(index()===7?12:0),width:settled()?topWidth(index()):167,height:settled()?30:36,flexDirection:"row",alignItems:"center",justifyContent:settled()?"center":"flex-start",gap:settled()?0:10,paddingHorizontal:settled()?layout().padding:13,borderRadius:9,backgroundColor:"transparent",transitionProperty:"color",transitionDuration:140}} hoverStyle={{backgroundColor:page()===n().id?"transparent":colors().hover}} focusStyle={{outlineWidth:2,outlineColor:colors().accent}}><If when={!settled()}><View style={{width:17,overflow:"hidden"}}><Icon name={n().id} size={17} color={page()===n().id?colors().accent:colors().muted}/></View></If><Text style={{fontSize:settled()?12.5:13,numberOfLines:1,fontWeight:page()===n().id?"600":"500",letterSpacing:-0.1,color:page()===n().id?colors().accent:colors().muted}}>{tr(n().zh,n().en)}</Text></Tab>}</Each></NativeTabs>
  <Button testID="desktop-toggle-sidebar" accessibilityLabel={tr("切换侧栏","Toggle sidebar")} onPress={toggle} style={{position:"absolute",left:preview.motionProgress===undefined?toggleAnchor():layout().toggle,top:(titlebarHeight()-30)/2,width:30,height:30,alignItems:"center",justifyContent:"center",borderRadius:6,transform:[{translateX:navProgress.interpolate({inputRange:[0,1],outputRange:[0,layout().toggle-toggleAnchor()]})}],transitionProperty:"background-color",transitionDuration:120}} hoverStyle={{backgroundColor:colors().hover}} activeStyle={{backgroundColor:colors().selected}} focusStyle={{outlineWidth:2,outlineColor:colors().accent,outlineOffset:1}}><Icon name="panel" size={15}/></Button>
- <If when={!settled()&&!moving()}><View style={{pointerEvents:"none",position:"absolute",left:14,bottom:14,width:156,padding:12,gap:7,borderRadius:13,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface")}}><Row gap={7}><StatusDot on={!!state().status.kernel} size={6} glow={!!state().status.kernel}/><Label text={statusLabel()} size={11.5} weight={600}/><If when={!!busy()}><Label text="·" size={11.5} muted/><Label text={tr("处理中","Working")} size={11.5} muted/></If></Row><Text style={{fontSize:10.5,color:colors().faint,numberOfLines:1,fontVariant:"tabular-nums"}}>{`${state().status.proxies??0} ${tr("代理","proxies")} · ${state().status.rules??0} ${tr("规则","rules")}`}</Text></View></If>
+ <If when={!settled()&&!moving()}><View testID="desktop-sidebar-summary" style={{pointerEvents:"none",position:"absolute",left:14,bottom:14,width:156,padding:12,gap:7,borderRadius:13,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface")}}><Row gap={7}><StatusDot on={!!state().status.kernel} size={6} glow={!!state().status.kernel}/><Label text={statusLabel()} size={11.5} weight={600}/><If when={!!busy()}><Label text="·" size={11.5} muted/><Label text={tr("处理中","Working")} size={11.5} muted/></If></Row><Text style={{fontSize:10.5,color:colors().faint,numberOfLines:1,fontVariant:"tabular-nums"}}>{`${state().status.proxies??0} ${tr("代理","proxies")} · ${state().status.rules??0} ${tr("规则","rules")}`}</Text></View></If>
  </View>
  <UpdateDialog {...p}/>
  <Modal title={tr("关闭窗口后继续代理","Keep running after closing")} open={closeRequested()} onClose={()=>{if(!closeBusy())closeRequested.set(false);}} error={closeError()} width={500} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} disabled={closeBusy()} onPress={()=>closeRequested.set(false)}/><Action testID="desktop-close-background" primary label={tr("继续后台运行","Continue in background")} disabled={closeBusy()} onPress={()=>void continueInBackground()}/></Row>}><Label text={tr("关闭窗口后，Gopurr 会继续在菜单栏或托盘运行，代理保持当前状态。要停止并退出，请使用菜单中的“退出 Gopurr”。","Closing the window keeps Gopurr and your proxy running in the menu bar or tray. To stop and exit, choose Quit Gopurr from the menu.")}/></Modal>

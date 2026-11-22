@@ -70,14 +70,17 @@ mobile pages do not require a ShaderView/Vulkan transition surface.
 
 The desktop entry includes subscription/aggregate and proxy editors, connections,
 mesh, rules and template library, logs, and seven settings categories. It keeps
-unsaved drafts and filters across navigation and supports reduced motion. The
-sidebar width and its content use a 240 ms native layout animation while an
-input-free overlay slides the sidebar out and fans its destinations into the
-title bar. The overlay ends on the same label positions as the resting
-navigation, and the real labels take over only then, so the text does not
-shift sideways when the animation finishes. The page stays visible throughout
-the transition instead of fading the whole surface. Traffic history interpolates for 400 ms. It does not
-substitute fixture data when the host is unavailable.
+unsaved drafts and filters across navigation and supports reduced motion. An
+input-free 240 ms overlay slides the sidebar out and fans its destinations into
+the title bar, while the content region commits its final width as soon as the
+sidebar is toggled. Do not animate the content tree's layout: AppKit interpolates
+the parent width without reflowing descendant cards and group rows, exposing the
+group separator at the cropped edge. The overlay ends on the same label positions
+as the resting navigation, and the real labels take over only then, so the text
+does not shift sideways when the animation finishes. The page stays visible
+throughout the transition instead of fading the whole surface. Traffic history
+interpolates for 400 ms. It does not substitute fixture data when the host is
+unavailable.
 
 Finite opacity, transform and progress motion uses `createAnimatedValue` or CSS
 style transitions, so it runs on NSH's native animation clock. The traffic chart
@@ -94,7 +97,10 @@ Run the real native AppKit renderer (one instance at a time):
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-editors.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-editors-large.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-collapsed-pages.steps.js
-.cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-titlebar.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopExpandedPreview.tsx --target macos < native/ui/desktop-expanded.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopCollapsedPreview.tsx --target macos < native/ui/desktop-collapsed.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopMotionPreview.tsx --target macos < native/ui/desktop-motion.steps.js
+.cache/nsh/nsh/bin/nsh test native/ui/DesktopMotionEnglishPreview.tsx --target macos < native/ui/desktop-motion.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopEmptyPreview.tsx --target macos < native/ui/desktop-empty.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-settings-tabs.steps.js
 .cache/nsh/nsh/bin/nsh test native/ui/DesktopPreview.tsx --target macos < native/ui/desktop-settings-more.steps.js
