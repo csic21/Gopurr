@@ -52,8 +52,7 @@ func TestLoadOverridesMigratesFactoryTunStack(t *testing.T) {
 		t.Fatalf("non-darwin load = %+v", a.ov)
 	}
 	saved, err := os.ReadFile(path)
-	var got patch.Overrides
-	if err != nil || json.Unmarshal(saved, &got) != nil || !reflect.DeepEqual(got, a.ov) {
+	if err != nil || !bytes.Equal(saved, raw) {
 		t.Fatalf("windows file changed: %s (%v)", saved, err)
 	}
 }
