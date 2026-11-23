@@ -7,6 +7,7 @@ function bridge(granted = false) {
   return { params: { android: true }, handlers: {
     "engine.dispatch": async (value: unknown) => { const request = value as { method: string; params: Record<string, unknown> }; return { result: await dispatch(request.method, request.params) }; },
     "android.session": { phase: "idle", generation: 0, busy: false, connected: false, scope: { mode: "all", packages: [], excludeSelf: true } },
+    "android.scope.get": { mode: "all", packages: [], excludeSelf: true },
     "android.appearance": {},
     "android.notifications": () => settings,
     "android.notifications.request": () => settings = { ...settings, granted: true, enabled: true, canRequest: false },
@@ -18,6 +19,8 @@ function bridge(granted = false) {
 test("Android notifications expose permission, live traffic preferences and system settings", async () => {
   const app = await open("./App.tsx", { host: bridge(), locale: "en-US", width: 390, height: 844 });
   await app.press("id:nav-settings");
+  await app.waitFor("id:open-notifications");
+  await app.press("id:open-notifications");
   await app.waitFor("text:Notifications disabled");
   await app.press("id:notification-permission");
   await app.waitFor("text:Notifications enabled");
@@ -29,13 +32,14 @@ test("Android notifications expose permission, live traffic preferences and syst
   expect(app.host.calls().some(c => c.name === "android.notifications.settings")).toBe(true);
 });
 
-test("notification taps open Connect in an existing Android window", async () => {
-  const app = await open("./App.tsx", { host: bridge(true), locale: "en-US" });
+test("notification taps open Connect and close open sheets in an existing Android window", async () => {
+  const app = await open("./App.tsx", { host: bridge(true), locale: "en-US", width: 390, height: 844 });
   await app.press("id:nav-settings");
-  await app.press("id:open-logs");
-  await app.waitFor("text:Diagnostic logs");
+  await app.waitFor("id:open-notifications");
+  await app.press("id:open-notifications");
+  await app.waitFor("id:notification-settings");
   await app.host.send("android.navigate", { page: "overview" });
   await app.waitFor("id:toggle-engine");
-  expect(app.texts()).toContain("Your profile and network connection.");
+  expect(app.shows("id:notification-settings")).toBe(false);
+  expect(app.texts()).toContain("Active profile");
 });
-

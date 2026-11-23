@@ -21,10 +21,13 @@ let update = {
 };
 usePreviewAndroidTransport(async (method, params) => {
   if (method === "android.session") return { phase: "idle", generation: 0, busy: false, connected: false, scope: { mode: "all", packages: [], excludeSelf: true } };
+  if (method === "android.scope.get") return { mode: "all", packages: [], excludeSelf: true };
   if (method === "android.notifications") return notifications;
   if (method === "android.notifications.configure") return notifications = { ...notifications, traffic: params.traffic as boolean };
   if (method === "android.notifications.request") return notifications = { ...notifications, granted: true, enabled: true, canRequest: false };
   if (method === "android.appearance" || method === "android.notifications.settings") return {};
+  if (method === "android.clipboard.write") return { written: true };
+  if (method === "android.url.open") return { opened: true };
   if (method === "android.update") return update;
   if (method === "android.update.check") return update;
   if (method === "android.update.download") return update = { ...update, phase: "downloading", downloaded: 8 * 1024 * 1024 };

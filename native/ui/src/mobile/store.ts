@@ -6,7 +6,9 @@ import { androidCall, androidHost } from "./platform";
 import type { AndroidSession, AppUpdate } from "./platform";
 
 export type Page = "overview" | "profiles" | "proxies" | "settings";
+export type Subpage = "" | "apps" | "logs" | "mesh";
 export const page = signal<Page>(["overview", "profiles", "proxies", "settings"].includes(String(host.params.page)) ? host.params.page as Page : "overview");
+export const subpage = signal<Subpage>("");
 export const status = signal<Status | null>(null);
 export const session = signal<AndroidSession | null>(null);
 export const appUpdate = signal<AppUpdate | null>(null);
@@ -18,10 +20,15 @@ export const error = signal("");
 export const loaded = signal(false);
 export const groupName = signal("");
 export const query = signal("");
+export const toast = signal("");
+export const sheetDismissSeq = signal(0);
+
 let statusRequest: Promise<void> | undefined;
 let listsRequest: Promise<void> | undefined;
 let groupsRequest: Promise<void> | undefined;
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let connectionGeneration = 0;
+const sessionListeners = new Set<(next: AndroidSession) => void>();
 
 export const activeProfile = () => profiles().find(p => p.id === status()?.activeProfile);
 export const visibleGroups = () => groups().filter(g => !g.hidden && (status()?.mode === "global" ? g.name === "GLOBAL" : g.name !== "GLOBAL"));
@@ -29,9 +36,48 @@ export const selectedGroup = () => visibleGroups().find(g => g.name === groupNam
 export const members = () => selectedGroup()?.members.filter(m => m.name.toLowerCase().includes(query().trim().toLowerCase())) ?? [];
 export const connected = () => session()?.connected ?? (status()?.vpnSupported ? !!status()?.tun : !!status()?.running);
 export const connecting = () => session() ? ["awaitingPermission", "connecting"].includes(session()!.phase) : !!tasks().connection;
+export const meshTunnel = () => !!session()?.meshTunnel;
+export const awaitingMeshPermission = () => !!session()?.awaitingMeshPermission;
+export const meshAvailable = () => !!status()?.mesh?.managed || !!status()?.mesh?.running;
+export const vpnActive = () => (androidHost() ? !!session()?.connected : false) || !!status()?.tun;
 export const mutationBusy = () => !!status()?.busy || Object.entries(tasks()).some(([k, v]) => v && !k.startsWith("delay") && k !== "connection" && k !== "diagnostics");
 export const busy = () => Object.keys(tasks()).find(k => tasks()[k]) ?? "";
 export function message(value: unknown): string { return value instanceof Error ? value.message : String(value); }
+
+export function dismissSheets(): void {
+  sheetDismissSeq.set(sheetDismissSeq() + 1);
+}
+
+export function showToast(value: string, duration = 2600): void {
+  clearTimeout(toastTimer);
+  toast.set(value);
+  if (!value) return;
+  toastTimer = setTimeout(() => { toast.set(""); }, duration);
+}
+
+export function clearToast(): void {
+  clearTimeout(toastTimer);
+  toast.set("");
+}
+
+export function navigate(id: Page): void {
+  dismissSheets();
+  subpage.set("");
+  page.set(id);
+}
+
+export function openSubpage(id: Subpage): void {
+  dismissSheets();
+  subpage.set(id);
+}
+
+export function openProxiesForGroup(name?: string): void {
+  dismissSheets();
+  subpage.set("");
+  if (name) groupName.set(name);
+  query.set("");
+  page.set("proxies");
+}
 
 function acceptStatus(next: Status) {
   if (next.apiVersion !== 1) throw new Error(tr("内核接口版本不兼容，请使用配套应用。", "The engine API is incompatible. Use the matching app build."));
@@ -85,13 +131,88 @@ export async function action(key: string, fn: () => Promise<void>, reload = true
   finally { const next = { ...tasks() }; delete next[key]; tasks.set(next); }
 }
 
+function waitForAndroidDisconnected(timeoutMs = 15000): Promise<void> {
+  const current = session();
+  if (current && !current.connected && !current.busy && current.phase === "idle") return Promise.resolve();
+  if (current && (current.phase === "failed" || current.error)) {
+    return Promise.reject(new Error(current.error?.message || tr("断开当前 VPN 失败，已中止切换。", "Failed to disconnect VPN. Profile switch cancelled.")));
+  }
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const done = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      sessionListeners.delete(onSession);
+      if (err) reject(err); else resolve();
+    };
+    const onSession = (next: AndroidSession) => {
+      if (next.phase === "failed" || next.error) {
+        done(new Error(next.error?.message || tr("断开当前 VPN 失败，已中止切换。", "Failed to disconnect VPN. Profile switch cancelled.")));
+      } else if (!next.connected && !next.busy && next.phase === "idle") {
+        done();
+      }
+    };
+    const timer = setTimeout(() => {
+      done(new Error(tr("等待 VPN 断开超时，请重试。", "Timed out waiting for VPN to disconnect. Try again.")));
+    }, timeoutMs);
+    sessionListeners.add(onSession);
+  });
+}
+
+export async function switchProfile(id: string, options: { name?: string; reconnectVpn?: boolean } = {}): Promise<boolean> {
+  const shouldReconnectVpn = options.reconnectVpn ?? vpnActive();
+  const label = options.name || profiles().find(p => p.id === id)?.name || "";
+  return await action("activate", async () => {
+    if (shouldReconnectVpn) {
+      if (androidHost()) {
+        const disconnected = await androidCall<AndroidSession>("android.disconnect");
+        acceptSession(disconnected);
+        if (disconnected.phase === "failed" || disconnected.error) {
+          throw new Error(disconnected.error?.message || tr("断开当前 VPN 失败，已中止切换。", "Failed to disconnect VPN. Profile switch cancelled."));
+        }
+        if (disconnected.phase === "disconnecting" || disconnected.connected || disconnected.busy) {
+          await waitForAndroidDisconnected();
+        }
+        if (session()?.connected) {
+          throw new Error(tr("当前 VPN 尚未断开，已中止切换。", "VPN is still connected. Profile switch cancelled."));
+        }
+        acceptStatus(await call<Status>("profiles.activate", { id }));
+        await refreshLists();
+        const reconnected = await androidCall<AndroidSession>("android.connect");
+        acceptSession(reconnected);
+        if (reconnected.phase === "failed" || reconnected.error) {
+          throw new Error(reconnected.error?.message || tr("重新连接 VPN 失败。", "Failed to reconnect VPN."));
+        }
+        showToast(label ? tr(`已切换到「${label}」，正在重新连接`, `Switched to "${label}", reconnecting`) : tr("配置已切换，正在重新连接", "Profile switched, reconnecting"));
+        return;
+      }
+      const stopped = await call<Status>("engine.stop");
+      acceptStatus(stopped);
+      if (stopped.tun) {
+        throw new Error(tr("当前 VPN 尚未断开，已中止切换。", "VPN is still connected. Profile switch cancelled."));
+      }
+      acceptStatus(await call<Status>("profiles.activate", { id }));
+      const started = await call<Status>("engine.start");
+      acceptStatus(started);
+      await refreshLists();
+      showToast(label ? tr(`已切换到「${label}」`, `Switched to "${label}"`) : tr("已切换配置", "Profile switched"));
+      return;
+    }
+    acceptStatus(await call<Status>("profiles.activate", { id }));
+    await refreshLists();
+    showToast(label ? tr(`已切换到「${label}」`, `Switched to "${label}"`) : tr("已切换配置", "Profile switched"));
+  }, false);
+}
+
 export function activate(id: string): void {
-  void action("activate", async () => { acceptStatus(await call<Status>("profiles.activate", { id })); });
+  void switchProfile(id, { reconnectVpn: false });
 }
 
 function acceptSession(next: AndroidSession) {
   if (session() && next.generation < session()!.generation) return;
   const previous = session(); session.set(next);
+  for (const listener of [...sessionListeners]) listener(next);
   if (next.error) error.set(next.error.message);
   if (previous?.phase !== next.phase && !next.busy && lifecycle() === "active") void refresh(false);
 }
@@ -160,5 +281,9 @@ export function startMobileStore() {
     // Schedule after completion so a slow bridge cannot accumulate poll work.
     return () => { disposed = true; clearTimeout(statusTimer); clearTimeout(groupsTimer); };
   });
-  cleanup(() => { connectionGeneration++; });
+  cleanup(() => {
+    connectionGeneration++;
+    clearTimeout(toastTimer);
+    sessionListeners.clear();
+  });
 }

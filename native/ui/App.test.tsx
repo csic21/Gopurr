@@ -78,7 +78,8 @@ test("first import is selected without starting; Overview connects and another p
   await app.waitFor("text:Selected");
   expect(app.host.calls().some((c) => (c.data as { method?: string })?.method === "profiles.activate")).toBe(false);
   expect(app.host.calls().some((c) => (c.data as { method?: string })?.method === "engine.start")).toBe(false);
-  expect(app.enabled("id:activate-imported")).toBe(false);
+  expect(app.shows("id:active-tag-imported")).toBe(true);
+  expect(app.shows("id:activate-imported")).toBe(false);
   await app.press("id:nav-overview");
   await app.waitFor("text:Disconnected");
   await app.waitUntil(() => app.enabled("id:toggle-engine"));
@@ -260,15 +261,23 @@ test("profile edits, refresh staging and deletion stay explicit", async () => {
   await app.press("id:nav-profiles");
   await app.press("id:refresh-imported");
   await app.waitFor("text:Saved · reconnect to apply");
+  await app.press("id:more-imported");
+  await app.waitFor("id:delete-imported");
   expect(app.enabled("id:delete-imported")).toBe(false);
   await app.press("id:nav-overview");
   await app.waitFor("id:reconnect-required");
   await app.press("id:toggle-engine");
   await app.waitFor("text:Disconnected");
   await app.press("id:nav-profiles");
+  await app.press("id:more-imported");
+  await app.waitFor("id:delete-imported");
+  app.onDialog(() => "Cancel");
   await app.press("id:delete-imported");
   expect(app.host.calls().some(c => (c.data as { method?: string })?.method === "profiles.delete")).toBe(false);
-  await app.press("id:confirm-delete-profile");
+  await app.press("id:more-imported");
+  await app.waitFor("id:delete-imported");
+  app.onDialog(() => "Delete profile");
+  await app.press("id:delete-imported");
   await app.waitFor("id:import-profile");
   expect(app.host.calls().some(c => (c.data as { method?: string })?.method === "profiles.delete")).toBe(true);
 });
@@ -356,7 +365,7 @@ test("Android cancel stays available while engine status is waiting for startup"
   await app.waitUntil(() => app.enabled("id:toggle-engine"));
   await app.press("id:toggle-engine");
   await app.waitFor("text:Cancel connection");
-  const refreshing = app.press("text:Refresh");
+  const refreshing = app.press("id:overview-refresh");
   await app.waitUntil(() => waitingForStatus);
   expect(app.enabled("id:toggle-engine")).toBe(true);
   const cancelling = app.press("id:toggle-engine");
@@ -418,7 +427,8 @@ test("Android update checks, downloads and installs only through explicit action
     },
   } });
   await app.press("id:nav-settings");
-  await app.scroll("id:settings-scroll", 2000);
+  await app.waitFor("id:open-update");
+  await app.press("id:open-update");
   await app.waitFor("id:update-check");
   expect(app.texts()).toContain("Version 0.6.27");
   await app.press("id:update-check");
@@ -448,7 +458,8 @@ test("Android update explains install permission and keeps a failed check retrya
     },
   } });
   await app.press("id:nav-settings");
-  await app.scroll("id:settings-scroll", 2000);
+  await app.waitFor("id:open-update");
+  await app.press("id:open-update");
   await app.waitFor("id:update-install");
   expect(app.texts()).toContain("Gopurr 0.6.28 is downloaded. Allow app installs to continue.");
   expect(app.texts()).toContain("Allow install");
@@ -510,21 +521,32 @@ test("mobile Mesh page connects, authorizes ports, probes/blocks peers, and enab
   await app.press("id:mesh-connect");
   await app.waitFor("text:Connected to Tailscale");
   await app.waitFor("id:mesh-device-peer-1");
-  expect(app.texts()).toContain("Android Phone · This device");
+  expect(app.texts()).toContain("Android Phone");
+  expect(app.texts()).toContain("This device");
   expect(app.texts()).toContain("MacBook Pro");
 
+  await app.press("id:mesh-tab-settings");
+  await app.waitFor("id:mesh-autoconnect");
   await app.press("id:mesh-autoconnect");
-  await app.waitFor("text:Auto-connect: On");
+  await app.waitUntil(() => app.host.calls().some(c => (c.data as { method?: string; params?: { enabled?: boolean } })?.method === "mesh.autoConnect" && (c.data as { params?: { enabled?: boolean } }).params?.enabled === true));
 
+  await app.press("id:mesh-tab-sharing");
+  await app.waitFor("id:mesh-services-edit");
+  await app.press("id:mesh-services-edit");
+  await app.waitFor("id:mesh-services-input");
   await app.type("id:mesh-services-input", "8080/tcp, 5555/tcp");
   await app.press("id:mesh-services-open");
-  await app.waitFor("text:Open · 8080/tcp, 5555/tcp");
-  await app.press("id:mesh-services-block");
-  await app.waitFor("text:Inbound access closed");
+  await app.waitFor("text:8080/tcp, 5555/tcp");
+  await app.press("id:mesh-inbound-switch");
+  await app.waitUntil(() => app.host.calls().some(c => (c.data as { method?: string; params?: { action?: string } })?.method === "mesh.action" && (c.data as { params?: { action?: string } }).params?.action === "block"));
 
+  await app.press("id:mesh-tab-devices");
+  await app.waitFor("id:mesh-copy-peer-1");
   await app.press("id:mesh-copy-peer-1");
   expect(app.host.calls().some(c => c.name === "android.clipboard.write" && (c.data as { text?: string }).text === "100.64.0.1")).toBe(true);
 
+  await app.press("id:mesh-device-peer-1");
+  await app.waitFor("id:mesh-probe-port-peer-1");
   await app.clear("id:mesh-probe-port-peer-1");
   await app.type("id:mesh-probe-port-peer-1", "8080");
   await app.press("id:mesh-probe-peer-1");
@@ -532,9 +554,11 @@ test("mobile Mesh page connects, authorizes ports, probes/blocks peers, and enab
   const probeCall = app.host.calls().find(c => (c.data as { method?: string })?.method === "mesh.probe");
   expect((probeCall?.data as { params?: { id: string; port: number } }).params).toMatchObject({ id: "peer-1", port: 8080 });
 
+  app.onDialog(() => "Block device");
   await app.press("id:mesh-block-peer-1");
-  await app.waitFor("text:Unblock");
+  await app.waitFor("text:Unblock device");
   expect(app.enabled("id:mesh-probe-peer-1")).toBe(false);
+  await app.press("id:mesh-device-sheet-close");
 
   await app.type("id:mesh-device-search", "Home Server");
   await app.waitFor("id:mesh-device-peer-2");
@@ -546,7 +570,7 @@ test("mobile Mesh page connects, authorizes ports, probes/blocks peers, and enab
   await app.waitFor("id:open-mesh");
   await app.press("id:nav-overview");
   await app.waitFor("text:Mesh direct mode");
-  await app.waitFor("text:Mesh connected · 100.64.0.2 (works in Direct mode or without proxy)");
+  await app.waitFor("id:overview-mesh-card");
   await app.waitUntil(() => app.enabled("id:toggle-engine"));
 
   await app.press("id:toggle-engine");
@@ -640,4 +664,209 @@ test("mobile Mesh page falls back gracefully when Android clipboard/URL bridge i
   await app.waitFor("text:Mesh IP: 100.64.0.1");
   await app.press("id:mesh-login");
   await app.waitFor("text:Open sign-in URL in browser: https://login.tailscale.com/a/fallback");
+});
+
+test("connected Android VPN confirms profile switch and strictly disconnects before activating", async () => {
+  const dispatch = fixtureTransport();
+  let session = { phase: "connected", generation: 1, busy: false, connected: true, scope: { mode: "all", packages: [], excludeSelf: true } };
+  let failDisconnect = true;
+  const order: string[] = [];
+  const app = await open("./App.tsx", {
+    locale: "en-US",
+    platform: "android",
+    width: 390,
+    height: 844,
+    host: {
+      params: { android: true },
+      handlers: {
+        "android.session": () => session,
+        "android.notifications": { granted: true, enabled: true, canRequest: false, traffic: true },
+        "android.scope.get": { mode: "all", packages: [], excludeSelf: true },
+        "android.update": { supported: false, phase: "unsupported", currentVersion: "0.0.0", currentVersionCode: 0, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true },
+        "android.appearance": { ok: true },
+        "android.disconnect": () => {
+          order.push("disconnect");
+          if (failDisconnect) {
+            session = { ...session, phase: "failed", generation: session.generation + 1, busy: false, connected: true, error: { code: "stop_failed", message: "Stop VPN failed" } } as typeof session;
+            return session;
+          }
+          session = { ...session, phase: "disconnecting", generation: session.generation + 1, busy: true, connected: true };
+          setTimeout(() => {
+            session = { ...session, phase: "idle", generation: session.generation + 1, busy: false, connected: false };
+            void app.host.send("android.session", session);
+          }, 20);
+          return session;
+        },
+        "android.connect": () => {
+          order.push("connect");
+          session = { ...session, phase: "connected", generation: session.generation + 1, busy: false, connected: true };
+          return session;
+        },
+        "engine.dispatch": async (data: unknown) => {
+          const req = data as { method: string; params: Record<string, unknown> };
+          if (req.method === "profiles.activate") order.push(`activate:${String(req.params.id)}`);
+          const res = await dispatch(req.method, req.params) as Record<string, unknown>;
+          if (req.method === "engine.status") {
+            return { result: { ...res, vpnSupported: true, tun: session.connected, running: session.connected, capabilities: { systemProxy: false, tun: true } } };
+          }
+          return { result: res };
+        },
+      },
+    },
+  });
+
+  await app.press("id:nav-profiles");
+  await app.press("id:add-profile");
+  await app.type("id:profile-name", "Backup");
+  await app.type("id:profile-url", "https://example.invalid/backup.yaml");
+  await app.press("id:import-profile");
+  await app.waitFor("id:activate-imported-2");
+
+  // Cancelling dialog performs no disconnect or activation.
+  app.onDialog(() => "Cancel");
+  await app.press("id:activate-imported-2");
+  expect(order).toEqual([]);
+
+  // Disconnect failure aborts before profiles.activate.
+  app.onDialog(() => "Disconnect & switch");
+  await app.press("id:activate-imported-2");
+  await app.waitFor("text:Stop VPN failed");
+  expect(order).toEqual(["disconnect"]);
+
+  // Confirming with successful async disconnect strictly runs disconnect -> activate -> connect.
+  failDisconnect = false;
+  session = { phase: "connected", generation: session.generation + 1, busy: false, connected: true, scope: { mode: "all", packages: [], excludeSelf: true } };
+  await app.host.send("android.session", session);
+  order.length = 0;
+  await app.press("id:activate-imported-2");
+  await app.waitUntil(() => order.length === 3);
+  expect(order).toEqual(["disconnect", "activate:imported-2", "connect"]);
+});
+
+test("Overview and MeshGlanceCard reflect meshTunnel and awaitingMeshPermission dual-track states", async () => {
+  const dispatch = fixtureTransport();
+  let session: Record<string, unknown> = {
+    phase: "idle",
+    generation: 1,
+    busy: false,
+    connected: false,
+    meshTunnel: true,
+    awaitingMeshPermission: false,
+    scope: { mode: "all", packages: [], excludeSelf: true },
+  };
+  await dispatch("mesh.action", { action: "connect" });
+  const app = await open("./App.tsx", {
+    locale: "en-US",
+    platform: "android",
+    width: 390,
+    height: 844,
+    host: {
+      params: { android: true },
+      handlers: {
+        "android.session": () => session,
+        "android.notifications": { granted: true, enabled: true, canRequest: false, traffic: true },
+        "android.scope.get": { mode: "all", packages: [], excludeSelf: true },
+        "android.update": { supported: false, phase: "unsupported", currentVersion: "0.0.0", currentVersionCode: 0, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true },
+        "android.appearance": { ok: true },
+        "engine.dispatch": async (data: unknown) => {
+          const req = data as { method: string; params: Record<string, unknown> };
+          const res = await dispatch(req.method, req.params) as Record<string, unknown>;
+          if (req.method === "engine.status") {
+            return { result: { ...res, running: false, tun: false, vpnSupported: true, capabilities: { systemProxy: false, tun: true } } };
+          }
+          return { result: res };
+        },
+      },
+    },
+  });
+
+  await app.waitFor("text:Proxy off");
+  await app.waitFor("id:overview-mesh-card");
+  expect(app.texts()).not.toContain("Disconnected");
+
+  session = { ...session, generation: 2, meshTunnel: false, awaitingMeshPermission: true };
+  await app.host.send("android.session", session);
+  await app.waitFor("text:Waiting for mesh VPN permission to route device traffic");
+  await app.press("id:overview-mesh-card");
+  await app.waitFor("id:mesh-permission-notice");
+});
+
+test("Mesh shieldsKnown=false keeps defensive block path, block confirmation cancels cleanly, and auto-login opens once", async () => {
+  const dispatch = fixtureTransport(true);
+  let shieldsKnown = false;
+  let phase: "idle" | "needsLogin" | "connected" = "idle";
+  const app = await open("./App.tsx", {
+    locale: "en-US",
+    platform: "android",
+    width: 390,
+    height: 844,
+    host: {
+      params: { android: true },
+      handlers: {
+        "android.session": { phase: "idle", generation: 0, busy: false, connected: false, scope: { mode: "all", packages: [], excludeSelf: true } },
+        "android.notifications": { granted: true, enabled: true, canRequest: false, traffic: true },
+        "android.scope.get": { mode: "all", packages: [], excludeSelf: true },
+        "android.update": { supported: false, phase: "unsupported", currentVersion: "0.0.0", currentVersionCode: 0, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true },
+        "android.appearance": { ok: true },
+        "android.url.open": { opened: true },
+        "engine.dispatch": async (data: unknown) => {
+          const req = data as { method: string; params: Record<string, unknown> };
+          if (req.method === "mesh.action" && req.params.action === "login") {
+            return { result: { url: "https://login.tailscale.com/a/dedup" } };
+          }
+          if (req.method === "mesh.action" && req.params.action === "connect") {
+            phase = "needsLogin";
+            const base = await dispatch("mesh.status", {}) as Record<string, unknown>;
+            const st = base.status as Record<string, unknown>;
+            return { result: { ...base, managed: true, started: true, status: { ...st, running: false, state: "NeedsLogin", shieldsKnown, authURL: "https://login.tailscale.com/a/dedup" } } };
+          }
+          if (req.method === "mesh.action" && req.params.action === "block") {
+            shieldsKnown = true;
+            return { result: await dispatch(req.method, req.params) };
+          }
+          if (req.method === "mesh.status") {
+            if (phase === "needsLogin") {
+              const base = await dispatch("mesh.status", {}) as Record<string, unknown>;
+              const st = base.status as Record<string, unknown>;
+              return { result: { ...base, managed: true, started: true, status: { ...st, running: false, state: "NeedsLogin", shieldsKnown, authURL: "https://login.tailscale.com/a/dedup" } } };
+            }
+            const snap = await dispatch("mesh.status", {}) as Record<string, unknown>;
+            const st = snap.status as Record<string, unknown>;
+            return { result: { ...snap, status: { ...st, shieldsKnown } } };
+          }
+          return { result: await dispatch(req.method, req.params) };
+        },
+      },
+    },
+  });
+
+  await app.press("id:nav-settings");
+  await app.press("id:open-mesh");
+  await app.press("id:mesh-connect");
+  // Auto-open fires exactly once for the same authURL even after refresh.
+  await app.waitUntil(() => app.host.calls().filter(c => c.name === "android.url.open").length === 1);
+  await app.press("id:mesh-refresh");
+  await app.wait(100);
+  expect(app.host.calls().filter(c => c.name === "android.url.open").length).toBe(1);
+
+  // Transition to connected with shieldsKnown=false.
+  await dispatch("mesh.action", { action: "connect" });
+  phase = "connected";
+  await app.press("id:mesh-refresh");
+  await app.waitFor("id:mesh-device-peer-1");
+
+  // Cancelling block confirmation leaves peer unblocked.
+  await app.press("id:mesh-device-peer-1");
+  await app.waitFor("id:mesh-block-peer-1");
+  app.onDialog(() => "Cancel");
+  await app.press("id:mesh-block-peer-1");
+  expect(app.host.calls().some(c => (c.data as { method?: string })?.method === "mesh.block")).toBe(false);
+  await app.press("id:mesh-device-sheet-close");
+
+  // !shieldsKnown exposes defensive Close inbound access action alongside Authorize ports.
+  await app.press("id:mesh-tab-sharing");
+  await app.waitFor("id:mesh-services-block");
+  expect(app.enabled("id:mesh-services-block")).toBe(true);
+  await app.press("id:mesh-services-block");
+  await app.waitUntil(() => app.host.calls().some(c => (c.data as { method?: string; params?: { action?: string } })?.method === "mesh.action" && (c.data as { params?: { action?: string } }).params?.action === "block"));
 });

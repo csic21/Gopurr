@@ -1,0 +1,21 @@
+// Captures mobile Mesh flow (GlanceCard -> MeshPage -> Device Sheet -> Sharing tab) at 390x844.
+await app.setViewport(390, 844);
+await app.setColorScheme("light");
+await app.waitFor("id:overview-mesh-card");
+await app.press("id:overview-mesh-card");
+await app.waitFor("id:mesh-connect");
+await app.screenshot("native/ui/screenshots/mobile-mesh-disconnected-light-390x844.png");
+await app.press("id:mesh-connect");
+await app.waitFor("id:mesh-device-peer-1");
+await app.screenshot("native/ui/screenshots/mobile-mesh-devices-light-390x844.png");
+await app.setColorScheme("dark");
+await app.waitFor("id:mesh-device-peer-1");
+await app.screenshot("native/ui/screenshots/mobile-mesh-devices-dark-390x844.png");
+await app.setColorScheme("light");
+await app.press("id:mesh-device-peer-1");
+await app.waitFor("id:mesh-probe-peer-1");
+await app.screenshot("native/ui/screenshots/mobile-mesh-device-sheet-light-390x844.png");
+await app.press("id:mesh-device-sheet-close");
+await app.press("id:mesh-tab-sharing");
+await app.waitFor("id:mesh-services-edit");
+await app.screenshot("native/ui/screenshots/mobile-mesh-sharing-light-390x844.png");
