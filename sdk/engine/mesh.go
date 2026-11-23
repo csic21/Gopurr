@@ -570,6 +570,16 @@ func (e *Engine) meshProbeCall(ctx context.Context, params json.RawMessage) (any
 	}, nil
 }
 
+func (e *Engine) runtimeSourceForPlanLocked(forceMeshOnly bool) (string, profile.Profile, []byte, error) {
+	if forceMeshOnly {
+		if !e.meshActiveLocked() {
+			return "", profile.Profile{}, nil, failure("no_profile", "请先导入并选择配置")
+		}
+		return meshOnlyProfileID, profile.Profile{ID: meshOnlyProfileID, Name: "Mesh"}, []byte(meshOnlyProfileYAML), nil
+	}
+	return e.activeRuntimeSourceLocked()
+}
+
 func (e *Engine) activeRuntimeSourceLocked() (string, profile.Profile, []byte, error) {
 	id := ""
 	if e.store != nil {

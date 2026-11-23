@@ -4,7 +4,7 @@ import { call } from "../client";
 import { tr } from "../i18n";
 import { colors } from "../theme";
 import { androidCall, androidHost } from "./platform";
-import { message, refreshStatus } from "./store";
+import { message, refreshStatus, session } from "./store";
 import { Action, Empty, Field, Heading, Label, Panel } from "./ui";
 
 export interface MeshDevice {
@@ -165,6 +165,18 @@ export function MeshPage(props: { onBack: () => void }) {
       stopped = true;
       clearTimeout(timer);
     };
+  });
+
+  let lastTunnelKey = `${!!session()?.meshTunnel}|${!!session()?.connected}`;
+  effect(() => {
+    const s = session();
+    const key = `${!!s?.meshTunnel}|${!!s?.connected}`;
+    if (key === lastTunnelKey) return;
+    lastTunnelKey = key;
+    if (loaded() && !working()) {
+      void loadStatus().catch(() => {});
+      void refreshStatus().catch(() => {});
+    }
   });
 
   const status = () => snap()?.status;

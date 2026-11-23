@@ -924,3 +924,108 @@ func TestMeshOpenAutoStartAndCloseLifecycle(t *testing.T) {
 		t.Fatal("Close did not release ownership.active")
 	}
 }
+
+func TestBackgroundMeshOnlyTunnelCoexistsWithActiveProfile(t *testing.T) {
+	p1YAML := "mode: rule\nproxies:\n  - {name: P1, type: direct}\nproxy-groups:\n  - name: 代理\n    type: select\n    proxies: [P1, DIRECT]\nrules:\n  - MATCH,代理\n"
+	p2YAML := "mode: rule\nproxies:\n  - {name: P2, type: direct}\nproxy-groups:\n  - name: 备用\n    type: select\n    proxies: [P2, DIRECT]\nrules:\n  - MATCH,备用\n"
+
+	backend := newFakeMeshBackend()
+	e := newMeshTestEngine(t, backend)
+
+	var prof1, prof2 Profile
+	if err := json.Unmarshal(call(t, e, "profiles.import", map[string]any{"name": "cnix", "yaml": p1YAML}), &prof1); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(call(t, e, "profiles.import", map[string]any{"name": "backup", "yaml": p2YAML}), &prof2); err != nil {
+		t.Fatal(err)
+	}
+	if e.store.ActiveID() != prof1.ID {
+		t.Fatalf("expected active profile %q, got %q", prof1.ID, e.store.ActiveID())
+	}
+
+	call(t, e, "mesh.action", map[string]any{"action": "connect"})
+
+	// Default tunnelPlan uses the active profile (full tunnel).
+	var fullPlan TunnelPlan
+	if err := json.Unmarshal(call(t, e, "engine.tunnelPlan", map[string]any{"appScope": map[string]any{"mode": "all"}}), &fullPlan); err != nil {
+		t.Fatal(err)
+	}
+	if fullPlan.MeshOnly || !slices.Equal(fullPlan.Routes, []string{"0.0.0.0/0", "::/0"}) {
+		t.Fatalf("expected full tunnel plan when active profile exists, got: %+v", fullPlan)
+	}
+
+	// Background meshOnly tunnelPlan builds a split-tunnel plan ignoring the active proxy profile.
+	var meshPlan TunnelPlan
+	if err := json.Unmarshal(call(t, e, "engine.tunnelPlan", map[string]any{"appScope": map[string]any{"mode": "all"}, "meshOnly": true}), &meshPlan); err != nil {
+		t.Fatal(err)
+	}
+	if !meshPlan.MeshOnly || !slices.Equal(meshPlan.Routes, []string{"100.64.0.0/10", "fd7a:115c:a1e0::/48"}) {
+		t.Fatalf("expected split-tunnel mesh-only plan, got: %+v", meshPlan)
+	}
+
+	// Simulate starting the background mesh-only tunnel (like Android GopurrVpnService CONNECT_MESH).
+	e.mu.Lock()
+	pending, err := e.validatePendingPlanLocked(meshPlan.Token)
+	if err != nil {
+		e.mu.Unlock()
+		t.Fatalf("meshOnly plan failed validation: %v", err)
+	}
+	if err := e.startLocked(context.Background(), pending.prepared); err != nil {
+		e.mu.Unlock()
+		t.Fatalf("startLocked for meshOnly plan failed: %v", err)
+	}
+	e.vpn = true
+	e.vpnMeshOnly = true
+	planCopy := clonePlan(pending.plan)
+	e.vpnPlan = &planCopy
+	ready := e.meshAccessReadyLocked()
+	e.mu.Unlock()
+
+	if !ready {
+		t.Fatal("expected meshAccessReadyLocked() to be true when background meshOnly tunnel runs")
+	}
+
+	// engine.status reports proxy Running=false, Tun=false, while Mesh.AccessReady=true.
+	var status Status
+	if err := json.Unmarshal(call(t, e, "engine.status", nil), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Running || status.Tun || status.ActiveProfile != prof1.ID {
+		t.Fatalf("expected proxy offline in status during background meshOnly tunnel, got: %+v", status)
+	}
+	if status.Mesh == nil || !status.Mesh.Running || !status.Mesh.AccessReady {
+		t.Fatalf("expected Mesh.Running and Mesh.AccessReady in status, got: %+v", status.Mesh)
+	}
+
+	// proxies.groups previews the active profile rather than exposing the internal mesh-only core.
+	var gl GroupList
+	if err := json.Unmarshal(call(t, e, "proxies.groups", nil), &gl); err != nil {
+		t.Fatal(err)
+	}
+	if !gl.Preview || len(gl.Groups) == 0 || gl.Groups[0].Name != "代理" {
+		t.Fatalf("expected preview of active profile groups, got: %+v", gl)
+	}
+
+	// profiles.activate switches active profile cleanly without failing with vpn_active.
+	if err := json.Unmarshal(call(t, e, "profiles.activate", map[string]any{"id": prof2.ID}), &status); err != nil {
+		t.Fatalf("profiles.activate failed during background meshOnly tunnel: %v", err)
+	}
+	if status.ActiveProfile != prof2.ID || status.Running || status.Mesh == nil || !status.Mesh.AccessReady {
+		t.Fatalf("unexpected status after profile switch during background meshOnly tunnel: %+v", status)
+	}
+	e.mu.Lock()
+	if !e.core.Running() || !e.vpn || !e.vpnMeshOnly {
+		e.mu.Unlock()
+		t.Fatal("profiles.activate tore down background meshOnly tunnel")
+	}
+	e.mu.Unlock()
+
+	// engine.stop tears down the background meshOnly tunnel cleanly.
+	call(t, e, "engine.stop", nil)
+	e.mu.Lock()
+	stoppedVpn, stoppedMeshOnly, stoppedReady := e.vpn, e.vpnMeshOnly, e.meshAccessReadyLocked()
+	e.mu.Unlock()
+	if stoppedVpn || stoppedMeshOnly || stoppedReady {
+		t.Fatalf("engine.stop left vpn=%v vpnMeshOnly=%v ready=%v", stoppedVpn, stoppedMeshOnly, stoppedReady)
+	}
+}

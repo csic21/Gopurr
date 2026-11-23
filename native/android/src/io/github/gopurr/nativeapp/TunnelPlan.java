@@ -10,6 +10,7 @@ final class TunnelPlan {
     final String token;
     final JSONObject json;
     final AppScope scope;
+    final boolean meshOnly;
 
     TunnelPlan(JSONObject object, String selfPackage) throws Exception {
         if (object.getInt("version") != 1 || !object.optBoolean("excludeSelf")) throw new IllegalArgumentException("The tunnel plan is incompatible with this host.");
@@ -18,6 +19,7 @@ final class TunnelPlan {
         int mtu = object.getInt("mtu");
         if (mtu < 1280 || mtu > 9000) throw new IllegalArgumentException("The tunnel MTU is invalid.");
         scope = AppScope.parse(object.getJSONObject("appScope"), selfPackage);
+        meshOnly = object.optBoolean("meshOnly", false);
         json = object;
     }
 
@@ -34,8 +36,10 @@ final class TunnelPlan {
         for (int i = 0; i < routes.length(); i++) {
             String[] cidr = cidr(routes.getString(i)); builder.addRoute(cidr[0], Integer.parseInt(cidr[1]));
         }
-        JSONArray dns = bounded(json.getJSONArray("dnsServers"), "DNS servers");
-        for (int i = 0; i < dns.length(); i++) builder.addDnsServer(dns.getString(i));
+        if (!meshOnly) {
+            JSONArray dns = bounded(json.getJSONArray("dnsServers"), "DNS servers");
+            for (int i = 0; i < dns.length(); i++) builder.addDnsServer(dns.getString(i));
+        }
         if (scope.mode.equals("include")) {
             for (String name : scope.packages) builder.addAllowedApplication(name);
         } else {

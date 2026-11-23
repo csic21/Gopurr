@@ -110,12 +110,12 @@ func (e *Engine) profileNetworkCall(ctx context.Context, method string, params j
 	defer e.mu.Unlock()
 	if result.Profile.ID == e.store.ActiveID() {
 		e.pendingPlan = nil
-		if e.core != nil && e.core.Running() {
+		if e.proxyRunningLocked() {
 			e.reconnectRequired = e.runtimeRevision != "" && e.runtimeRevision != revision
 		}
 	}
 	summary := profileSummary(result.Profile, e.store.ActiveID())
-	summary.ReconnectRequired = e.reconnectRequired && summary.Active && e.core != nil && e.core.Running()
+	summary.ReconnectRequired = e.reconnectRequired && summary.Active && e.proxyRunningLocked()
 	if method == "profiles.import" {
 		return summary, nil
 	} // Preserve API v1's direct profile response.
@@ -152,7 +152,7 @@ func (e *Engine) profileLocalCallLocked(ctx context.Context, method string, para
 		return nil, err
 	}
 	if method == "profiles.delete" {
-		if item.ID == e.store.ActiveID() && e.core != nil && e.core.Running() {
+		if item.ID == e.store.ActiveID() && e.proxyRunningLocked() {
 			return nil, failure("profile_in_use", "请先断开连接，再删除正在使用的配置")
 		}
 		if err := e.store.RemoveContext(ctx, item.ID); err != nil {
@@ -186,6 +186,6 @@ func (e *Engine) profileLocalCallLocked(ctx context.Context, method string, para
 		return nil, err
 	}
 	summary := profileSummary(item, e.store.ActiveID())
-	summary.ReconnectRequired = summary.Active && e.reconnectRequired && e.core != nil && e.core.Running()
+	summary.ReconnectRequired = summary.Active && e.reconnectRequired && e.proxyRunningLocked()
 	return ProfileMutation{Profile: &summary, Saved: true, Applied: false, ReconnectRequired: summary.ReconnectRequired, Status: e.statusLocked()}, nil
 }

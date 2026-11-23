@@ -83,6 +83,7 @@ type Engine struct {
 	closed            bool
 	vpnFD             int
 	vpn               bool
+	vpnMeshOnly       bool
 	logsMu            sync.Mutex
 	logs              logBuffer
 	logSubscription   observable.Subscription[log.Event]
@@ -265,7 +266,7 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 		if err := emptyParams(params); err != nil {
 			return nil, err
 		}
-		if e.core.Running() {
+		if e.proxyRunningLocked() {
 			return e.statusLocked(), nil
 		}
 		id := e.store.ActiveID()
@@ -315,11 +316,12 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 	case "engine.tunnelPlan":
 		var p struct {
 			AppScope AppScope `json:"appScope"`
+			MeshOnly bool     `json:"meshOnly"`
 		}
 		if err := decodeParams(params, &p); err != nil {
 			return nil, err
 		}
-		return e.tunnelPlanLocked(p.AppScope)
+		return e.tunnelPlanWithOptionsLocked(p.AppScope, p.MeshOnly)
 	case "profiles.activate":
 		var p struct {
 			ID string `json:"id"`
@@ -338,7 +340,7 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 		if err := emptyParams(params); err != nil {
 			return nil, err
 		}
-		if !e.core.Running() {
+		if !e.proxyRunningLocked() {
 			return e.previewGroupsLocked()
 		}
 		return e.groupsLocked(), nil
@@ -350,7 +352,7 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 		if err := decodeParams(params, &p); err != nil {
 			return nil, err
 		}
-		if !e.core.Running() {
+		if !e.proxyRunningLocked() {
 			return nil, failure("not_running", "请先连接代理")
 		}
 		if err := e.selectAndSaveLocked(p.Group, p.Member); err != nil {
@@ -371,8 +373,12 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 	}
 }
 
+func (e *Engine) proxyRunningLocked() bool {
+	return e.core != nil && e.core.Running() && !e.vpnMeshOnly
+}
+
 func (e *Engine) statusLocked() Status {
-	running := e.core != nil && e.core.Running()
+	running := e.proxyRunningLocked()
 	s := Status{APIVersion: APIVersion, Running: running, ActiveProfile: e.store.ActiveID(), MixedPort: e.port, Mode: e.mode, Error: e.lastError, Busy: e.operation != nil, ReconnectRequired: running && e.reconnectRequired, TunnelPlanVersion: TunnelPlanVersion, AppScope: cloneScope(e.scope)}
 	if s.AppScope.Mode == "" {
 		s.AppScope = defaultScope()
@@ -386,7 +392,7 @@ func (e *Engine) statusLocked() Status {
 	}
 	s.VPNSupported = mobileVPNSupported()
 	s.Capabilities.Tun = s.VPNSupported
-	s.Tun = e.vpn && s.Running
+	s.Tun = e.vpn && running
 	if s.Running {
 		if s.Mode == "" {
 			s.Mode = e.core.Mode()
@@ -402,7 +408,7 @@ func (e *Engine) profilesLocked() ProfileList {
 	list := ProfileList{Active: e.store.ActiveID(), Profiles: []Profile{}}
 	for _, p := range e.store.List() {
 		summary := profileSummary(p, list.Active)
-		summary.ReconnectRequired = summary.Active && e.reconnectRequired && e.core != nil && e.core.Running()
+		summary.ReconnectRequired = summary.Active && e.reconnectRequired && e.proxyRunningLocked()
 		list.Profiles = append(list.Profiles, summary)
 	}
 	return list
@@ -423,8 +429,32 @@ func (e *Engine) activateLocked(ctx context.Context, id string) error {
 		return failure("busy", "订阅正在更新，请稍后重试")
 	}
 	defer e.profileMu.Unlock()
-	if e.vpn {
+	if e.vpn && !e.vpnMeshOnly {
 		return failure("vpn_active", "请先断开 VPN，再切换订阅")
+	}
+	if e.vpn && e.vpnMeshOnly {
+		if id == "" || id == meshOnlyProfileID {
+			return failure("no_profile", "请先导入并选择配置")
+		}
+		p, err := e.store.Get(id)
+		if err != nil {
+			return err
+		}
+		raw, err := e.store.Content(id)
+		if err != nil {
+			return err
+		}
+		if _, _, err := e.prepareWithBaseCountLocked(raw, p); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := e.store.SetActiveContext(ctx, id); err != nil {
+			return err
+		}
+		e.pendingPlan = nil
+		return nil
 	}
 	if id == "" {
 		return failure("no_profile", "请先导入并选择配置")

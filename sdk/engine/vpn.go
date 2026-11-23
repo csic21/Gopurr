@@ -66,7 +66,8 @@ func (e *Engine) startVPNLocked(ctx context.Context, fd int, protect func(int) b
 	if err := ctx.Err(); err != nil {
 		return Status{}, err
 	}
-	_, item, raw, err := e.activeRuntimeSourceLocked()
+	forceMeshOnly := pending != nil && pending.backgroundMesh
+	_, item, raw, err := e.runtimeSourceForPlanLocked(forceMeshOnly)
 	if err != nil {
 		return Status{}, err
 	}
@@ -107,6 +108,7 @@ func (e *Engine) startVPNLocked(ctx context.Context, fd int, protect func(int) b
 		return Status{}, err
 	}
 	e.vpn = true
+	e.vpnMeshOnly = pending.backgroundMesh
 	plan := clonePlan(pending.plan)
 	e.vpnPlan = &plan
 	e.scope = cloneScope(plan.AppScope)
@@ -144,6 +146,7 @@ func (e *Engine) stopVPNLocked() {
 	// could close an unrelated socket which has reused that descriptor number.
 	e.vpnFD = -1
 	e.vpn = false
+	e.vpnMeshOnly = false
 	e.vpnPlan = nil
 	setVPNProtector(nil)
 }
@@ -190,10 +193,10 @@ func vpnConfigurationWithPlan(raw []byte, fd int, plan TunnelPlan) ([]byte, erro
 	dns["fake-ip-range"] = netip.PrefixFrom(address4.Addr(), 16).String()
 	delete(dns, "listen")
 	if _, exists := dns["nameserver"]; !exists {
-		dns["nameserver"] = []string{"https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"}
+		dns["nameserver"] = []string{"223.5.5.5", "https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"}
 	}
 	if _, exists := dns["default-nameserver"]; !exists {
-		dns["default-nameserver"] = []string{"1.1.1.1", "8.8.8.8"}
+		dns["default-nameserver"] = []string{"223.5.5.5", "1.1.1.1", "8.8.8.8"}
 	}
 	doc["dns"] = dns
 	return yaml.Marshal(doc)

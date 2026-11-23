@@ -38,6 +38,12 @@ public final class SessionController {
     private AppScope scope;
     private boolean scopeValid = true;
     private String errorMessage = "";
+    private static final long MESH_TICKET = -1L;
+    private boolean meshWanted;
+    private boolean meshTunnelActive;
+    private boolean meshTunnelAttempted;
+    private boolean awaitingMeshPermission;
+    private boolean claimingMeshPermission;
 
     public static synchronized SessionController get(Context context) {
         if (instance == null) instance = new SessionController(context.getApplicationContext());
@@ -65,6 +71,8 @@ public final class SessionController {
             object.put("phase", phase(state.phase)).put("generation", state.generation)
                     .put("connected", state.phase == SessionMachine.Phase.CONNECTED)
                     .put("busy", state.phase == SessionMachine.Phase.AWAITING_PERMISSION || state.phase == SessionMachine.Phase.CONNECTING || state.phase == SessionMachine.Phase.DISCONNECTING)
+                    .put("meshTunnel", meshTunnelActive)
+                    .put("awaitingMeshPermission", awaitingMeshPermission)
                     .put("scope", scope.json());
             if (!state.reason.isEmpty()) object.put("reason", state.reason);
             if (!errorMessage.isEmpty()) object.put("error", new JSONObject().put("code", state.reason).put("message", errorMessage));
@@ -128,6 +136,102 @@ public final class SessionController {
     public boolean claimPermission(long ticket) { return machine.claimPermission(ticket); }
     public void releasePermission(long ticket) { machine.releasePermission(ticket); }
 
+    public synchronized boolean claimMeshPermission() {
+        if (!awaitingMeshPermission || claimingMeshPermission) return false;
+        claimingMeshPermission = true;
+        return true;
+    }
+
+    public synchronized void releaseMeshPermission() {
+        claimingMeshPermission = false;
+    }
+
+    public void meshPermissionResult(boolean granted) {
+        boolean start;
+        synchronized (this) {
+            if (!awaitingMeshPermission) return;
+            awaitingMeshPermission = false;
+            claimingMeshPermission = false;
+            start = granted && meshWanted && !machine.snapshot().wanted && scopeValid;
+        }
+        publish();
+        if (start) command(GopurrVpnService.CONNECT_MESH, MESH_TICKET);
+    }
+
+    public void onEngineDispatch(String method, String responseJson) {
+        if (method == null || responseJson == null || responseJson.isEmpty()) return;
+        boolean isEngineStatus = "engine.status".equals(method);
+        boolean isMeshMethod = "mesh.status".equals(method) || "mesh.action".equals(method)
+                || "mesh.services".equals(method) || "mesh.block".equals(method) || "mesh.autoConnect".equals(method);
+        if (!isEngineStatus && !isMeshMethod) return;
+        try {
+            JSONObject envelope = new JSONObject(responseJson);
+            if (envelope.has("error")) return;
+            JSONObject result = envelope.optJSONObject("result");
+            if (result == null) return;
+            boolean running;
+            boolean accessReady;
+            if (isEngineStatus) {
+                JSONObject mesh = result.optJSONObject("mesh");
+                if (mesh == null) {
+                    syncMeshState(false, false, false);
+                    return;
+                }
+                running = mesh.optBoolean("running", false);
+                accessReady = mesh.optBoolean("accessReady", false);
+            } else {
+                JSONObject status = result.optJSONObject("status");
+                running = status != null && status.optBoolean("running", false);
+                accessReady = result.optBoolean("accessReady", false);
+            }
+            syncMeshState(running, accessReady, "mesh.action".equals(method));
+        } catch (Exception ignored) { }
+    }
+
+    private void syncMeshState(boolean running, boolean accessReady, boolean explicitAction) {
+        boolean startCommand = false;
+        boolean needPermissionPublish = false;
+        boolean shouldStopMesh = false;
+        GopurrVpnService stopOwner = null;
+        synchronized (this) {
+            if (!running) {
+                boolean wasActive = meshWanted || meshTunnelActive;
+                meshWanted = false;
+                meshTunnelAttempted = false;
+                awaitingMeshPermission = false;
+                claimingMeshPermission = false;
+                if (!machine.snapshot().wanted && wasActive) {
+                    stopOwner = service;
+                    shouldStopMesh = true;
+                }
+            } else {
+                boolean becameRunning = !meshWanted;
+                meshWanted = true;
+                if (explicitAction || accessReady) meshTunnelAttempted = false;
+                if (!machine.snapshot().wanted && scopeValid && !accessReady && !meshTunnelActive
+                        && (becameRunning || explicitAction || !meshTunnelAttempted)) {
+                    meshTunnelAttempted = true;
+                    boolean needsPermission;
+                    try { needsPermission = VpnService.prepare(context) != null; }
+                    catch (RuntimeException error) { needsPermission = false; }
+                    if (needsPermission) {
+                        awaitingMeshPermission = true;
+                        needPermissionPublish = true;
+                    } else {
+                        startCommand = true;
+                    }
+                }
+            }
+        }
+        if (shouldStopMesh) {
+            GopurrVpnService target = stopOwner;
+            control.execute(() -> runStopMesh(target, 0));
+            return;
+        }
+        if (needPermissionPublish) publish();
+        if (startCommand) command(GopurrVpnService.CONNECT_MESH, MESH_TICKET);
+    }
+
     public void permissionResult(long ticket, boolean granted) {
         synchronized (this) {
             if (!machine.permission(ticket, granted)) return;
@@ -143,6 +247,28 @@ public final class SessionController {
     void attach(GopurrVpnService service) { this.service = service; }
 
     void serviceCommand(GopurrVpnService owner, String action, long ticket, int startId) {
+        if (GopurrVpnService.CONNECT_MESH.equals(action)) {
+            control.execute(() -> runConnectMesh(owner, startId));
+            return;
+        }
+        if (ticket == 0 && GopurrVpnService.DISCONNECT.equals(action)) {
+            boolean stopMeshOnly;
+            synchronized (this) {
+                stopMeshOnly = !machine.snapshot().wanted && (meshWanted || meshTunnelActive);
+                if (stopMeshOnly) {
+                    meshWanted = false;
+                    meshTunnelAttempted = false;
+                }
+            }
+            if (stopMeshOnly) {
+                control.execute(() -> {
+                    try { NativeEngine.get(context).dispatch("{\"method\":\"mesh.action\",\"params\":{\"action\":\"disconnect\"}}"); }
+                    catch (Exception ignored) { }
+                    runStopMesh(owner, startId);
+                });
+                return;
+            }
+        }
         if (ticket == 0) {
             if (GopurrVpnService.DISCONNECT.equals(action)) disconnect();
             else connect();
@@ -158,7 +284,9 @@ public final class SessionController {
                     .setAction(action).putExtra("generation", ticket));
         } catch (RuntimeException error) {
             synchronized (this) {
-                if (machine.failed(ticket, "service_failed")) { errorMessage = message(error); complete(ticket, failure("service_failed", errorMessage)); }
+                if (ticket == MESH_TICKET) {
+                    meshTunnelActive = false;
+                } else if (machine.failed(ticket, "service_failed")) { errorMessage = message(error); complete(ticket, failure("service_failed", errorMessage)); }
             }
             publish();
         }
@@ -181,6 +309,11 @@ public final class SessionController {
             control.execute(() -> { cleanup(owner, ticket); finishIfUnwanted(owner, startId); });
         }, 60_000);
         try {
+            synchronized (this) {
+                meshTunnelActive = false;
+                awaitingMeshPermission = false;
+                claimingMeshPermission = false;
+            }
             // Even a superseded disconnect cannot leave an old FD under a new plan.
             stopCurrent();
             if (!machine.currentConnect(ticket) || owner.destroyed()) return;
@@ -215,20 +348,100 @@ public final class SessionController {
     private void runStop(GopurrVpnService owner, long ticket, int startId) {
         SessionMachine.Snapshot state = machine.snapshot();
         if (state.generation != ticket || state.wanted) return;
+        synchronized (this) { meshTunnelActive = false; }
         String result;
         try { result = stopCurrent(); }
         catch (Exception error) { result = failure("vpn_failed", message(error)); }
         synchronized (this) {
             if (machine.stopped(ticket)) complete(ticket, result);
         }
+        boolean fallbackToMesh;
+        synchronized (this) {
+            fallbackToMesh = !machine.snapshot().wanted && meshWanted && scopeValid;
+        }
+        if (fallbackToMesh) {
+            publish();
+            if (owner != null && !owner.destroyed()) runConnectMesh(owner, startId);
+            else command(GopurrVpnService.CONNECT_MESH, MESH_TICKET);
+            return;
+        }
         publish();
         if (owner != null) finishIfUnwanted(owner, startId);
+    }
+
+    private void runConnectMesh(GopurrVpnService owner, int startId) {
+        if (owner == null || owner.destroyed()) return;
+        synchronized (this) {
+            if (machine.snapshot().wanted || !meshWanted || !scopeValid) {
+                if (!machine.snapshot().wanted) finishIfUnwanted(owner, startId);
+                return;
+            }
+        }
+        try {
+            stopCurrent();
+            AppScope selected;
+            synchronized (this) {
+                if (machine.snapshot().wanted || !meshWanted || owner.destroyed()) {
+                    if (!machine.snapshot().wanted) finishIfUnwanted(owner, startId);
+                    return;
+                }
+                selected = scope;
+            }
+            selected.verifyInstalled(context);
+            NativeEngine engine = NativeEngine.get(context);
+            JSONObject response = new JSONObject(engine.dispatch(new JSONObject().put("method", "engine.tunnelPlan")
+                    .put("params", new JSONObject().put("appScope", selected.engineJson()).put("meshOnly", true)).toString()));
+            if (response.has("error")) throw new NativeFailure(response.getJSONObject("error"));
+            TunnelPlan plan = new TunnelPlan(response.getJSONObject("result"), context.getPackageName());
+            synchronized (this) {
+                if (machine.snapshot().wanted || !meshWanted || owner.destroyed()) {
+                    if (!machine.snapshot().wanted) finishIfUnwanted(owner, startId);
+                    return;
+                }
+            }
+            tunnel.assign(owner, MESH_TICKET);
+            String result = owner.startTunnel(plan);
+            JSONObject envelope = new JSONObject(result);
+            if (envelope.has("error")) throw new NativeFailure(envelope.getJSONObject("error"));
+            synchronized (this) {
+                if (machine.snapshot().wanted || !meshWanted || owner.destroyed()) {
+                    cleanup(owner, MESH_TICKET);
+                    if (!machine.snapshot().wanted) finishIfUnwanted(owner, startId);
+                    return;
+                }
+                meshTunnelActive = true;
+            }
+            publish();
+            MAIN.post(() -> { if (!owner.destroyed()) owner.refreshNotification(snapshot()); });
+        } catch (Exception error) {
+            cleanup(owner, MESH_TICKET);
+            synchronized (this) { meshTunnelActive = false; }
+            publish();
+            finishIfUnwanted(owner, startId);
+        }
+    }
+
+    private void runStopMesh(GopurrVpnService owner, int startId) {
+        synchronized (this) {
+            if (machine.snapshot().wanted || meshWanted) return;
+            meshTunnelActive = false;
+        }
+        try { stopCurrent(); }
+        catch (Exception ignored) { }
+        publish();
+        GopurrVpnService target = owner != null ? owner : service;
+        if (target != null) finishIfUnwanted(target, startId);
     }
 
     void revoked(GopurrVpnService owner) {
         long ticket;
         synchronized (this) {
             if (service != owner) return;
+            meshWanted = false;
+            meshTunnelActive = false;
+            meshTunnelAttempted = false;
+            awaitingMeshPermission = false;
+            claimingMeshPermission = false;
             ticket = machine.disconnect("permission_revoked");
             errorMessage = ""; completeSuperseded(ticket);
         }
@@ -243,6 +456,7 @@ public final class SessionController {
         synchronized (this) {
             ticket = machine.snapshot().generation;
             if (service != owner) return;
+            meshTunnelActive = false;
             if (machine.failed(ticket, "service_failed")) {
                 errorMessage = message(error); complete(ticket, failure("service_failed", errorMessage));
             }
@@ -258,6 +472,7 @@ public final class SessionController {
     void serviceDestroyed(GopurrVpnService owner) {
         if (service != owner) { control.execute(() -> cleanup(owner, 0)); return; }
         service = null;
+        synchronized (this) { meshTunnelActive = false; }
         SessionMachine.Snapshot state = machine.snapshot();
         if (state.wanted) {
             synchronized (this) {
@@ -283,20 +498,34 @@ public final class SessionController {
 
     private void finishIfUnwanted(GopurrVpnService owner, int startId) {
         MAIN.post(() -> {
-            SessionMachine.Snapshot state = machine.snapshot();
-            if (!state.wanted && service == owner) owner.finishStopped(startId);
+            SessionMachine.Snapshot state;
+            boolean meshNeeded;
+            synchronized (this) {
+                state = machine.snapshot();
+                meshNeeded = meshTunnelActive || meshWanted;
+            }
+            if (!state.wanted && !meshNeeded && service == owner) owner.finishStopped(startId);
         });
     }
 
     public synchronized JSONObject scope() { return scope.json(); }
 
-    public synchronized JSONObject setScope(JSONObject value) throws Exception {
-        SessionMachine.Phase phase = machine.snapshot().phase;
-        if (phase != SessionMachine.Phase.IDLE && phase != SessionMachine.Phase.FAILED) throw new IllegalStateException("Disconnect VPN before changing application scope.");
-        AppScope next = AppScope.parse(value, context.getPackageName());
-        next.verifyInstalled(context);
-        if (!preferences.edit().putString("scope", next.json().toString()).commit()) throw new IllegalStateException("Application scope could not be saved.");
-        scope = next; scopeValid = true; errorMessage = ""; publish(); return scope.json();
+    public JSONObject setScope(JSONObject value) throws Exception {
+        boolean restartMesh;
+        JSONObject updated;
+        synchronized (this) {
+            SessionMachine.Phase phase = machine.snapshot().phase;
+            if (phase != SessionMachine.Phase.IDLE && phase != SessionMachine.Phase.FAILED) throw new IllegalStateException("Disconnect VPN before changing application scope.");
+            AppScope next = AppScope.parse(value, context.getPackageName());
+            next.verifyInstalled(context);
+            if (!preferences.edit().putString("scope", next.json().toString()).commit()) throw new IllegalStateException("Application scope could not be saved.");
+            scope = next; scopeValid = true; errorMessage = "";
+            restartMesh = meshTunnelActive && !machine.snapshot().wanted;
+            updated = scope.json();
+        }
+        publish();
+        if (restartMesh) command(GopurrVpnService.CONNECT_MESH, MESH_TICKET);
+        return updated;
     }
 
     public JSONObject applications() throws Exception {

@@ -24,6 +24,7 @@ import java.util.function.Consumer;
 /** Owns Android resources; SessionController owns commands, generations and state. */
 public final class GopurrVpnService extends VpnService {
     static final String CONNECT = "io.github.gopurr.nativeapp.CONNECT";
+    static final String CONNECT_MESH = "io.github.gopurr.nativeapp.CONNECT_MESH";
     static final String DISCONNECT = "io.github.gopurr.nativeapp.DISCONNECT";
     static final String CHANNEL = "gopurr-connection";
     static final String NOTIFICATION_CHANGED = "io.github.gopurr.nativeapp.NOTIFICATION_CHANGED";
@@ -187,12 +188,14 @@ public final class GopurrVpnService extends VpnService {
         JSONObject state = notificationState;
         boolean chinese = getResources().getConfiguration().getLocales().get(0).getLanguage().equals("zh");
         boolean connected = state.optBoolean("connected");
+        boolean meshOnly = !connected && state.optBoolean("meshTunnel");
         String phase = state.optString("phase");
         String description;
         if (connected) description = chinese ? "VPN 已连接" : "VPN connected";
+        else if (meshOnly) description = chinese ? "组网已连接" : "Mesh connected";
         else if (phase.equals("disconnecting")) description = chinese ? "正在断开 VPN…" : "Disconnecting VPN…";
         else description = chinese ? "正在连接 VPN…" : "Connecting VPN…";
-        String content = description;
+        String content = meshOnly ? (chinese ? "仅接管组网流量（代理未开启）" : "Routing mesh traffic only (proxy off)") : description;
         String expanded = chinese ? "点击打开连接页" : "Tap to open Connect";
         if (connected && trafficEnabled() && traffic != null) {
             content = TrafficText.rates(chinese, traffic.optLong("down"), traffic.optLong("up"));
@@ -200,13 +203,13 @@ public final class GopurrVpnService extends VpnService {
         } else if (connected && trafficEnabled() && !getSystemService(PowerManager.class).isInteractive()) {
             expanded = chinese ? "熄屏时暂停速率更新；亮屏后恢复。" : "Rate updates pause while the screen is off and resume when it wakes.";
         }
-        String signature = content + "\n" + expanded + "\n" + description;
+        String signature = content + "\n" + expanded + "\n" + description + "\n" + meshOnly;
         if (!foreground && signature.equals(lastNotification)) return;
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class).putExtra("page", "overview").addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent disconnect = PendingIntent.getService(this, 1,
                 new Intent(this, GopurrVpnService.class).setAction(DISCONNECT), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        RemoteViews compact = notificationContent(chinese, connected, description, open, disconnect);
+        RemoteViews compact = notificationContent(chinese, connected, meshOnly, description, open, disconnect);
         Notification.Builder builder = new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.notification_icon)
                 .setContentTitle("Gopurr").setContentText(content).setSubText(description).setContentIntent(open)
                 .setStyle(new Notification.DecoratedCustomViewStyle())
@@ -221,11 +224,11 @@ public final class GopurrVpnService extends VpnService {
         lastNotification = signature;
     }
 
-    private RemoteViews notificationContent(boolean chinese, boolean connected, String description,
+    private RemoteViews notificationContent(boolean chinese, boolean connected, boolean meshOnly, String description,
                                             PendingIntent open, PendingIntent disconnect) {
         RemoteViews view = new RemoteViews(getPackageName(), R.layout.notification_compact);
         String down = description;
-        String up = chinese ? "点击打开连接页" : "Tap to open Connect";
+        String up = meshOnly ? (chinese ? "仅路由组网设备虚拟 IP" : "Mesh virtual IPs only") : (chinese ? "点击打开连接页" : "Tap to open Connect");
         if (connected && trafficEnabled() && traffic != null) {
             down = (chinese ? "下载 " : "Down ") + TrafficText.bytes(traffic.optLong("down")) + "/s";
             up = (chinese ? "上传 " : "Up ") + TrafficText.bytes(traffic.optLong("up")) + "/s";
@@ -238,7 +241,7 @@ public final class GopurrVpnService extends VpnService {
         view.setTextViewText(R.id.notification_up, up);
         view.setContentDescription(R.id.notification_down, down);
         view.setContentDescription(R.id.notification_up, up);
-        view.setTextViewText(R.id.notification_disconnect, chinese ? "断开连接" : "Disconnect");
+        view.setTextViewText(R.id.notification_disconnect, meshOnly ? (chinese ? "断开组网" : "Disconnect") : (chinese ? "断开连接" : "Disconnect"));
         view.setOnClickPendingIntent(R.id.notification_body, open);
         view.setOnClickPendingIntent(R.id.notification_disconnect, disconnect);
         return view;

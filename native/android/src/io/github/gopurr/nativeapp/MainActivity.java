@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutorService;
 
 /** A replaceable NSH view and system-dialog presenter; connection intent lives in SessionController. */
 public final class MainActivity extends Activity {
+    private static final long MESH_PERMISSION_TICKET = -1L;
     private NshView app;
     private SessionController controller;
     private NativeActions actions;
@@ -101,8 +102,11 @@ public final class MainActivity extends Activity {
                     else {
                         ExecutorService executor = readMethod(method) ? NativeEngine.QUERIES : NativeEngine.WORKER;
                         executor.execute(() -> {
-                            try { resolve(reply, NativeEngine.get(this).dispatch(request.toString())); }
-                            catch (Exception error) { reply.reject(SessionController.message(error)); }
+                            try {
+                                String response = NativeEngine.get(this).dispatch(request.toString());
+                                controller.onEngineDispatch(method, response);
+                                resolve(reply, response);
+                            } catch (Exception error) { reply.reject(SessionController.message(error)); }
                         });
                     }
                 } catch (Exception error) { reply.reject(SessionController.message(error)); }
@@ -120,25 +124,52 @@ public final class MainActivity extends Activity {
     private void presentPermission(JSONObject state) {
         long ticket = state.optLong("generation");
         boolean waiting = state.optString("phase").equals("awaitingPermission");
+        boolean waitingMesh = state.optBoolean("awaitingMeshPermission");
         for (Map.Entry<Integer, Long> request : new HashMap<>(permissionRequests).entrySet()) {
-            if (!waiting || request.getValue() != ticket) finishActivity(request.getKey());
+            long value = request.getValue();
+            boolean validProxy = waiting && value == ticket;
+            boolean validMesh = waitingMesh && value == MESH_PERMISSION_TICKET;
+            if (!validProxy && !validMesh) {
+                finishActivity(request.getKey());
+                permissionRequests.remove(request.getKey());
+            }
         }
-        if (!waiting || permissionRequests.containsValue(ticket) || !controller.claimPermission(ticket)) return;
+        if (waiting && !permissionRequests.containsValue(ticket) && controller.claimPermission(ticket)) {
+            launchVpnPermission(ticket);
+            return;
+        }
+        if (waitingMesh && !permissionRequests.containsValue(MESH_PERMISSION_TICKET) && controller.claimMeshPermission()) {
+            launchVpnPermission(MESH_PERMISSION_TICKET);
+        }
+    }
+
+    private void launchVpnPermission(long ticket) {
         Intent permission = android.net.VpnService.prepare(this);
-        if (permission == null) { controller.permissionResult(ticket, true); return; }
+        if (permission == null) {
+            if (ticket == MESH_PERMISSION_TICKET) controller.meshPermissionResult(true);
+            else controller.permissionResult(ticket, true);
+            return;
+        }
         int code = nextPermissionCode++;
         if (nextPermissionCode > 16_000) nextPermissionCode = 1024;
         while (permissionRequests.containsKey(code)) code = nextPermissionCode++;
         permissionRequests.put(code, ticket);
         try { startActivityForResult(permission, code); }
-        catch (RuntimeException error) { permissionRequests.remove(code); controller.permissionResult(ticket, false); }
+        catch (RuntimeException error) {
+            permissionRequests.remove(code);
+            if (ticket == MESH_PERMISSION_TICKET) controller.meshPermissionResult(false);
+            else controller.permissionResult(ticket, false);
+        }
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (actions != null && actions.activityResult(request, result, data)) return;
         Long ticket = permissionRequests.remove(request);
-        if (ticket != null) controller.permissionResult(ticket, result == RESULT_OK);
+        if (ticket != null) {
+            if (ticket == MESH_PERMISSION_TICKET) controller.meshPermissionResult(result == RESULT_OK);
+            else controller.permissionResult(ticket, result == RESULT_OK);
+        }
         presentPermission(controller.snapshot());
     }
 
@@ -218,7 +249,10 @@ public final class MainActivity extends Activity {
         if (listener != null) controller.removeListener(listener);
         if (updateListener != null) updates.clearListener(updateListener);
         if (actions != null) actions.close();
-        if (isFinishing()) for (long ticket : permissionRequests.values()) controller.releasePermission(ticket);
+        if (isFinishing()) for (long ticket : permissionRequests.values()) {
+            if (ticket == MESH_PERMISSION_TICKET) controller.releaseMeshPermission();
+            else controller.releasePermission(ticket);
+        }
         if (app != null) { app.destroy(); app = null; }
         // Closing or recreating a view never changes the process-owned session.
         super.onDestroy();

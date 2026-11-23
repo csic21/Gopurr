@@ -34,15 +34,17 @@ type TunnelPlan struct {
 	IPv6        bool     `json:"ipv6"`
 	AppScope    AppScope `json:"appScope"`
 	ExcludeSelf bool     `json:"excludeSelf"`
+	MeshOnly    bool     `json:"meshOnly,omitempty"`
 }
 
 type pendingTunnelPlan struct {
-	plan          TunnelPlan
-	profileID     string
-	revision      string
-	prepared      []byte
-	mode          string
-	baseRuleCount int
+	plan           TunnelPlan
+	profileID      string
+	revision       string
+	prepared       []byte
+	mode           string
+	baseRuleCount  int
+	backgroundMesh bool
 }
 
 var packageName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$`)
@@ -108,11 +110,15 @@ func profileRevision(p profile.Profile, raw []byte) string {
 }
 
 func (e *Engine) tunnelPlanLocked(scope AppScope) (TunnelPlan, error) {
+	return e.tunnelPlanWithOptionsLocked(scope, false)
+}
+
+func (e *Engine) tunnelPlanWithOptionsLocked(scope AppScope, backgroundMesh bool) (TunnelPlan, error) {
 	scope, err := normalizeScope(scope)
 	if err != nil {
 		return TunnelPlan{}, err
 	}
-	id, p, raw, err := e.activeRuntimeSourceLocked()
+	id, p, raw, err := e.runtimeSourceForPlanLocked(backgroundMesh)
 	if err != nil {
 		return TunnelPlan{}, err
 	}
@@ -124,7 +130,11 @@ func (e *Engine) tunnelPlanLocked(scope AppScope) (TunnelPlan, error) {
 	if err != nil {
 		return TunnelPlan{}, err
 	}
-	e.pendingPlan = &pendingTunnelPlan{plan: plan, profileID: id, revision: profileRevision(p, raw), prepared: prepared, mode: e.mode, baseRuleCount: baseCount}
+	if id == meshOnlyProfileID {
+		plan.MeshOnly = true
+		plan.Routes = []string{"100.64.0.0/10", "fd7a:115c:a1e0::/48"}
+	}
+	e.pendingPlan = &pendingTunnelPlan{plan: plan, profileID: id, revision: profileRevision(p, raw), prepared: prepared, mode: e.mode, baseRuleCount: baseCount, backgroundMesh: backgroundMesh}
 	e.scope = scope
 	return clonePlan(plan), nil
 }
@@ -133,7 +143,7 @@ func (e *Engine) validatePendingPlanLocked(token string) (*pendingTunnelPlan, er
 	if e.pendingPlan == nil || token == "" || token != e.pendingPlan.plan.Token {
 		return nil, failure("stale_plan", "VPN 配置已变化，请重新准备连接")
 	}
-	_, item, raw, err := e.activeRuntimeSourceLocked()
+	_, item, raw, err := e.runtimeSourceForPlanLocked(e.pendingPlan.backgroundMesh)
 	if err != nil {
 		if asError(err).Code == "no_profile" {
 			return nil, failure("stale_plan", "VPN 配置已变化，请重新准备连接")

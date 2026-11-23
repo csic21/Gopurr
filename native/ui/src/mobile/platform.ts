@@ -6,6 +6,8 @@ export interface AndroidSession {
   generation: number;
   busy: boolean;
   connected: boolean;
+  meshTunnel?: boolean;
+  awaitingMeshPermission?: boolean;
   reason?: string;
   error?: { code: string; message: string };
   scope: AppScope;
