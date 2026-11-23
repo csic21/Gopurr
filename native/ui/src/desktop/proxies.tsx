@@ -16,8 +16,19 @@ function delayLabel(item:any):string {if(!item?.delayKnown)return tr("未测试"
 function delayColor(item:any):string {if(!item?.delayKnown)return colors().faint;if(!item.delay||item.delay>=500)return colors().danger;if(item.delay>=200)return colors().warn;return colors().success;}
 function nodeKind(item:any):string {if(item?.name==="DIRECT")return tr("直连","Direct");if(String(item?.name??"").startsWith("REJECT"))return tr("拦截","Reject");return item?.type||tr("代理节点","Proxy");}
 const MOTION={transitionProperty:"background-color, border-color, color",transitionDuration:140,transitionTimingFunction:"ease-out"} as const;
-/** A latency reading as a tinted pill: the number keeps its tabular column. */
-function DelayTag(p:{item:any}) {const color=delayColor(p.item);return <View style={{height:20,paddingHorizontal:7,justifyContent:"center",borderRadius:RADIUS.pill,backgroundColor:tint(color,"17"),borderWidth:1,borderColor:tint(color,"1f")}}><Text style={{fontSize:10.5,fontWeight:"600",fontVariant:"tabular-nums",letterSpacing:0.1,color,numberOfLines:1}}>{delayLabel(p.item)}</Text></View>;}
+/** A latency reading: quiet tabular text when untested, micro-pill with dot when known. */
+function DelayTag(p:{item:any}) {
+ const known=()=>!!p.item?.delayKnown;
+ const color=()=>delayColor(p.item);
+ const dark=()=>colorScheme()==="dark";
+ return <View style={{alignItems:"flex-end",justifyContent:"center"}}>
+   <If when={!known()}><Text style={{fontSize:11,fontVariant:"tabular-nums",color:colors().faint,numberOfLines:1}}>{delayLabel(p.item)}</Text></If>
+   <If when={known()}><View style={{height:22,paddingHorizontal:8,borderRadius:6,flexDirection:"row",alignItems:"center",gap:5,backgroundColor:tint(color(),dark()?"15":"10")}}>
+     <View style={{width:5,height:5,borderRadius:2.5,backgroundColor:color()}}/>
+     <Text style={{fontSize:11,fontWeight:"600",fontVariant:"tabular-nums",letterSpacing:0.1,color:color(),numberOfLines:1}}>{delayLabel(p.item)}</Text>
+   </View></If>
+ </View>;
+}
 export function ProxiesPage(p:PageProps) {
  watchDesktopDraft("proxies",()=>editor()&&(!!chosen()||JSON.stringify(model().edits??{})!==editorBase()));
  const groups=()=>p.snapshot().groups??[];
@@ -62,8 +73,8 @@ export function ProxiesPage(p:PageProps) {
    <Text style={{fontSize:16,fontWeight:"600",letterSpacing:-0.2,color:colors().text,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={selected()?.name??""}>{selected()?.name??""}</Text>
    <Text style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={groupCaption()}>{groupCaption()}</Text>
  </View>;
- const nodeRow=(item:()=>any)=> <View style={{flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderColor:colors().border,backgroundColor:selected()?.now===item().name?colors().selected:colors().surface,...MOTION}} hoverStyle={{backgroundColor:selected()?.now===item().name?colors().selected:colors().hover}}>
-   <If when={selected()?.now===item().name}><View style={{position:"absolute",left:0,top:0,bottom:0,width:3,backgroundColor:colors().accent}}/></If>
+ const nodeRow=(item:()=>any)=> <View style={{flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderColor:colors().grid,backgroundColor:selected()?.now===item().name?colors().selected:colors().surface,...MOTION}} hoverStyle={{backgroundColor:selected()?.now===item().name?colors().selected:colors().hover}}>
+   <View style={{position:"absolute",left:4,top:10,bottom:10,width:2.5,borderRadius:2,backgroundColor:selected()?.now===item().name?colors().accent:"transparent"}}/>
    <Button testID={"proxy-"+item().name} selected={selected()?.now===item().name} disabled={!!p.busy()||!['selector','select'].includes(String(selected()?.type).toLowerCase())} onPress={()=>void p.run("select-proxy",()=>p.call("desktop.group.select",{group:selected()?.name,member:item().name}))}
      style={{flex:1,minWidth:0,flexDirection:"row",alignItems:"center",gap:10,paddingLeft:15,paddingRight:8,height:ROW_HEIGHT,backgroundColor:"transparent"}}
      hoverStyle={{backgroundColor:"transparent"}} activeStyle={{backgroundColor:colors().selected}} focusStyle={{outlineWidth:2,outlineColor:colors().accent}} disabledStyle={{opacity:0.72}}>
@@ -94,8 +105,9 @@ export function ProxiesPage(p:PageProps) {
    <View style={{flex:1,minHeight:0,borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface"),overflow:"hidden"}}>
     <Scroll style={{flex:1,minHeight:0}} contentStyle={{padding:6,gap:2}}>
      <Each of={visibleGroups()} key={(group:any)=>group.name}>{group=><Button testID={"group-"+group().name} selected={selected()?.name===group().name} onPress={()=>{groupName.set(group().name);query.set("");}}
-       style={{width:"100%",flexDirection:"row",alignItems:"center",gap:9,paddingLeft:9,paddingRight:10,paddingVertical:8,minHeight:46,borderRadius:8,borderLeftWidth:3,borderLeftColor:selected()?.name===group().name?colors().accent:"transparent",backgroundColor:selected()?.name===group().name?colors().selected:"transparent",...MOTION}}
+       style={{width:"100%",flexDirection:"row",alignItems:"center",gap:9,paddingLeft:12,paddingRight:10,paddingVertical:8,minHeight:46,borderRadius:8,backgroundColor:selected()?.name===group().name?colors().selected:"transparent",...MOTION}}
        hoverStyle={{backgroundColor:selected()?.name===group().name?colors().selected:colors().hover}} activeStyle={{backgroundColor:colors().selected}} focusStyle={{outlineWidth:2,outlineColor:colors().accent}}>
+       <View style={{position:"absolute",left:3,top:10,bottom:10,width:2.5,borderRadius:2,backgroundColor:selected()?.name===group().name?colors().accent:"transparent"}}/>
        <View style={{flex:1,minWidth:0,gap:2}}>
          <Text style={{fontSize:13,fontWeight:selected()?.name===group().name?"600":"500",color:selected()?.name===group().name?colors().accent:colors().text,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={group().name}>{group().name}</Text>
          <Text style={{fontSize:11,color:colors().faint,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={groupTypeLabel(group().type??"")+" · "+String(group().members?.length??0)}>{groupTypeLabel(group().type??"")+" · "+String(group().members?.length??0)}</Text>

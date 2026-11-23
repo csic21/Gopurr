@@ -51,7 +51,14 @@ export function elevation(kind: "surface" | "popover" | "dialog" = "surface"): a
   const dark = colorScheme() === "dark";
   if (kind === "popover") return dark ? [{ x: 0, y: 12, blur: 34, color: "#0000008c" }, { x: 0, y: 0, blur: 0, spread: 1, color: "#ffffff0d", inset: true }] : [{ x: 0, y: 12, blur: 32, color: "#131c3026" }, { x: 0, y: 1, blur: 2, color: "#131c300f" }];
   if (kind === "dialog") return dark ? [{ x: 0, y: 30, blur: 76, color: "#000000b8" }, { x: 0, y: 0, blur: 0, spread: 1, color: "#ffffff0f", inset: true }] : [{ x: 0, y: 28, blur: 70, color: "#131c3033" }, { x: 0, y: 2, blur: 6, color: "#131c3012" }];
-  return dark ? [{ x: 0, y: 14, blur: 36, color: "#00000047" }, { x: 0, y: 0, blur: 0, spread: 1, color: "#ffffff0a", inset: true }] : [{ x: 0, y: 1, blur: 2, color: "#131c300d" }, { x: 0, y: 10, blur: 28, color: "#131c3012" }];
+  return dark ? [{ x: 0, y: 8, blur: 24, color: "#00000038" }, { x: 0, y: 1, blur: 0, color: "#ffffff0a", inset: true }] : [{ x: 0, y: 1, blur: 2, color: "#0f172a0a" }, { x: 0, y: 8, blur: 22, color: "#0f172a0d" }];
+}
+
+/** Saturated cobalt primary fill in dark mode with crisp white text; light uses palette accent. */
+export function accentFill(): { bg: string; hover: string; pressed: string; fg: string } {
+  return colorScheme() === "dark"
+    ? { bg: "#2e62e6", hover: "#386bf0", pressed: "#2452cc", fg: "#ffffff" }
+    : { bg: colors().accent, hover: colors().accentHover, pressed: colors().accentPressed, fg: colors().accentText };
 }
 
 export function Label(p: { text: string; muted?: boolean; faint?: boolean; size?: number; weight?: number; bold?: boolean; color?: string; mono?: boolean; lines?: number; tabular?: boolean; tooltip?: string }) {
@@ -59,23 +66,29 @@ export function Label(p: { text: string; muted?: boolean; faint?: boolean; size?
 }
 
 /**
- * One button geometry for the whole app: 30 high, 7 radius. Primary carries the
- * accent and a soft lift, secondary a hairline, quiet is text-only inside rows
- * and page heads. Destructive actions are red text rather than red fills.
+ * One button geometry for the whole app: 30 high, 8 radius. Primary carries the
+ * accent fill and subtle highlight, secondary a lifted hairline, quiet is text-only
+ * inside rows and page heads. Destructive actions are red text rather than red fills.
  */
 export function Action(p: { label: string; onPress: () => void; primary?: boolean; danger?: boolean; quiet?: boolean; disabled?: boolean; testID?: string; bold?: boolean; icon?: string; size?: "regular" | "small" }) {
   const filled = !!p.primary, plain = !filled && (p.quiet || p.danger);
-  const fg = filled ? colors().accentText : p.danger ? colors().danger : colors().text;
+  const dark = () => colorScheme() === "dark";
+  const fill = () => accentFill();
+  const fg = () => filled ? fill().fg : p.danger ? colors().danger : colors().text;
   const height = p.size === "small" ? 26 : CONTROL_HEIGHT;
-  const shadow = filled ? (colorScheme() === "dark" ? [{ x: 0, y: 1, blur: 2, color: "#00000040" }] : [{ x: 0, y: 1, blur: 2, color: tint(colors().accent, "3d") }]) : [];
-  return <Button testID={p.testID} onPress={p.onPress} disabled={p.disabled} style={{ height, minHeight: height, paddingHorizontal: plain ? 8 : filled ? 14 : 12, borderRadius: RADIUS.control, alignItems: "center", justifyContent: "center", borderWidth: filled || plain ? 0 : 1, borderColor: colors().border, backgroundColor: filled ? colors().accent : plain ? "transparent" : colors().surface, boxShadow: shadow, ...MOTION }}
-    hoverStyle={{ backgroundColor: filled ? colors().accentHover : colors().hover }}
-    activeStyle={{ backgroundColor: filled ? colors().accentPressed : colors().selected, opacity: filled ? 1 : 0.92 }}
+  const shadow = () => filled
+    ? (dark() ? [{ x: 0, y: 1, blur: 0, color: "#ffffff24", inset: true }, { x: 0, y: 2, blur: 6, color: "#0b1a4a55" }] : [{ x: 0, y: 1, blur: 0, color: "#ffffff28", inset: true }, { x: 0, y: 1, blur: 3, color: tint(colors().accent, "38") }])
+    : plain
+      ? []
+      : (dark() ? [{ x: 0, y: 1, blur: 0, color: "#ffffff0b", inset: true }] : [{ x: 0, y: 1, blur: 2, color: "#0f172a0c" }]);
+  return <Button testID={p.testID} onPress={p.onPress} disabled={p.disabled} style={{ height, minHeight: height, paddingHorizontal: plain ? 8 : filled ? 14 : 12, borderRadius: RADIUS.control, alignItems: "center", justifyContent: "center", borderWidth: filled || plain ? 0 : 1, borderColor: dark() ? "#2a3040" : colors().border, backgroundColor: filled ? fill().bg : plain ? "transparent" : (dark() ? "#1b1f2a" : "#ffffff"), boxShadow: shadow(), ...MOTION }}
+    hoverStyle={{ backgroundColor: filled ? fill().hover : plain ? colors().hover : (dark() ? "#232836" : colors().hover) }}
+    activeStyle={{ backgroundColor: filled ? fill().pressed : colors().selected, opacity: filled ? 1 : 0.92 }}
     focusStyle={{ outlineWidth: 2, outlineColor: colors().accent, outlineOffset: 2 }}
     disabledStyle={{ opacity: 0.38 }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-      <If when={!!p.icon}><Icon name={p.icon ?? "circle"} size={filled ? 14 : 13.5} color={filled ? fg : p.danger ? colors().danger : colors().muted} /></If>
-      <Text style={{ fontSize: p.size === "small" ? 12 : 12.5, fontWeight: filled || p.bold ? 600 : 500, color: fg, numberOfLines: 1 }}>{p.label}</Text>
+      <If when={!!p.icon}><Icon name={p.icon ?? "circle"} size={filled ? 14 : 13.5} color={filled ? fg() : p.danger ? colors().danger : colors().muted} /></If>
+      <Text style={{ fontSize: p.size === "small" ? 12 : 12.5, fontWeight: filled || p.bold ? 600 : 500, color: fg(), numberOfLines: 1 }}>{p.label}</Text>
     </View>
   </Button>;
 }
@@ -89,14 +102,15 @@ export function IconButton(p: { icon: string; label: string; onPress: () => void
 }
 
 export function StatusDot(p: { on: boolean; size?: number; color?: string; glow?: boolean }) {
-  const size = p.size ?? 6, color = p.color ?? (p.on ? colors().success : colors().faint);
-  return <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, boxShadow: p.glow ? [{ x: 0, y: 0, blur: 0, spread: size > 4 ? 3 : 2, color: tint(color, "26") }] : undefined }} />;
+  const size = p.size ?? 6, color = () => p.color ?? (p.on ? colors().success : colors().faint);
+  return <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color(), boxShadow: p.glow ? [{ x: 0, y: 0, blur: 0, spread: size > 4 ? 2.5 : 1.5, color: tint(color(), "22") }] : undefined }} />;
 }
 
 /** A small state label: tinted pill with semantic text, never color alone. */
 export function Tag(p: { text: string; tone?: "accent" | "success" | "danger" | "muted" | "warn"; testID?: string }) {
-  const color = p.tone === "danger" ? colors().danger : p.tone === "success" ? colors().success : p.tone === "warn" ? colors().warn : p.tone === "muted" ? colors().muted : colors().accent;
-  return <View testID={p.testID} style={{ height: 20, paddingHorizontal: 7, justifyContent: "center", borderRadius: RADIUS.pill, backgroundColor: p.tone === "muted" ? colors().hover : tint(color, "17"), borderWidth: p.tone === "muted" ? 0 : 1, borderColor: tint(color, "1f") }}><Text style={{ fontSize: TYPE.micro, fontWeight: "600", letterSpacing: 0.1, color, numberOfLines: 1 }}>{p.text}</Text></View>;
+  const dark = () => colorScheme() === "dark";
+  const color = () => p.tone === "danger" ? colors().danger : p.tone === "success" ? colors().success : p.tone === "warn" ? colors().warn : p.tone === "muted" ? colors().muted : colors().accent;
+  return <View testID={p.testID} style={{ height: 20, paddingHorizontal: 7, justifyContent: "center", borderRadius: 6, backgroundColor: p.tone === "muted" ? colors().hover : tint(color(), dark() ? "16" : "12"), borderWidth: p.tone === "muted" ? 0 : 1, borderColor: p.tone === "muted" ? "transparent" : tint(color(), dark() ? "24" : "1e") }}><Text style={{ fontSize: TYPE.micro, fontWeight: "500", letterSpacing: 0.1, color: color(), numberOfLines: 1 }}>{p.text}</Text></View>;
 }
 
 /** A floating surface: content card, dialog body or a page section. */
@@ -166,9 +180,11 @@ export function switchThumbTransform(checked: boolean): string {
 
 export function Toggle(p: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; testID?: string; showLabel?: boolean }) {
   const duration = reduceMotion() ? 0 : 240;
+  const dark = () => colorScheme() === "dark";
+  const checkedBg = () => accentFill().bg;
   return <Row><If when={!!p.label && p.showLabel !== false}><Label text={p.label ?? ""} /></If>
     <Switch testID={p.testID} checked={p.checked} disabled={p.disabled} accessibilityLabel={p.label} onChange={({ checked }) => p.onChange(checked)} style={{ width: 36, height: 20, opacity: p.disabled ? 0.38 : 1 }}
-      trackStyle={{ width: 36, height: 20, padding: 2, backgroundColor: p.checked ? colors().accent : colors().border, borderRadius: 10, borderWidth: 1, borderColor: p.checked ? colors().accent : (colorScheme() === "dark" ? tint(colors().faint, "4d") : tint(colors().faint, "2e")), boxShadow: p.checked ? [{ x: 0, y: 1, blur: 4, color: tint(colors().accent, "3d") }] : [{ x: 0, y: 1, blur: 1, color: "#0000000f", inset: true }], transitionProperty: "background-color, border-color, box-shadow", transitionDuration: duration, transitionTimingFunction: "ease-out" }}
+      trackStyle={{ width: 36, height: 20, padding: 2, backgroundColor: p.checked ? checkedBg() : (dark() ? "#252b38" : "#d4dbe6"), borderRadius: 10, borderWidth: 1, borderColor: p.checked ? checkedBg() : (dark() ? "#32394a" : "#c5cedc"), boxShadow: p.checked ? (dark() ? [{ x: 0, y: 1, blur: 2, color: "#00000038" }] : [{ x: 0, y: 1, blur: 2, color: "#0f172a1a" }]) : [{ x: 0, y: 1, blur: 1, color: "#0000000f", inset: true }], transitionProperty: "background-color, border-color, box-shadow", transitionDuration: duration, transitionTimingFunction: "ease-out" }}
       thumbStyle={{ width: 14, height: 14, borderRadius: 7, backgroundColor: "#ffffff", boxShadow: [{ x: 0, y: 1, blur: 2.5, color: "#1018283d" }], transform: switchThumbTransform(p.checked), transitionProperty: "transform", transitionDuration: duration, transitionTimingFunction: "ease-out" }} /></Row>;
 }
 
@@ -177,14 +193,14 @@ export function Toggle(p: { checked: boolean; onChange: (v: boolean) => void; la
  * indicator moves natively; text and press targets stay fixed.
  */
 export function Tabs(p: { items: { id: string; label: string }[]; value: string; onChange: (v: string) => void; disabled?: boolean; testIDPrefix?: string }) {
-  const dark = colorScheme() === "dark";
-  return <NativeTabs style={{ flexDirection: "row", alignSelf: "flex-start", gap: 2, padding: 3, borderRadius: 11, backgroundColor: dark ? colors().surface : colors().hover, borderWidth: 1, borderColor: colors().border }}
-    indicatorStyle={{ top: 3, bottom: 3, borderRadius: 8, backgroundColor: dark ? colors().hover : colors().surface, boxShadow: dark ? [] : [{ x: 0, y: 1, blur: 2, color: "#18213a1a" }, { x: 0, y: 1, blur: 1, color: "#18213a0f" }] }}>
+  const dark = () => colorScheme() === "dark";
+  return <NativeTabs style={{ flexDirection: "row", alignSelf: "flex-start", gap: 2, padding: 3, borderRadius: 10, backgroundColor: dark() ? "#0b0d12" : "#e6eaf2", borderWidth: 1, borderColor: dark() ? "#222733" : "#d6dce8" }}
+    indicatorStyle={{ top: 3, bottom: 3, borderRadius: 7, backgroundColor: dark() ? "#202532" : "#ffffff", borderWidth: 1, borderColor: dark() ? "#2e3546" : "#d8dfe9", boxShadow: dark() ? [{ x: 0, y: 1, blur: 2, color: "#00000040" }] : [{ x: 0, y: 1, blur: 2, color: "#131c3018" }] }}>
     <Each of={p.items} key={(item) => item.id}>{(item) => <Tab testID={`${p.testIDPrefix ?? "desktop-tab"}-${item().id}`} selected={p.value === item().id} disabled={p.disabled} onPress={() => p.onChange(item().id)}
-      style={{ paddingHorizontal: 13, paddingVertical: 3, minHeight: 24, borderRadius: 8, backgroundColor: "transparent" }}
+      style={{ paddingHorizontal: 13, paddingVertical: 3, minHeight: 24, borderRadius: 7, backgroundColor: "transparent" }}
       hoverStyle={{ backgroundColor: p.value === item().id ? "transparent" : colors().hover }}
       focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}>
-      <Text style={{ fontSize: 12, fontWeight: p.value === item().id ? "600" : "500", letterSpacing: p.value === item().id ? -0.1 : 0, color: p.value === item().id ? colors().accent : colors().muted }}>{item().label}</Text>
+      <Text style={{ fontSize: 12, fontWeight: p.value === item().id ? "600" : "500", letterSpacing: p.value === item().id ? -0.1 : 0, color: p.value === item().id ? colors().text : colors().muted }}>{item().label}</Text>
     </Tab>}</Each>
   </NativeTabs>;
 }
@@ -256,7 +272,7 @@ export function Modal(p: { title: string; open: boolean; onClose: () => void; ch
     </Row>
     <Scroll style={{ maxHeight: p.height ?? windowSize().height - 210 }} contentStyle={{ paddingHorizontal: 20, paddingBottom: 18, gap: 13 }}>{p.children}</Scroll>
     <If when={!!p.error}><View style={{ paddingHorizontal: 20, paddingBottom: 13 }}><Feedback text={p.error ?? ""} danger /></View></If>
-    <If when={!!p.footer}><View style={{ paddingHorizontal: 20, paddingVertical: 13, borderTopWidth: 1, borderColor: colors().border, backgroundColor: colorScheme() === "dark" ? tint(colors().surface, "00") : tint(colors().bg, "66") }}>{p.footer?.()}</View></If>
+    <If when={!!p.footer}><View style={{ paddingHorizontal: 20, paddingVertical: 13, borderTopWidth: 1, borderColor: colors().border, borderBottomLeftRadius: RADIUS.dialog - 1, borderBottomRightRadius: RADIUS.dialog - 1, backgroundColor: colorScheme() === "dark" ? tint(colors().surface, "00") : tint(colors().bg, "66") }}>{p.footer?.()}</View></If>
   </Dialog>;
 }
 

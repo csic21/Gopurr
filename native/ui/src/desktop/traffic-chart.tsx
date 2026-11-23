@@ -51,17 +51,17 @@ export function TrafficChart(p: { history: () => TrafficSample[]; compact?: bool
       <Canvas testID="traffic-chart" style={{ flex: 1, cursor: "crosshair" }} draw={(cx, size) => {
         const current = display(), palette = colors(), bottom = size.height - 4, height = Math.max(1, size.height - 13), width = Math.max(1, size.width - 8), dark = colorScheme() === 'dark';
         // Three quiet rules give the eye a scale without becoming a frame.
-        cx.lineWidth = 1; cx.strokeStyle = palette.grid + "e6";
+        cx.lineWidth = 1; cx.strokeStyle = palette.grid + "b3";
         for (let line = 1; line < 4; line++) { const y = bottom - height * line / 4; cx.beginPath(); cx.moveTo(0, y); cx.lineTo(size.width, y); cx.stroke(); }
         cx.strokeStyle = palette.border; cx.beginPath(); cx.moveTo(0, bottom + 0.5); cx.lineTo(size.width, bottom + 0.5); cx.stroke();
         const channels = (['down', 'up'] as const).map(key => ({ key, color: palette[key], curve: trafficCurve(current.points.map(v => ({ x: 4 + v.x * width, y: bottom - v[key] / current.scale * height }))) }));
         const path = (curve: NonNullable<ReturnType<typeof trafficCurve>>) => { cx.beginPath(); cx.moveTo(curve.start.x, curve.start.y); for (const s of curve.segments) cx.bezierCurveTo(s.c1.x, s.c1.y, s.c2.x, s.c2.y, s.end.x, s.end.y); };
         // Paint the two quiet fills first so neither masks the other channel's line.
-        for (const { curve, color } of channels) { if (!curve) continue; path(curve); const end = curve.segments[curve.segments.length - 1]?.end ?? curve.start; cx.lineTo(end.x, bottom); cx.lineTo(curve.start.x, bottom); cx.closePath(); const fill = cx.createLinearGradient(0, 2, 0, bottom); fill.addColorStop(0, color + (dark ? "38" : "30")); fill.addColorStop(1, color + "00"); cx.fillStyle = fill; cx.fill(); }
+        for (const { curve, color } of channels) { if (!curve) continue; path(curve); const end = curve.segments[curve.segments.length - 1]?.end ?? curve.start; cx.lineTo(end.x, bottom); cx.lineTo(curve.start.x, bottom); cx.closePath(); const fill = cx.createLinearGradient(0, 2, 0, bottom); fill.addColorStop(0, color + (dark ? "24" : "1e")); fill.addColorStop(1, color + "00"); cx.fillStyle = fill; cx.fill(); }
         cx.lineCap = 'round'; cx.lineJoin = 'round';
         for (const { curve, color, key } of channels) {
           if (!curve) continue;
-          path(curve); cx.strokeStyle = color; cx.lineWidth = 2; cx.shadowColor = color + "33"; cx.shadowBlur = 3; cx.stroke(); cx.shadowBlur = 0;
+          path(curve); cx.strokeStyle = color; cx.lineWidth = 1.85; cx.stroke();
           const latest = current.points[current.points.length - 1];
           if (latest?.[key] > 0 && (latestSample?.[key] ?? 0) > 0) {
             const x = 4 + latest.x * width, y = bottom - latest[key] / current.scale * height;
@@ -72,15 +72,15 @@ export function TrafficChart(p: { history: () => TrafficSample[]; compact?: bool
         const highlighted = current.points.find(v => v.index === hover());
         if (highlighted) {
           const x = 4 + highlighted.x * width;
-          cx.setLineDash([3, 3]); cx.strokeStyle = palette.faint + "8c"; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(x, 2); cx.lineTo(x, bottom); cx.stroke(); cx.setLineDash([]);
+          cx.setLineDash([3, 3]); cx.strokeStyle = palette.faint + "73"; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(x, 2); cx.lineTo(x, bottom); cx.stroke(); cx.setLineDash([]);
           for (const { key, color } of channels) { const y = bottom - highlighted[key] / current.scale * height; cx.beginPath(); cx.arc(x, y, 3.4, 0, Math.PI * 2); cx.fillStyle = color; cx.fill(); cx.strokeStyle = palette.surface; cx.lineWidth = 1.6; cx.stroke(); }
         }
       }} />
       <If when={hoveredIndex() >= 0}>
-        <View style={{ position: "absolute", top: 4, left: tipLeft(), flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: colors().surface, borderWidth: 1, borderColor: colors().border, boxShadow: elevation("popover"), pointerEvents: "none" }}>
-          <Text style={{ fontSize: 10.5, color: colors().faint, fontVariant: "tabular-nums", numberOfLines: 1 }}>{tr(`${secondsAgo()} 秒前`, `${secondsAgo()} s ago`)}</Text>
-          <Text style={{ fontSize: 10.5, fontWeight: "600", color: colors().down, fontVariant: "tabular-nums", numberOfLines: 1 }}>{`↓ ${fmtRate(hovered()?.down ?? 0)}`}</Text>
-          <Text style={{ fontSize: 10.5, fontWeight: "600", color: colors().up, fontVariant: "tabular-nums", numberOfLines: 1 }}>{`↑ ${fmtRate(hovered()?.up ?? 0)}`}</Text>
+        <View style={{ position: "absolute", top: 4, left: tipLeft(), flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: colors().surface, borderWidth: 1, borderColor: colors().border, boxShadow: elevation("popover"), pointerEvents: "none" }}>
+          <Text style={{ fontSize: 11, fontWeight: "500", color: colors().muted, fontVariant: "tabular-nums", numberOfLines: 1 }}>{tr(`${secondsAgo()} 秒前`, `${secondsAgo()} s ago`)}</Text>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: colors().down, fontVariant: "tabular-nums", numberOfLines: 1 }}>{`↓ ${fmtRate(hovered()?.down ?? 0)}`}</Text>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: colors().up, fontVariant: "tabular-nums", numberOfLines: 1 }}>{`↑ ${fmtRate(hovered()?.up ?? 0)}`}</Text>
         </View>
       </If>
     </View>

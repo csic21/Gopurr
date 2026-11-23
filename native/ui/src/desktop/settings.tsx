@@ -35,7 +35,7 @@ export function SaveBar(p:{dirty:boolean;busy:boolean;onSave:()=>void;onDiscard:
     </Row>
   </View>;
   if(p.floating)return <View style={{paddingHorizontal:16,paddingVertical:windowSize().height<660||windowSize().width<960?10:12,borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("popover")}}>{body()}</View>;
-  return <View style={{paddingTop:10,borderTopWidth:1,borderColor:colors().border}}>{body()}</View>;
+  return <View style={{paddingTop:10,borderTopWidth:1,borderColor:colors().grid}}>{body()}</View>;
 }
 
 const dnsDefault = {enable:true,enhancedMode:'fake-ip',ipv6:false,nameserver:['1.1.1.1','223.5.5.5'],defaultNameserver:['1.1.1.1','223.5.5.5'],fallback:[],fakeIPFilter:[]};

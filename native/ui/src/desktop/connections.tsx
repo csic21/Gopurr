@@ -1,4 +1,4 @@
-import { List, Scroll, Text, View, signal, windowSize } from "nsh";
+import { colorScheme, List, Scroll, Text, View, signal, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import { colors } from "./theme";
 import { tr } from "./i18n";
@@ -38,7 +38,7 @@ function DetailValue(p:{label:string;value?:string;mono?:boolean}) {
 }
 
 function DetailSection(p:{title:string;children?:any}) {
-  return <View style={{gap:8,paddingTop:12,borderTopWidth:1,borderColor:colors().border}}>
+  return <View style={{gap:8,paddingTop:12,borderTopWidth:1,borderColor:colors().grid}}>
     <Text style={{fontSize:10.5,fontWeight:"600",letterSpacing:0.4,color:colors().faint,numberOfLines:1}}>{p.title}</Text>
     <View style={{gap:7}}>{p.children}</View>
   </View>;
@@ -85,7 +85,7 @@ export function ConnectionsPage(p:PageProps) {
     style={{minHeight:sideDetail()?58:52,paddingHorizontal:16,paddingVertical:6,backgroundColor:active()?colors().selected:colors().surface,transitionProperty:"background-color, border-color",transitionDuration:140,transitionTimingFunction:"ease-out"}}
     hoverStyle={{backgroundColor:active()?colors().selected:colors().hover}}
     focusStyle={{outlineWidth:2,outlineColor:colors().accent,outlineOffset:-2}}>
-    <View style={{position:"absolute",left:0,top:9,bottom:9,width:3,borderRadius:2,backgroundColor:active()?colors().accent:"transparent"}}/>
+    <View style={{position:"absolute",left:4,top:10,bottom:10,width:2.5,borderRadius:2,backgroundColor:active()?colors().accent:"transparent"}}/>
     <View style={{flexDirection:"row",alignItems:"center",gap:12}}>
       <View style={{flex:1,minWidth:0,gap:2}}>
         <Text tooltip={item().host||item().destination} style={{fontSize:13,fontWeight:"500",letterSpacing:-0.1,color:active()?colors().accent:colors().text,numberOfLines:1,textOverflow:"ellipsis"}}>{item().host||item().destination}</Text>
@@ -116,7 +116,7 @@ export function ConnectionsPage(p:PageProps) {
             <View style={{width:RATE_WIDTH,alignItems:"flex-end"}}><Micro text={tr("下行","Down")} align="right"/></View>
             <View style={{width:RATE_WIDTH,alignItems:"flex-end"}}><Micro text={tr("上行","Up")} align="right"/></View>
           </Row>
-          <List testID="connections-list" each={filtered()} keyExtractor={(c:any)=>c.id} style={{flex:1}} separator={<View style={{height:1,backgroundColor:colors().border}}/>}>{connectionRow}</List>
+          <List testID="connections-list" each={filtered()} keyExtractor={(c:any)=>c.id} style={{flex:1}} separator={<View style={{height:1,backgroundColor:colors().grid}}/>}>{connectionRow}</List>
         </Card>
       </If>
       <If when={filtered().length===0}>
@@ -126,7 +126,7 @@ export function ConnectionsPage(p:PageProps) {
         <Card style={{width:320}}>
           <Row justify="space-between" gap={8} style={{paddingLeft:14,paddingRight:8,paddingVertical:8,borderBottomWidth:1,borderColor:colors().border}}>
             <Row gap={9} style={{flex:1,minWidth:0}}>
-              <View style={{width:26,height:26,borderRadius:8,alignItems:"center",justifyContent:"center",backgroundColor:colors().hover,borderWidth:1,borderColor:colors().border}}><Icon name="conns" size={14} color={colors().muted}/></View>
+              <View style={{width:26,height:26,borderRadius:8,alignItems:"center",justifyContent:"center",backgroundColor:colorScheme()==="dark"?"#ffffff08":colors().hover,borderWidth:1,borderColor:colors().border}}><Icon name="conns" size={14} color={colors().muted}/></View>
               <Label text={tr("连接详情","Connection details")} weight={600} size={13} lines={1}/>
             </Row>
             <IconButton testID="connection-detail-close" icon="x" label={tr("关闭详情","Close details")} onPress={()=>selected.set(null)}/>

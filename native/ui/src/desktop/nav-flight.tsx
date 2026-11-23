@@ -1,7 +1,7 @@
-import { Image, Text, View, type AnimatedValue } from "nsh";
+import { colorScheme, Image, Text, View, type AnimatedValue } from "nsh";
 import { colors } from "./theme";
 import { tr } from "./i18n";
-import { elevation, Icon, StatusDot, Row, Label, tint } from "./ui";
+import { Icon, StatusDot, Row, Label, tint } from "./ui";
 import type { NavigationLayout } from "./navigation";
 import type { Page } from "./types";
 import logo from "../../assets/sidebar.png";
@@ -46,55 +46,53 @@ export function NavigationFlight(p: {
   status: string;
   proxies: number;
   rules: number;
+  kernel?: boolean;
 }) {
-  const { progress, titlebarHeight, titlebarInset, layout } = p;
-  const top = (index: number) => titlebarHeight + 62 + index * 38 + (index === 7 ? 12 : 0);
-  const compactTop = (titlebarHeight - 30) / 2;
-  const compactLeft = (index: number) => layout.left + layout.widths.slice(0, index).reduce((sum, width) => sum + width + 2, 0);
-  const compactWidth = (index: number) => layout.widths[index];
+  const progress = p.progress;
+  const dark = () => colorScheme() === "dark";
+  const selectedBorder = () => dark() ? tint(colors().accent, "2e") : tint(colors().accent, "26");
+  const top = (index: number) => p.titlebarHeight + 62 + index * 38 + (index === 7 ? 12 : 0);
+  const compactTop = () => (p.titlebarHeight - 30) / 2;
+  const compactLeft = (index: number) => p.layout.left + p.layout.widths.slice(0, index).reduce((sum, width) => sum + width + 2, 0);
+  const compactWidth = (index: number) => p.layout.widths[index];
   const slide = progress.interpolate({ inputRange: [0, 1], outputRange: [0, -184] });
-  const fade = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
-  const brand = brandInterpolation(titlebarInset, titlebarHeight);
-  const brandX = progress.interpolate({ inputRange: [0, 1], outputRange: brand.x });
-  const brandY = progress.interpolate({ inputRange: [0, 1], outputRange: brand.y });
-  const iconScale = progress.interpolate({ inputRange: [0, 1], outputRange: brand.iconScale });
-  const brandScale = progress.interpolate({ inputRange: [0, 1], outputRange: brand.textScale });
-  const brandTextX = progress.interpolate({ inputRange: [0, 1], outputRange: brand.textShiftX });
-  const brandTextY = progress.interpolate({ inputRange: [0, 1], outputRange: brand.textShiftY });
+  const curtainOpacity = progress.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1, 1, 0] });
+  const curtainShadow = () => dark() ? [{ x: 10, y: 0, blur: 24, color: "#00000048" }] : [{ x: 10, y: 0, blur: 24, color: "#0f172a16" }];
+  const sidebarRowsFade = progress.interpolate({ inputRange: [0, 0.65], outputRange: [1, 0] });
+  const topTabOpacity = progress.interpolate({ inputRange: [0.35, 1], outputRange: [0, 1] });
+  const topTabY = progress.interpolate({ inputRange: [0.35, 1], outputRange: [-6, 0] });
+  const brand = () => brandInterpolation(p.titlebarInset, p.titlebarHeight);
+  const brandX = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().x });
+  const brandY = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().y });
+  const iconScale = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().iconScale });
+  const brandScale = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().textScale });
+  const brandTextX = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().textShiftX });
+  const brandTextY = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().textShiftY });
   return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ pointerEvents: "none", position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
-    <View style={{ position: "absolute", left: 0, top: 0, width: 184, height: "100%", backgroundColor: colors().side, backgroundImage: "linear-gradient(180deg, " + colors().side + " 0%, " + colors().bg + " 100%)", borderRightWidth: 1, borderColor: colors().border, opacity: fade, transform: [{ translateX: slide }] }}>
+    <View style={{ position: "absolute", left: 0, top: 0, width: 184, height: "100%", backgroundColor: colors().side, backgroundImage: "linear-gradient(180deg, " + colors().side + " 0%, " + colors().bg + " 100%)", borderRightWidth: 1, borderColor: colors().border, boxShadow: curtainShadow(), opacity: curtainOpacity, transform: [{ translateX: slide }] }}>
       {items.map((item, index) => {
-        const selected = p.page === item.id;
-        // The accent is painted over the row. A left border on the row itself
-        // insets the label, and the resting tab draws that accent on the
-        // indicator behind it, so the label jumped sideways when the flight ended.
-        return <View style={{ position: "absolute", left: 8, top: top(index), width: 167, height: 36, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderRadius: 9, backgroundColor: selected ? colors().selected : "transparent" }}>
-          {selected ? <View style={{ position: "absolute", left: 0, top: 0, width: 2.5, height: 36, backgroundColor: colors().accent, borderTopLeftRadius: 9, borderBottomLeftRadius: 9 }} /> : null}
-          <Icon name={item.id} size={17} color={selected ? colors().accent : colors().muted} />
-          <Text style={{ fontSize: 13, fontWeight: selected ? "600" : "500", letterSpacing: -0.1, color: selected ? colors().accent : colors().muted, numberOfLines: 1 }}>{tr(item.zh, item.en)}</Text>
+        const selected = () => p.page === item.id;
+        return <View style={{ position: "absolute", left: 8, top: top(index), width: 167, height: 36, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderRadius: 8, opacity: sidebarRowsFade }}>
+          <If when={selected()}><View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, borderRadius: 8, backgroundColor: colors().selected, borderWidth: 1, borderColor: selectedBorder() }} /></If>
+          <Icon name={item.id} size={17} color={selected() ? colors().accent : colors().muted} />
+          <Text style={{ fontSize: 13, fontWeight: selected() ? "600" : "500", letterSpacing: -0.1, color: selected() ? colors().accent : colors().muted, numberOfLines: 1 }}>{tr(item.zh, item.en)}</Text>
         </View>;
       })}
-      <View style={{ position: "absolute", left: 14, bottom: 14, width: 156, padding: 12, gap: 7, borderRadius: 13, backgroundColor: colors().surface, borderWidth: 1, borderColor: colors().border, boxShadow: elevation("surface") }}>
-        <Row gap={7}><StatusDot on={true} size={6} glow /><Label text={p.status} size={11.5} weight={600} /></Row>
+      <View style={{ position: "absolute", left: 14, right: 14, bottom: 14, paddingTop: 12, gap: 5, borderTopWidth: 1, borderColor: colors().border, backgroundColor: "transparent" }}>
+        <Row gap={6}><StatusDot on={p.kernel ?? true} size={5.5} /><Label text={p.status} muted size={11} weight={500} /></Row>
         <Text style={{ fontSize: 10.5, color: colors().faint, numberOfLines: 1, fontVariant: "tabular-nums" }}>{`${p.proxies} ${tr("代理", "proxies")} · ${p.rules} ${tr("规则", "rules")}`}</Text>
       </View>
     </View>
-    <View style={{ position: "absolute", left: 20, top: titlebarHeight + 15, flexDirection: "row", alignItems: "center", gap: 10, transform: [{ translateX: brandX.sub(20) }, { translateY: brandY.sub(titlebarHeight + 15) }] }}>
-      <Image src={logo} style={{ width: 30, height: 30, objectFit: "contain", transform: [{ scale: iconScale }], transformOrigin: "left top" }} />
-      <Text style={{ fontSize: 15, fontWeight: "600", color: colors().text, numberOfLines: 1, transform: [{ translateX: brandTextX }, { translateY: brandTextY }, { scale: brandScale }], transformOrigin: "left center" }}>Gopurr</Text>
+    <View style={{ position: "absolute", left: 20, top: p.titlebarHeight + 15, flexDirection: "row", alignItems: "center", gap: 10, transform: [{ translateX: brandX().sub(20) }, { translateY: brandY().sub(p.titlebarHeight + 15) }] }}>
+      <Image src={logo} style={{ width: 30, height: 30, objectFit: "contain", transform: [{ scale: iconScale() }], transformOrigin: "left top" }} />
+      <Text style={{ fontSize: 15, fontWeight: "600", color: colors().text, numberOfLines: 1, transform: [{ translateX: brandTextX() }, { translateY: brandTextY() }, { scale: brandScale() }], transformOrigin: "left center" }}>Gopurr</Text>
     </View>
     <View style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
       {items.map((item, index) => {
-        const selected = p.page === item.id;
-        const startX = 8, endX = compactLeft(index), startY = top(index), endY = compactTop;
-        const layoutW = 167, endW = compactWidth(index);
-        const pillScale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, endW / layoutW] });
-        const pillX = progress.interpolate({ inputRange: [0, 1], outputRange: [startX - endX, 0] });
-        // The pill scales about its left edge. Dividing cancels that on the
-        // glyphs for the whole flight; a second linear interpolate would not.
-        const textScale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1] }).div(pillScale);
-        return <View style={{ position: "absolute", left: endX, top: endY, width: layoutW, height: 30, alignItems: "center", justifyContent: "center", paddingHorizontal: layout.padding, borderRadius: 9, backgroundColor: selected ? colors().selected : "transparent", boxShadow: selected ? [{ x: 0, y: 1, blur: 2, color: tint(colors().accent, "14") }] : undefined, opacity: progress, transformOrigin: "left center", transform: [{ translateX: pillX }, { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [startY - endY, 0] }) }, { scaleX: pillScale }] }}>
-          <Text style={{ fontSize: 12.5, fontWeight: selected ? "600" : "500", letterSpacing: -0.1, color: selected ? colors().accent : colors().muted, numberOfLines: 1, transformOrigin: "center", transform: [{ scaleX: textScale }] }}>{tr(item.zh, item.en)}</Text>
+        const selected = () => p.page === item.id;
+        return <View style={{ position: "absolute", left: compactLeft(index), top: compactTop(), width: compactWidth(index), height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8, opacity: topTabOpacity, transform: [{ translateY: topTabY }] }}>
+          <If when={selected()}><View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, borderRadius: 8, backgroundColor: colors().selected, borderWidth: 1, borderColor: selectedBorder() }} /></If>
+          <Text style={{ fontSize: 12.5, fontWeight: selected() ? "600" : "500", letterSpacing: -0.1, color: selected() ? colors().accent : colors().muted, numberOfLines: 1 }}>{tr(item.zh, item.en)}</Text>
         </View>;
       })}
     </View>

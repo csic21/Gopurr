@@ -1,8 +1,8 @@
-import { Scroll, Text, View, signal, windowSize, effect } from "nsh";
+import { colorScheme, Scroll, Text, View, signal, windowSize, effect } from "nsh";
 import { colors } from "./theme";
 import { tr } from "./i18n";
 import { nativeCall, pendingImport } from "./client";
-import { Action, Empty, Field, Group, GroupRow, Heading, Icon, Label, Modal, RADIUS, Row, Section, Tag, Toggle, elevation, fmtBytes, fmtTime } from "./ui";
+import { Action, Empty, Field, Group, GroupRow, Heading, Icon, Label, Modal, RADIUS, Row, Section, Tag, Toggle, elevation, fmtBytes, fmtTime, tint } from "./ui";
 import { watchDesktopDraft } from "./drafts";
 import type { PageProps } from "./types";
 
@@ -32,7 +32,8 @@ export function ProfilesPage(p:PageProps) {
  // Source, quota, freshness and expiry in one quiet line; the tooltip keeps
  // the whole sentence readable when a narrow window elides it.
  const meta=(item:any):string=>[item.kind==="aggregate"?tr("聚合配置 · 本地来源","Aggregate · cached sources"):profileSource(item),item.info?.total?fmtBytes((item.info.upload??0)+(item.info.download??0))+" / "+fmtBytes(item.info.total):tr("无流量信息","No usage information"),tr("更新于","Updated")+" "+fmtTime(item.updated),item.info?.expire?tr("到期","Expires")+" "+fmtTime(item.info.expire*1000):""].filter(Boolean).join(" · ");
- const iconTile=(icon:string,size:number)=> <View style={{width:size,height:size,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:colors().hover,borderWidth:1,borderColor:colors().border,flexShrink:0}}><Icon name={icon} size={size>28?16:15} color={colors().muted}/></View>;
+ const dark=()=>colorScheme()==="dark";
+ const iconTile=(icon:string,size:number,active=false)=> <View style={{width:size,height:size,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:active?tint(colors().accent,dark()?"18":"12"):(dark()?"#ffffff08":colors().hover),borderWidth:active?0:1,borderColor:colors().border,flexShrink:0}}><Icon name={icon} size={size>28?16:15} color={active?colors().accent:colors().muted}/></View>;
  const rowActions=(item:any)=> <Row gap={6} style={{flexShrink:0}}>
    <Action quiet label={tr("更新","Update")} disabled={!!p.busy()} onPress={()=>void p.run("profile-update",()=>p.call("desktop.profiles.update",{id:item.id}))}/>
    <Action quiet testID={"edit-profile-"+item.id} label={tr("编辑…","Edit…")} disabled={!!p.busy()} onPress={()=>edit(item.id)}/>
@@ -40,20 +41,17 @@ export function ProfilesPage(p:PageProps) {
    <Action quiet danger label={tr("删除…","Delete…")} disabled={!!p.busy()||!!item.active} onPress={()=>deleting.set(item)}/>
  </Row>;
  const heading=()=> <Heading title={tr("订阅","Profiles")} description={tr(`${rows().length} 个配置 · 选择当前使用的订阅`,`${rows().length} profiles · choose your active configuration`)} action={()=><Row gap={8} style={{flexShrink:0}}><Action label={tr("从文件导入…","Import file…")} onPress={importFile} disabled={!!p.busy()}/><Action testID="add-aggregate" label={tr("新建聚合…","New aggregate…")} onPress={()=>openAgg()} disabled={!rows().length||!!p.busy()}/><Action testID="add-profile" primary label={tr("添加订阅","Add profile")} onPress={openAdd}/></Row>}/>
- const currentCard=(item:any)=> <View style={{flexDirection:"row",borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface"),overflow:"hidden"}}>
-   <View style={{width:3,backgroundColor:colors().accent}}/>
-   <View style={{flex:1,minWidth:0,paddingHorizontal:20,paddingVertical:16,gap:8}}>
-     <Row gap={12} style={{minWidth:0}}>
-       {iconTile(profileIcon(item),32)}
-       <Row gap={8} style={{flex:1,minWidth:0}}>
-         <Text style={{fontSize:16,fontWeight:"600",letterSpacing:-0.2,color:colors().text,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0}} tooltip={item.name}>{item.name}</Text>
-         <Tag text={tr("使用中","Active")} tone="accent"/>
-         <View style={{flex:1,minWidth:0}}/>
-       </Row>
-       {rowActions(item)}
+ const currentCard=(item:any)=> <View style={{borderRadius:RADIUS.surface,backgroundColor:colors().surface,backgroundImage:"radial-gradient(ellipse 380px 140px at 0% 0%, "+tint(colors().accent,dark()?"12":"0d")+", transparent 70%)",borderWidth:1,borderColor:tint(colors().accent,dark()?"45":"4d"),boxShadow:elevation("surface"),overflow:"hidden",paddingHorizontal:20,paddingVertical:16,gap:8}}>
+   <Row gap={12} style={{minWidth:0}}>
+     {iconTile(profileIcon(item),32,true)}
+     <Row gap={8} style={{flex:1,minWidth:0}}>
+       <Text style={{fontSize:16,fontWeight:"600",letterSpacing:-0.2,color:colors().text,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0}} tooltip={item.name}>{item.name}</Text>
+       <Tag text={tr("使用中","Active")} tone="accent"/>
+       <View style={{flex:1,minWidth:0}}/>
      </Row>
-     <View style={{paddingLeft:44,minWidth:0}}><Text style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={meta(item)}>{meta(item)}</Text></View>
-   </View>
+     {rowActions(item)}
+   </Row>
+   <View style={{paddingLeft:44,minWidth:0}}><Text style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis"}} tooltip={meta(item)}>{meta(item)}</Text></View>
  </View>;
  const emptyState=()=> <View style={{flex:1,minHeight:220,borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface")}}>
    <Empty icon="subs" title={tr("添加第一个配置","Add your first profile")} description={tr("支持订阅链接、Clash YAML 文件和多个本地订阅聚合。","Import a subscription URL or Clash YAML file, or combine cached profiles.")} action={()=><Row gap={8}><Action label={tr("导入文件…","Import file…")} onPress={importFile}/><Action primary label={tr("添加订阅","Add profile")} onPress={openAdd}/></Row>}/>

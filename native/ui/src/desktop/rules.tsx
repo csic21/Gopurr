@@ -74,7 +74,7 @@ export function RulesPage(p:PageProps){
             <View style={{width:TARGET_COL}}><Micro text={tr('出口','Target')}/></View>
           </Row>
           <If when={visible().length>0}>
-            <List each={visible()} keyExtractor={(item:any)=>String(item.index)} style={{flex:1}} separator={<View style={{height:1,backgroundColor:colors().border}}/>}>{(item)=>
+            <List each={visible()} keyExtractor={(item:any)=>String(item.index)} style={{flex:1}} separator={<View style={{height:1,backgroundColor:colors().grid}}/>}>{(item)=>
               <View style={{flexDirection:'row',alignItems:'center',minHeight:ROW,paddingVertical:10,paddingHorizontal:16,gap:12,transitionProperty:"background-color",transitionDuration:140}} hoverStyle={{backgroundColor:colors().hover}}>
                 <View style={{width:ORDER_COL,alignItems:'flex-end'}}><Label text={String(item().index+1)} faint size={10.5} mono/></View>
                 <View style={{flex:1,minWidth:0}}><Label text={item().rule.payload||item().rule.Payload||tr('全部流量','All traffic')} tooltip={item().rule.payload||item().rule.Payload||tr('全部流量','All traffic')} lines={1}/></View>
@@ -101,7 +101,7 @@ export function RulesPage(p:PageProps){
           <Card>
             <If when={filteredApps().length>0}>
               <Each of={filteredApps()} key={(entry:any)=>entry.rule?.application?.path??String(entry.index)}>{(entry,index)=>
-                <View style={{minHeight:52,paddingHorizontal:16,paddingVertical:10,gap:6,backgroundColor:colors().surface,borderTopWidth:index()>0?1:0,borderColor:colors().border,transitionProperty:"background-color",transitionDuration:140}} hoverStyle={{backgroundColor:colors().hover}}>
+                <View style={{minHeight:52,paddingHorizontal:16,paddingVertical:10,gap:6,backgroundColor:colors().surface,borderTopWidth:index()>0?1:0,borderColor:colors().grid,transitionProperty:"background-color",transitionDuration:140}} hoverStyle={{backgroundColor:colors().hover}}>
                   <Row justify="space-between" gap={12}>
                     <View style={{flex:1,minWidth:0,gap:3}}>
                       <Label text={entry().rule.application?.name??''} weight={500} size={13} lines={1}/>
@@ -170,7 +170,7 @@ export function RulesPage(p:PageProps){
         <If when={!scanning()}><Card>
           <If when={selectedCatalog().length>0}>
             <Each of={selectedCatalog()} key={(app:any)=>app.path||app.name}>{(app,index)=>
-              <View style={{minHeight:52,paddingHorizontal:16,paddingVertical:10,borderTopWidth:index()>0?1:0,borderColor:colors().border,backgroundColor:colors().surface,transitionProperty:"background-color",transitionDuration:140}} hoverStyle={{backgroundColor:colors().hover}}>
+              <View style={{minHeight:52,paddingHorizontal:16,paddingVertical:10,borderTopWidth:index()>0?1:0,borderColor:colors().grid,backgroundColor:colors().surface,transitionProperty:"background-color",transitionDuration:140}} hoverStyle={{backgroundColor:colors().hover}}>
                 <Row justify="space-between" gap={12}>
                   <View style={{flex:1,minWidth:0,gap:3}}>
                     <Label text={app().name} weight={500} size={13} lines={1}/>
@@ -215,7 +215,7 @@ export function RulesPage(p:PageProps){
         <If when={ids().length>0}>
           <Card>
             <Each of={ids()}>{(id,index)=>
-              <View style={{minHeight:44,paddingHorizontal:16,paddingVertical:8,backgroundColor:colors().surface,borderTopWidth:index()>0?1:0,borderColor:colors().border}} hoverStyle={{backgroundColor:colors().hover}}>
+              <View style={{minHeight:44,paddingHorizontal:16,paddingVertical:8,backgroundColor:colors().surface,borderTopWidth:index()>0?1:0,borderColor:colors().grid}} hoverStyle={{backgroundColor:colors().hover}}>
                 <Row justify="space-between" gap={10}>
                   <View style={{flex:1,minWidth:0}}><Label text={index()+1+'. '+(library().find(v=>v.id===id())?.name??id())} lines={1}/></View>
                   <Action quiet label={tr('上移','Up')} disabled={index()===0} onPress={()=>moveTemplate(index(),-1)}/>
@@ -229,7 +229,7 @@ export function RulesPage(p:PageProps){
         <If when={library().filter(v=>!ids().includes(v.id)).length>0}>
           <Card>
             <Each of={library().filter(v=>!ids().includes(v.id))} key={(v:any)=>v.id}>{(v,index)=>
-              <View style={{minHeight:44,paddingHorizontal:16,paddingVertical:8,backgroundColor:colors().surface,borderTopWidth:index()>0?1:0,borderColor:colors().border}} hoverStyle={{backgroundColor:colors().hover}}>
+              <View style={{minHeight:44,paddingHorizontal:16,paddingVertical:8,backgroundColor:colors().surface,borderTopWidth:index()>0?1:0,borderColor:colors().grid}} hoverStyle={{backgroundColor:colors().hover}}>
                 <Row justify="space-between" gap={10}><Label text={v().name} lines={1}/><Action quiet label={tr('添加到此范围','Attach to scope')} onPress={()=>ids.set([...ids(),v().id])}/></Row>
               </View>}
             </Each>

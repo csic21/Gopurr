@@ -1,4 +1,4 @@
-import { effect, Image, List, Scroll, signal, Text, View, windowSize } from 'nsh';
+import { colorScheme, effect, Image, List, Scroll, signal, Text, View, windowSize } from 'nsh';
 import { Checkbox } from 'nsh/base';
 import type { PageProps } from './types';
 import { Action, Empty, Feedback, Field, Group, GroupRow, Heading, Icon, Label, Modal, Row, SearchField, StatusDot, Tabs, Toggle, elevation, fmtTime, tint, RADIUS } from './ui';
@@ -27,8 +27,10 @@ const stateWidth=()=>60;
 const actionsWidth=()=>compact()?192:200;
 const labelWidth=()=>compact()?148:156;
 
-function Chip(p:{name:string}) {
-  return <View style={{width:28,height:28,flexShrink:0,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:colors().hover,borderWidth:1,borderColor:colors().border,...MOTION}}><Icon name={p.name} size={14} color={colors().muted}/></View>;
+function Chip(p:{name:string;active?:boolean;tone?:"success"|"accent"}) {
+  const dark=()=>colorScheme()==="dark";
+  const color=()=>p.tone==="success"?colors().success:colors().accent;
+  return <View style={{width:28,height:28,flexShrink:0,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:p.active?tint(color(),dark()?"16":"12"):(dark()?"#ffffff08":colors().hover),borderWidth:p.active?0:1,borderColor:colors().border,...MOTION}}><Icon name={p.name} size={14} color={p.active?color():colors().muted}/></View>;
 }
 
 /** A grouped setting line: title and explanation on the left, controls on the right. */
@@ -87,31 +89,28 @@ export function MeshPage(p:PageProps){
       <Heading title={tr('组网','Mesh')} description={tr('通过 Tailscale 连接自己的电脑、手机和服务器','Connect your computers, phones and servers through Tailscale')} action={()=><Row gap={6}><Action label={tr('邀请成员','Invite members')} onPress={()=>openURL('https://console.tailscale.com/admin/users')}/><Action label={tr('连接设置','Connection setup')} onPress={()=>guide.set(true)}/><Action label={tr('刷新组网','Refresh')} disabled={busy()} onPress={()=>action('refresh')}/></Row>}/>
 
       {/* Connection card: identity, one primary action, and the inbound access switch. */}
-      <View style={{borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface"),overflow:"hidden"}}>
-        <View style={{flexDirection:"row"}}>
-          <View style={{width:3,backgroundImage:"linear-gradient(180deg, "+railColor()+" 0%, "+tint(railColor(),"00")+" 100%)"}}/>
-          <View style={{flex:1,minWidth:0,flexDirection:"row",alignItems:"center",paddingHorizontal:16,paddingVertical:compact()?11:14,gap:14}}>
-            <View style={{flex:1,minWidth:0,gap:3}}>
-              <Row gap={7} style={{minWidth:0}}>
-                <StatusDot on={!!s().running} size={7} color={statusColor()} glow={!!s().running}/>
-                <Text style={{fontSize:12,fontWeight:"600",letterSpacing:0.1,color:statusColor(),numberOfLines:1,textOverflow:"ellipsis"}}>{statusText()}</Text>
-              </Row>
-              <Row gap={8} style={{minWidth:0,alignItems:"baseline"}}>
-                <If when={!!identity()}><Text tooltip={identity()} style={{fontSize:compact()?14:15,fontWeight:"600",letterSpacing:-0.2,color:colors().text,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0}}>{identity()}</Text></If>
-                <Text tooltip={identityMeta()} style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0,fontVariant:"tabular-nums"}}>{identityMeta()}</Text>
-              </Row>
+      <View style={{borderRadius:RADIUS.surface,backgroundColor:colors().surface,backgroundImage:s().running||m().busy?"radial-gradient(ellipse 400px 140px at 0% 0%, "+tint(railColor(),colorScheme()==="dark"?"14":"0f")+", transparent 70%)":undefined,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface"),overflow:"hidden"}}>
+        <View style={{flexDirection:"row",alignItems:"center",paddingHorizontal:16,paddingVertical:compact()?11:14,gap:14}}>
+          <View style={{flex:1,minWidth:0,gap:5}}>
+            <View style={{alignSelf:"flex-start",maxWidth:"100%",flexShrink:1,minWidth:0,flexDirection:"row",alignItems:"center",gap:6,height:24,paddingHorizontal:9,borderRadius:999,backgroundColor:s().running?tint(colors().success,colorScheme()==="dark"?"16":"12"):m().busy?tint(colors().accent,colorScheme()==="dark"?"16":"12"):colors().hover,borderWidth:1,borderColor:s().running?tint(colors().success,colorScheme()==="dark"?"26":"20"):m().busy?tint(colors().accent,colorScheme()==="dark"?"26":"20"):colors().border}}>
+              <StatusDot on={!!s().running} size={6} color={statusColor()} glow={!!s().running}/>
+              <Text style={{flexShrink:1,minWidth:0,fontSize:11.5,fontWeight:"600",letterSpacing:0.1,color:statusColor(),numberOfLines:1,textOverflow:"ellipsis"}}>{statusText()}</Text>
             </View>
-            <Row gap={6} style={{flexShrink:0}}>
-              <If when={s().running&&!accessReady()}><Action label={tr('准备访问','Prepare access')} disabled={busy()} onPress={()=>prepare.set(true)}/></If>
-              <Action label={s().running||s().authURL||m().busy?tr('断开组网','Disconnect'):tr('连接组网','Connect')} primary={!s().running} disabled={working()} onPress={()=>s().running||s().authURL||m().busy?action('disconnect'):guide.set(true)}/>
+            <Row gap={8} style={{minWidth:0,alignItems:"baseline"}}>
+              <If when={!!identity()}><Text tooltip={identity()} style={{fontSize:compact()?14:15,fontWeight:"600",letterSpacing:-0.2,color:colors().text,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0}}>{identity()}</Text></If>
+              <Text tooltip={identityMeta()} style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0,fontVariant:"tabular-nums"}}>{identityMeta()}</Text>
             </Row>
           </View>
+          <Row gap={6} style={{flexShrink:0}}>
+            <If when={s().running&&!accessReady()}><Action label={tr('准备访问','Prepare access')} disabled={busy()} onPress={()=>prepare.set(true)}/></If>
+            <Action label={s().running||s().authURL||m().busy?tr('断开组网','Disconnect'):tr('连接组网','Connect')} primary={!s().running} disabled={working()} onPress={()=>s().running||s().authURL||m().busy?action('disconnect'):guide.set(true)}/>
+          </Row>
         </View>
-        <View style={{height:1,backgroundColor:colors().border}}/>
+        <View style={{height:1,backgroundColor:colors().grid}}/>
         <View style={{flexDirection:"row",alignItems:"center",paddingHorizontal:16,minHeight:compact()?46:50,gap:14}}>
-          <Chip name="shield"/>
+          <Chip name="shield" active={!!allowed()} tone="success"/>
           <View style={{width:labelWidth(),flexShrink:0}}><Label text={tr('允许组网设备访问本机','Allow mesh devices to access this machine')} weight={500} size={13} lines={2} tooltip={tr('允许组网设备访问本机','Allow mesh devices to access this machine')}/></View>
-          <View style={{flex:1,minWidth:0}}><Label text={inboundDescription()} faint size={12} lines={2} tooltip={inboundDescription()}/></View>
+          <View style={{flex:1,minWidth:0}}><Label text={inboundDescription()} color={allowed()?colors().muted:colors().faint} size={12} lines={2} tooltip={inboundDescription()}/></View>
           <Toggle checked={!!allowed()} disabled={busy()||!s().shieldsKnown||(!s().running&&!allowed())} label={tr('允许组网设备访问本机','Allow mesh devices to access this machine')} showLabel={false} onChange={v=>v?openPorts(true):action('shieldsUp')}/>
         </View>
       </View>
@@ -135,7 +134,7 @@ export function MeshPage(p:PageProps){
               <View style={{width:actionsWidth()}}/>
             </View>
           </If>
-          <List each={filtered()} keyExtractor={(d:any)=>d.id} style={{flex:1}} separator={<View style={{height:1,backgroundColor:colors().border}}/>} empty={<View style={{flex:1,justifyContent:"center"}}>{deviceEmpty()}</View>}>
+          <List each={filtered()} keyExtractor={(d:any)=>d.id} style={{flex:1}} separator={<View style={{height:1,backgroundColor:colors().grid}}/>} empty={<View style={{flex:1,justifyContent:"center"}}>{deviceEmpty()}</View>}>
             {(device)=><View testID={"mesh-device-"+device().id} style={{flexDirection:"row",alignItems:"center",minHeight:52,paddingHorizontal:14,gap:12,backgroundColor:colors().surface,...MOTION}} hoverStyle={{backgroundColor:colors().hover}}>
               <Row gap={9} style={{flex:1,minWidth:0}}>
                 <StatusDot on={!!device().online} size={7} color={blocked().includes(device().id)?colors().danger:device().online?colors().success:colors().faint}/>

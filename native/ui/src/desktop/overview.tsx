@@ -16,8 +16,8 @@ function ExitName(p:{value:()=>string;size?:number}) {
  const current=exitCurrent,previous=exitPrevious,progress=exitProgress;
  effect(()=>{const next=p.value();if(next===lastExit)return;lastExit=next;void progress.stop();if(!next||!seenExit||reduceMotion()){progress.set(1);seenExit=!!next;current.set(next);previous.set("");return;}previous.set(current());current.set(next);progress.set(0);void progress.timing(1,{duration:280,easing:"easeInOut"}).then(({finished})=>{if(finished)previous.set("");});});
  cleanup(()=>{void progress.stop();progress.set(1);previous.set("");});
- const size=p.size??32,lineHeight=size+8;
- return <View style={{minHeight:lineHeight}}><If when={!!previous()}><Text accessibilityElementsHidden style={{position:"absolute",left:0,right:0,top:0,fontSize:size,lineHeight,fontWeight:"600",letterSpacing:-1,color:colors().text,numberOfLines:2,textOverflow:"ellipsis",opacity:progress.interpolate({inputRange:[0,1],outputRange:[1,0]}),transform:[{translateY:progress.interpolate({inputRange:[0,1],outputRange:[-5,0]})}]}}>{previous()}</Text></If><Text testID="overview-exit" style={{fontSize:size,lineHeight,fontWeight:"600",letterSpacing:-1,color:colors().text,numberOfLines:2,textOverflow:"ellipsis",opacity:progress,transform:[{translateY:progress.interpolate({inputRange:[0,1],outputRange:[5,0]})}]}}>{current()||tr("尚未选择配置","No profile selected")}</Text></View>;
+ const size=()=>p.size??30,lineHeight=()=>size()+7,letterSpacing=()=>size()>=28?-0.8:-0.5;
+ return <View style={{minHeight:lineHeight()}}><If when={!!previous()}><Text accessibilityElementsHidden style={{position:"absolute",left:0,right:0,top:0,fontSize:size(),lineHeight:lineHeight(),fontWeight:"600",letterSpacing:letterSpacing(),color:colors().text,numberOfLines:2,textOverflow:"ellipsis",opacity:progress.interpolate({inputRange:[0,1],outputRange:[1,0]}),transform:[{translateY:progress.interpolate({inputRange:[0,1],outputRange:[-5,0]})}]}}>{previous()}</Text></If><Text testID="overview-exit" style={{fontSize:size(),lineHeight:lineHeight(),fontWeight:"600",letterSpacing:letterSpacing(),color:colors().text,numberOfLines:2,textOverflow:"ellipsis",opacity:progress,transform:[{translateY:progress.interpolate({inputRange:[0,1],outputRange:[5,0]})}]}}>{current()||tr("尚未选择配置","No profile selected")}</Text></View>;
 }
 /**
  * Connection first, then the live instrument: a wide console card carries the
@@ -46,15 +46,21 @@ export function OverviewPage(p:PageProps) {
  const rowHeight=()=>compact()?44:50;
  const dark=()=>colorScheme()==="dark";
  const card=()=>({borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface"),overflow:"hidden"} as const);
- const railColor=()=>connected()?colors().success:colors().border;
- const rail=()=><View style={{width:3,backgroundImage:"linear-gradient(180deg, "+railColor()+" 0%, "+tint(railColor(),"00")+" 100%)"}}/>;
- const Control=(c:{title:string;desc:string;kind:"dns"|"sniffer";icon:string})=> <View style={{flexDirection:"row",alignItems:"center",paddingHorizontal:16,minHeight:rowHeight(),gap:14,backgroundColor:colors().surface}}>
-   <View style={{width:28,height:28,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:colors().hover,borderWidth:1,borderColor:colors().border}}><Icon name={c.icon} size={14} color={colors().muted}/></View>
+ const heroGradient=()=>connected()?"radial-gradient(ellipse 460px 200px at 0% 0%, "+tint(colors().success,dark()?"14":"0f")+", transparent 70%)":undefined;
+ const iconTile=(icon:string,active:boolean,tone:"success"|"accent")=> {
+  const color=tone==="success"?colors().success:colors().accent;
+  return <View style={{width:28,height:28,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:active?tint(color,dark()?"16":"12"):(dark()?"#ffffff08":colors().hover),borderWidth:active?0:1,borderColor:colors().border}}><Icon name={icon} size={14} color={active?color:colors().muted}/></View>;
+ };
+ const Control=(c:{title:string;desc:string;kind:"dns"|"sniffer";icon:string})=> {
+  const active=()=>!!p.snapshot().features?.[c.kind]?.enable;
+  return <View style={{flexDirection:"row",alignItems:"center",paddingHorizontal:16,minHeight:rowHeight(),gap:14,backgroundColor:colors().surface}}>
+   {iconTile(c.icon,active(),"accent")}
    <View style={{width:labelWidth()}}><Label text={c.title} weight={500} size={13}/></View>
-   <View style={{flex:1,minWidth:0}}><Label text={c.desc} tooltip={c.desc} faint size={12} lines={1}/></View>
+   <View style={{flex:1,minWidth:0}}><Label text={c.desc} tooltip={c.desc} color={active()?colors().muted:colors().faint} size={12} lines={1}/></View>
    <Action testID={`feature-settings-${c.kind}`} quiet label={tr("设置","Settings")} onPress={()=>feature.set(c.kind)}/>
    <Select testID={`feature-policy-${c.kind}`} label={c.title} items={policyItems()} value={policy(c.kind)} disabled={!!p.busy()} onChange={v=>void p.run(c.kind,()=>p.call("desktop.features.policy",{kind:c.kind,enabled:v==="inherit"?null:v==="true"}))}/>
- </View>;
+  </View>;
+ };
  const Rate=(r:{kind:"down"|"up";size?:number})=><View style={{gap:4,minWidth:0}}>
    <Row gap={5}><Icon name={r.kind} size={12} color={colors()[r.kind]}/><Text style={{fontSize:11,fontWeight:"500",letterSpacing:0.3,color:colors().muted}}>{r.kind==="down"?tr("下行","Download"):tr("上行","Upload")}</Text></Row>
    <TrafficRate color={colors()[r.kind]} size={r.size??(compact()?23:30)} value={stale()?"—":fmtRate(status().traffic?.[r.kind]??0)}/>
@@ -63,16 +69,24 @@ export function OverviewPage(p:PageProps) {
    <Text style={{fontSize:10,fontWeight:"500",letterSpacing:0.4,color:colors().faint,numberOfLines:1}}>{m.label}</Text>
    <Text style={{fontSize:m.size??13,fontWeight:"600",letterSpacing:-0.1,color:colors().text,fontVariant:"tabular-nums",numberOfLines:1}}>{m.value}</Text>
   </View>;
- const Divider=()=><View style={{width:1,height:24,backgroundColor:colors().border}}/>;
- const Hairline=()=><View style={{height:1,backgroundColor:colors().border}}/>;
+ const Divider=()=><View style={{width:1,height:24,backgroundColor:colors().grid}}/>;
+ const Hairline=()=><View style={{height:1,backgroundColor:colors().grid}}/>;
  const errorText=()=>status().error||health().error||"";
- const groupCaption=()=>status().mode==="rule"?(group()?.name??tr("节点选择","Proxy selection"))+" · "+groupTypeLabel(group()?.type??"—"):status().mode==="direct"?tr("所有请求直接连接","All requests connect directly"):tr("所有请求使用全局策略","All requests use the global policy");
+ const groupCaption=()=>{
+  if(status().mode==="direct")return tr("所有请求直接连接","All requests connect directly");
+  if(status().mode==="global")return tr("所有请求使用全局策略","All requests use the global policy");
+  const name=group()?.name??tr("节点选择","Proxy selection");
+  const typeLabel=groupTypeLabel(group()?.type??"—");
+  return name&&typeLabel&&name.includes(typeLabel)?name:name+" · "+typeLabel;
+ };
  const route=()=>status().kernel?p.navigate("proxies"):void p.run("kernel",()=>p.call("desktop.kernel.toggle"));
  const Identity=(o:{size:number;compact:boolean})=><View style={{flexShrink:1,minWidth:0,gap:o.compact?5:7}}>
    <Row gap={8} style={{minWidth:0}}>
-    <StatusDot on={connected()} size={7} color={connected()?colors().success:colors().faint} glow={connected()}/>
-    <Text style={{fontSize:12,fontWeight:"600",letterSpacing:0.1,color:connected()?colors().success:colors().muted,numberOfLines:1,textOverflow:"ellipsis"}}>{takeoverText()}</Text>
-    <If when={o.compact}><Row gap={6} style={{minWidth:0,flexShrink:1}}><Text style={{fontSize:11.5,color:colors().faint,numberOfLines:1}}>·</Text><Text tooltip={groupCaption()} style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0}}>{groupCaption()}</Text></Row></If>
+    <View style={{alignSelf:"flex-start",maxWidth:"100%",flexShrink:1,minWidth:0,flexDirection:"row",alignItems:"center",gap:6,height:24,paddingHorizontal:9,borderRadius:999,backgroundColor:connected()?tint(colors().success,dark()?"16":"12"):colors().hover,borderWidth:1,borderColor:connected()?tint(colors().success,dark()?"26":"20"):colors().border}}>
+     <StatusDot on={connected()} size={6} color={connected()?colors().success:colors().faint} glow={connected()}/>
+     <Text style={{flexShrink:1,minWidth:0,fontSize:11.5,fontWeight:"600",letterSpacing:0.1,color:connected()?colors().success:colors().muted,numberOfLines:1,textOverflow:"ellipsis"}}>{takeoverText()}</Text>
+    </View>
+    <If when={o.compact}><Text tooltip={groupCaption()} style={{fontSize:11.5,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis",flexShrink:1,minWidth:0}}>{groupCaption()}</Text></If>
    </Row>
    <ExitName value={exit} size={o.size}/>
    <If when={!o.compact}><Text tooltip={groupCaption()} style={{fontSize:12,color:colors().muted,numberOfLines:1,textOverflow:"ellipsis"}}>{groupCaption()}</Text></If>
@@ -85,20 +99,15 @@ export function OverviewPage(p:PageProps) {
   * session counters in the narrow column, all above the network controls.
   */
  const ConsoleLayout=()=><View style={{flex:1,minHeight:0,flexDirection:"row",gap:16}}>
-  <View style={{flex:1,minWidth:0,...card(),backgroundImage:"linear-gradient(180deg, "+tint(colors().surface,"00")+" 60%, "+tint(colors().accent,dark()?"0f":"0b")+" 100%)"}}>
-   <View style={{flex:1,flexDirection:"row"}}>
-    {rail()}
-    <View style={{flex:1,minWidth:0,paddingHorizontal:24,paddingTop:22,paddingBottom:14,gap:12}}>
-     <Row justify="space-between" gap={24} style={{alignItems:"flex-start"}}>
-      <Identity size={36} compact={false}/>
-      <View style={{flexShrink:0,alignItems:"flex-end",gap:12}}>
-       <RouteAction/>
-       <Health compact={false}/>
-      </View>
-     </Row>
-     <Chart/>
+  <View style={{flex:1,minWidth:0,...card(),backgroundImage:heroGradient(),paddingHorizontal:24,paddingTop:22,paddingBottom:14,gap:12}}>
+   <Row justify="space-between" gap={24} style={{alignItems:"flex-start"}}>
+    <Identity size={exit().length>16?24:30} compact={false}/>
+    <View style={{flexShrink:0,alignItems:"flex-end",gap:12}}>
+     <RouteAction/>
+     <Health compact={false}/>
     </View>
-   </View>
+   </Row>
+   <Chart/>
   </View>
   <View style={{width:272,gap:16}}>
    <View style={{flex:1,minHeight:0,...card(),padding:16,gap:10,justifyContent:"space-between"}}>
@@ -119,9 +128,15 @@ export function OverviewPage(p:PageProps) {
    <View style={{flex:1,minHeight:0,...card(),padding:16,gap:10,justifyContent:"space-between"}}>
     <Text style={{fontSize:11,fontWeight:"600",letterSpacing:0.3,color:colors().muted,numberOfLines:1}}>{tr("会话统计","Session")}</Text>
     <View style={{gap:10}}>
-     <Row justify="space-between" gap={12}><Metric label={tr("活跃连接","Connections")} value={String(status().connections??0)} size={16}/><Metric label={tr("生效规则","Rules")} value={String(status().rules??0)} size={16}/></Row>
+     <Row gap={12}>
+      <View style={{flex:1,minWidth:0}}><Metric label={tr("活跃连接","Connections")} value={String(status().connections??0)} size={16}/></View>
+      <View style={{flex:1,minWidth:0}}><Metric label={tr("生效规则","Rules")} value={String(status().rules??0)} size={16}/></View>
+     </Row>
      <Hairline/>
-     <Row justify="space-between" gap={12}><Metric label={tr("累计下行","Downloaded")} value={fmtBytes(status().traffic?.downTotal??0)} size={16}/><Metric label={tr("累计上行","Uploaded")} value={fmtBytes(status().traffic?.upTotal??0)} size={16}/></Row>
+     <Row gap={12}>
+      <View style={{flex:1,minWidth:0}}><Metric label={tr("累计下行","Downloaded")} value={fmtBytes(status().traffic?.downTotal??0)} size={16}/></View>
+      <View style={{flex:1,minWidth:0}}><Metric label={tr("累计上行","Uploaded")} value={fmtBytes(status().traffic?.upTotal??0)} size={16}/></View>
+     </Row>
     </View>
    </View>
   </View>
@@ -130,25 +145,22 @@ export function OverviewPage(p:PageProps) {
   * The stacked console for the minimum window: one card holds the identity,
   * the rates, the traffic surface and the counters.
   */
- const StackedLayout=()=><View style={{flex:1,minHeight:compact()?206:236,...card(),backgroundImage:"linear-gradient(180deg, "+tint(colors().surface,"00")+" 55%, "+tint(colors().accent,dark()?"0d":"0a")+" 100%)"}}>
-  <View style={{flex:1,flexDirection:"row"}}>
-   {rail()}
-   <View style={{flex:1,minWidth:0,paddingHorizontal:compact()?16:22,paddingTop:compact()?12:18,paddingBottom:compact()?10:12,gap:compact()?8:10}}>
-    <Row justify="space-between" gap={20} style={{alignItems:"flex-start"}}>
-     <Identity size={compact()?24:34} compact={compact()}/>
-     <View style={{flexShrink:0,alignItems:"flex-end",gap:compact()?3:8}}>
-      <Row gap={6}>
-       <Icon name="activity" size={compact()?11:12} color={colors().faint}/>
-       <Text style={{fontSize:compact()?10.5:11,color:colors().faint,fontVariant:"tabular-nums",numberOfLines:1}}>{tr("峰值","Peak")+" "+fmtRate(peak())}</Text>
-      </Row>
-      <Row gap={compact()?22:40} style={{paddingTop:compact()?0:3}}><Rate kind="down"/><Rate kind="up"/></Row>
-      <If when={!compact()}><Health compact={false}/></If>
-     </View>
-    </Row>
-    <Chart/>
-   </View>
+ const StackedLayout=()=><View style={{flex:1,minHeight:compact()?206:236,...card(),backgroundImage:heroGradient()}}>
+  <View style={{flex:1,minWidth:0,paddingHorizontal:compact()?16:22,paddingTop:compact()?12:18,paddingBottom:compact()?10:12,gap:compact()?8:10}}>
+   <Row justify="space-between" gap={20} style={{alignItems:"flex-start"}}>
+    <Identity size={compact()?(exit().length>16?20:23):(exit().length>16?24:28)} compact={compact()}/>
+    <View style={{flexShrink:0,alignItems:"flex-end",gap:compact()?3:8}}>
+     <Row gap={6}>
+      <Icon name="activity" size={compact()?11:12} color={colors().faint}/>
+      <Text style={{fontSize:compact()?10.5:11,color:colors().faint,fontVariant:"tabular-nums",numberOfLines:1}}>{tr("峰值","Peak")+" "+fmtRate(peak())}</Text>
+     </Row>
+     <Row gap={compact()?22:40} style={{paddingTop:compact()?0:3}}><Rate kind="down"/><Rate kind="up"/></Row>
+     <If when={!compact()}><Health compact={false}/></If>
+    </View>
+   </Row>
+   <Chart/>
   </View>
-  <View style={{flexDirection:"row",alignItems:"center",justifyContent:"space-between",paddingLeft:compact()?16:22,paddingRight:compact()?12:14,minHeight:compact()?44:52,borderTopWidth:1,borderColor:colors().border,gap:12,backgroundColor:dark()?tint(colors().surface,"00"):tint(colors().bg,"66")}}>
+  <View style={{flexDirection:"row",alignItems:"center",justifyContent:"space-between",paddingLeft:compact()?16:22,paddingRight:compact()?12:14,minHeight:compact()?44:52,borderTopWidth:1,borderColor:colors().grid,gap:12,backgroundColor:dark()?tint(colors().surface,"00"):tint(colors().bg,"66")}}>
    <Row gap={compact()?12:18} style={{flexShrink:1,minWidth:0}}>
     <Metric label={tr("活跃连接","Connections")} value={String(status().connections??0)}/>
     <Divider/>
@@ -166,18 +178,18 @@ export function OverviewPage(p:PageProps) {
  <If when={bento()}>{ConsoleLayout()}</If>
  <If when={!bento()}>{StackedLayout()}</If>
  <Section title={tr("网络控制","Network controls")} subtitle={tr("混合端口","Mixed port")+" "+String(p.snapshot().network.mixedPort??7890)}/>
- <View style={{borderRadius:RADIUS.surface,backgroundColor:colors().border,overflow:"hidden",gap:1,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface")}}>
+ <View style={{borderRadius:RADIUS.surface,backgroundColor:colors().grid,overflow:"hidden",gap:1,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface")}}>
   <View style={{flexDirection:"row",alignItems:"center",paddingHorizontal:16,minHeight:rowHeight(),gap:14,backgroundColor:colors().surface}}>
-   <View style={{width:28,height:28,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:colors().hover,borderWidth:1,borderColor:colors().border}}><Icon name="shield" size={14} color={colors().muted}/></View>
+   {iconTile("shield",proxyHealthy(),"success")}
    <View style={{width:labelWidth()}}><Label text={tr("系统代理","System proxy")} weight={500} size={13}/></View>
-   <View style={{flex:1,minWidth:0}}><Label tooltip={status().systemProxy?proxyHealthy()?tr("已开启 · 本地代理就绪","Enabled · local proxy ready"):tr("已请求开启 · 网络状态待确认","Requested on · network state unconfirmed"):tr("未开启 · 不接管系统流量","Disabled · system traffic unchanged")} text={status().systemProxy?proxyHealthy()?tr("已开启 · 本地代理就绪","Enabled · local proxy ready"):tr("已请求开启 · 网络状态待确认","Requested on · network state unconfirmed"):tr("未开启 · 不接管系统流量","Disabled · system traffic unchanged")} faint size={12} lines={1}/></View>
+   <View style={{flex:1,minWidth:0}}><Label tooltip={status().systemProxy?proxyHealthy()?tr("已开启 · 本地代理就绪","Enabled · local proxy ready"):tr("已请求开启 · 网络状态待确认","Requested on · network state unconfirmed"):tr("未开启 · 不接管系统流量","Disabled · system traffic unchanged")} text={status().systemProxy?proxyHealthy()?tr("已开启 · 本地代理就绪","Enabled · local proxy ready"):tr("已请求开启 · 网络状态待确认","Requested on · network state unconfirmed"):tr("未开启 · 不接管系统流量","Disabled · system traffic unchanged")} color={status().systemProxy?colors().muted:colors().faint} size={12} lines={1}/></View>
    <Action quiet label={tr("详情","Details")} onPress={()=>details.set(true)}/><Toggle showLabel={false} label={tr("系统代理","System proxy")} checked={!!status().systemProxy} disabled={!!p.busy()||!status().systemProxyAvailable} onChange={enabled=>void p.run("system-proxy",()=>p.call("desktop.systemProxy.set",{enabled}))}/>
   </View>
   <View style={{flexDirection:"row",alignItems:"center",paddingHorizontal:16,minHeight:rowHeight(),gap:14,backgroundColor:colors().surface}}>
-   <View style={{width:28,height:28,borderRadius:9,alignItems:"center",justifyContent:"center",backgroundColor:colors().hover,borderWidth:1,borderColor:colors().border}}><Icon name="route" size={14} color={colors().muted}/></View>
+   {iconTile("route",tunHealthy(),"success")}
    <View style={{width:labelWidth()}}><Label text={tr("TUN 模式","TUN mode")} weight={500} size={13}/></View>
-   <View style={{flex:1,minWidth:0}}><Label tooltip={status().tun?tunHealthy()?tr("已开启 · 接管设备流量","Enabled · routing device traffic"):tr("已请求开启 · TUN 状态待确认","Requested on · TUN state unconfirmed"):status().tunInstalled?tr("已安装服务 · 当前未开启","Service installed · disabled"):tr("未安装服务 · 系统代理可独立使用","Service not installed · system proxy works independently")} text={status().tun?tunHealthy()?tr("已开启 · 接管设备流量","Enabled · routing device traffic"):tr("已请求开启 · TUN 状态待确认","Requested on · TUN state unconfirmed"):status().tunInstalled?tr("已安装服务 · 当前未开启","Service installed · disabled"):tr("未安装服务 · 系统代理可独立使用","Service not installed · system proxy works independently")} faint size={12} lines={1}/></View>
-   <Action quiet label={status().tunInstalled?tr("服务…","Service…"):tr("安装服务…","Install service…")} onPress={()=>service.set(true)}/><Toggle showLabel={false} label="TUN" checked={!!status().tun} disabled={!!p.busy()||!status().tunAvailable} onChange={enabled=>void p.run("tun",()=>p.call("desktop.tun.set",{enabled}))}/>
+   <View style={{flex:1,minWidth:0}}><Label tooltip={status().tun?tunHealthy()?tr("已开启 · 接管设备流量","Enabled · routing device traffic"):tr("已请求开启 · TUN 状态待确认","Requested on · TUN state unconfirmed"):status().tunInstalled?tr("已安装服务 · 当前未开启","Service installed · disabled"):tr("未安装服务 · 系统代理可独立使用","Service not installed · system proxy works independently")} text={status().tun?tunHealthy()?tr("已开启 · 接管设备流量","Enabled · routing device traffic"):tr("已请求开启 · TUN 状态待确认","Requested on · TUN state unconfirmed"):status().tunInstalled?tr("已安装服务 · 当前未开启","Service installed · disabled"):tr("未安装服务 · 系统代理可独立使用","Service not installed · system proxy works independently")} color={status().tun?colors().muted:colors().faint} size={12} lines={1}/></View>
+   <Action quiet label={status().tunInstalled?tr("详情","Details"):tr("安装服务…","Install service…")} onPress={()=>service.set(true)}/><Toggle showLabel={false} label="TUN" checked={!!status().tun} disabled={!!p.busy()||!status().tunAvailable} onChange={enabled=>void p.run("tun",()=>p.call("desktop.tun.set",{enabled}))}/>
   </View>
   <Control title={tr("内置 DNS","Built-in DNS")} icon="server" desc={(p.snapshot().features?.dns?.enable?tr("已开启","Enabled"):tr("未开启","Disabled"))+" · "+tr("当前订阅","Current profile")} kind="dns"/>
   <Control title={tr("域名嗅探","Domain sniffing")} icon="radar" desc={(p.snapshot().features?.sniffer?.enable?tr("已开启","Enabled"):tr("未开启","Disabled"))+" · "+tr("全局","Global")} kind="sniffer"/>
