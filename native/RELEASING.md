@@ -94,6 +94,19 @@ do not replace that work.
 
 ## Native desktop updates
 
+### Windows build cache
+
+Windows release tags restore Cargo and NSH dependencies from the default
+branch. The `CI` workflow warms that cache after pushes to `main`; the key is
+derived only from `native/windows/Cargo.lock`, `Cargo.toml` and `build.rs`, so
+application-only changes reuse the dependency artifacts. Tag workflows may
+read the default-branch cache but cannot populate it for future tags.
+
+`windows-nsh` runs the Rust tests in the release profile and produces the
+signed Windows installer and update archive once. The Release workflow does
+not build a second Windows package: it publishes the artifacts from the same
+job that ran the migration, update, core, service and UI acceptance checks.
+
 The macOS production entry point is now `scripts/release` / `make bundle`.
 It builds `bin/darwin-arm64/Gopurr.app` with the established
 `io.github.gopurr.app` identity, `Contents/MacOS/Gopurr` executable and

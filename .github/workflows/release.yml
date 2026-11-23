@@ -22,6 +22,7 @@ jobs:
     uses: ./.github/workflows/windows-nsh.yml
     with:
       tag: ${{ inputs.tag || github.ref_name }}
+      release: true
     secrets:
       MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
 
@@ -37,6 +38,8 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
   build:
+    # Windows is built and accepted once by windows-nsh. Keep this matrix for
+    # desktop platforms that still need their own production packaging.
     strategy:
       fail-fast: false
       matrix:
@@ -44,9 +47,6 @@ jobs:
           - os: macos-15
             platform: darwin/arm64
             target: darwin-arm64
-          - os: windows-latest
-            platform: windows/amd64
-            target: windows-amd64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -65,25 +65,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
-        if: runner.os == 'Windows'
-        with:
-          path: |
-            .cache/cargo
-            .cache/cargo-target
-            .cache/nsh-windows
-            .cache/rust-license-texts
-            .cache/build
-            .cache/mod
-          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}-release
-          restore-keys: windows-nsh-${{ runner.os }}-
-      - name: Use short temporary paths for Windows Unix sockets
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item C:\gp-tmp -ItemType Directory -Force | Out-Null
-          "TEMP=C:\gp-tmp" >> $env:GITHUB_ENV
-          "TMP=C:\gp-tmp" >> $env:GITHUB_ENV
       - name: Free macOS runner disk space
         # The MacCloud image ships an Android SDK with several NDKs and an
         # emulator (over 10 GB) that this job never builds. Without the space,
@@ -112,12 +93,6 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         shell: bash
         run: go run ./scripts/release -release -version "$RELEASE_TAG" -platform "$PLATFORM"
-      - name: Windows native backend real-core smoke test
-        if: runner.os == 'Windows'
-        run: go run ./scripts/smoke -binary bin/windows-amd64/gopurr-desktop.exe
-      - name: Windows service and Wintun smoke test
-        if: runner.os == 'Windows'
-        run: go run ./scripts/smoke-windows -binary bin/windows-amd64/gopurr-desktop.exe
       - name: Verify native macOS migration and subsequent update
         if: runner.os == 'macOS'
         env:
@@ -135,18 +110,6 @@ jobs:
           path: dist/${{ matrix.target }}/*
           if-no-files-found: error
           retention-days: 7
-
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        if: always() && runner.os == 'Windows'
-        with:
-          path: |
-            .cache/cargo
-            .cache/cargo-target
-            .cache/nsh-windows
-            .cache/rust-license-texts
-            .cache/build
-            .cache/mod
-          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}-release
 
   publish:
     needs: [build, android, windows-nsh]

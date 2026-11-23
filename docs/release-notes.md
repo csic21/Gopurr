@@ -1,15 +1,15 @@
-Gopurr 0.6.66 协调了桌面侧栏收展与菜单飞行动画的节奏、方向与端点对齐，消除了菜单从顶部回到左侧时的瞬跳与重影感。
+Gopurr 0.6.67 优化了 Windows 构建与发布流程，缩短版本发布所需的等待时间。
 
-- 侧栏与导航切换统一采用 280ms 减速曲线（`[0.32, 0.72, 0, 1]`），双向启动即响应并平稳落位；运动期间隐藏底层静止轨道，侧栏幕布以实心滑入配随端点淡出的柔和右缘阴影及页脚渐隐。
-- 为展开方向补齐主内容区 `desktop-content` 与幕布右缘 1:1 贴合的纯 GPU `translateX` 滑移（`-184 → 0`，与收起 `184 → 0` 对称），消除展开第 0 帧的 184 像素突兀跳变。
-- 将飞行菜单重构为单份图标与文字搭配 `36 → 30` 选中胶囊协同形变，精确对齐侧栏与顶栏两端位置，消除交接时的反向重影与高度跳变，并已重新核验 840×560 与 1060×720 明暗中英文截图。
+- Windows 构建现在复用由 `main` 预热、按依赖哈希缓存的 Cargo/NSH 编译产物，不再在每次 tag 发布时从零编译完整 Rust 依赖树。
+- Rust 测试与正式 Windows 构建共享 release 编译产物；Release 只构建一次 Windows 安装包，并直接使用通过迁移、更新、真实内核和 UI 验收的 `windows-nsh` 结果。
+- 本次仅调整构建与发布流程，应用功能和已安装版本的数据、配置及升级行为不变。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.66-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.66-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.66-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.66-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.67-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.67-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.67-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.67-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

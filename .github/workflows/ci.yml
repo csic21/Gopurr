@@ -58,3 +58,43 @@ jobs:
           name: screenshots-${{ runner.os }}
           path: docs/render-*.png
           retention-days: 7
+
+  windows-build-cache:
+    # Release tags can restore caches from the default branch, but cannot
+    # populate them for later tags. Keep the expensive NSH dependency build
+    # warm on main so each release only rebuilds the application crates.
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_HOME: ${{ github.workspace }}/.cache/cargo
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.cache/cargo-target
+      LIBCLANG_PATH: C:/Program Files/LLVM/bin
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: cache
+        with:
+          path: |
+            .cache/cargo
+            .cache/cargo-target
+          key: windows-cargo-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'native/windows/Cargo.toml', 'native/windows/build.rs') }}
+          restore-keys: windows-cargo-${{ runner.os }}-
+      - name: Install pinned Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup override set 1.99.1
+      - name: Build release dependencies
+        shell: pwsh
+        run: |
+          cargo build --locked --release --manifest-path native/windows/Cargo.toml
+          if ($LASTEXITCODE) { throw 'Warm Windows Rust release build failed' }
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: success() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            .cache/cargo
+            .cache/cargo-target
+          key: windows-cargo-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'native/windows/Cargo.toml', 'native/windows/build.rs') }}

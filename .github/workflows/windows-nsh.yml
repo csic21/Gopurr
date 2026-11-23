@@ -6,6 +6,9 @@ on:
       tag:
         type: string
         default: ''
+      release:
+        type: boolean
+        default: false
     secrets:
       MYGO_UPDATER_PRIVATE_KEY:
         required: true
@@ -33,6 +36,7 @@ jobs:
       CARGO_HOME: ${{ github.workspace }}/.cache/cargo
       CARGO_TARGET_DIR: ${{ github.workspace }}/.cache/cargo-target
       LIBCLANG_PATH: C:/Program Files/LLVM/bin
+      RUSTFLAGS: -C target-feature=+crt-static
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -46,12 +50,8 @@ jobs:
           path: |
             .cache/cargo
             .cache/cargo-target
-            .cache/nsh-windows
-            .cache/rust-license-texts
-            .cache/build
-            .cache/mod
-          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: windows-nsh-${{ runner.os }}-
+          key: windows-cargo-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'native/windows/Cargo.toml', 'native/windows/build.rs') }}
+          restore-keys: windows-cargo-${{ runner.os }}-
       - name: Configure short session paths and Rust
         shell: pwsh
         run: |
@@ -65,17 +65,36 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: |
-          cargo test --locked --manifest-path native/windows/Cargo.toml --target x86_64-pc-windows-msvc
+          cargo test --locked --release --manifest-path native/windows/Cargo.toml
           if ($LASTEXITCODE) { throw 'Rust bridge tests failed' }
       - name: Test Windows migration, authentication and backend
         env:
           CGO_ENABLED: '0'
         run: go test -v . ./internal/nativehost -timeout=5m
+      - name: Test the complete release tree
+        if: ${{ inputs.release }}
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go test -timeout=20m ./...
+          if ($LASTEXITCODE) { throw 'Complete Windows test suite failed' }
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+          if ($LASTEXITCODE) { throw 'Dependency vulnerability check failed' }
       - name: Build the default production Windows package
+        if: ${{ !inputs.release }}
         shell: pwsh
         run: |
           go run ./scripts/release -platform windows/amd64 -out bin/native
           if ($LASTEXITCODE) { throw 'Default Windows release builder failed' }
+      - name: Build the signed production Windows release package
+        if: ${{ inputs.release }}
+        shell: pwsh
+        env:
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          WINDOWS_RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          go run ./scripts/release -release -version "$env:WINDOWS_RELEASE_TAG" -platform windows/amd64 -out bin/native
+          if ($LASTEXITCODE) { throw 'Signed Windows release builder failed' }
       - name: Verify the native Windows bridge payload
         shell: pwsh
         run: |
@@ -125,6 +144,13 @@ jobs:
           GOPURR_NATIVE_WINDOWS_TEST_APP: ${{ github.workspace }}/bin/native/windows-amd64
         run: go test -v ./scripts/package-native-windows -run '^TestWindowsNativeMigrationRoundtrip$' -count=1 -timeout=20m
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ inputs.release && success() }}
+        with:
+          name: release-windows-amd64
+          path: dist/windows-amd64/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: windows-nsh-acceptance
@@ -139,14 +165,3 @@ jobs:
           name: windows-nsh-screenshots
           path: native/ui/screenshots/*.png
           retention-days: 7
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        if: always()
-        with:
-          path: |
-            .cache/cargo
-            .cache/cargo-target
-            .cache/nsh-windows
-            .cache/rust-license-texts
-            .cache/build
-            .cache/mod
-          key: windows-nsh-${{ runner.os }}-${{ hashFiles('native/windows/Cargo.lock', 'go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}
