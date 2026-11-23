@@ -17,9 +17,7 @@ func (a *App) TrayMenu(openWindow func()) *Menu {
 		// Opening the menu is a fresh look: adopt what the core and the OS
 		// report, as the window would.
 		if s.Running {
-			a.modeToken = s.Mode
-			a.modePick, a.modeIdx = labelFor(a.modeToken), modeIndex(a.modeToken)
-			a.ov.Mode = a.modeToken
+			a.syncObservedMode(func() string { return s.Mode })
 		}
 		if !busyNetwork(a) {
 			if st, err := a.currentSystemProxy(); err == nil && st.Supported {

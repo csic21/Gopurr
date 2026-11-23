@@ -430,6 +430,23 @@ func (a *App) webSetMode(mode string) error {
 	if a.k == nil || !a.k.Running() {
 		return errors.New(tr("内核尚未就绪"))
 	}
+	var meshMode bool
+	var startErr error
+	runOnMain(func() {
+		if !a.hasMeshRoutes() {
+			return
+		}
+		meshMode = true
+		if a.ShuttingDown() {
+			startErr = errors.New(tr("应用正在退出"))
+			return
+		}
+		startErr = a.applyMeshMode(mode)
+		a.invalidate()
+	})
+	if meshMode {
+		return startErr
+	}
 	if err := a.k.SetMode(mode); err != nil {
 		return err
 	}

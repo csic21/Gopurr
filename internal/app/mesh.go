@@ -91,6 +91,11 @@ func (a *App) meshRuntimeRoutes() ([]string, string, string) {
 	return ips, s.Status.ProxyAddress, s.Status.ProxyPassword
 }
 
+func (a *App) hasMeshRoutes() bool {
+	ips, addr, _ := a.meshRuntimeRoutes()
+	return len(ips) > 0 && addr != ""
+}
+
 func (a *App) reconcileMeshRoutes() {
 	if a.shutdownPending.Load() || a.meshClient == nil || a.k == nil || !a.k.Running() {
 		return

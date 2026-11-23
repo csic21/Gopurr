@@ -4,6 +4,9 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -22,6 +25,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /** System pickers and optional notification permission belong to the visible Activity. */
 final class NativeActions {
@@ -146,6 +150,44 @@ final class NativeActions {
         if (channel != null) intent.putExtra(Settings.EXTRA_CHANNEL_ID, GopurrVpnService.CHANNEL);
         activity.startActivity(intent);
         return notifications();
+    }
+
+    JSONObject openURL(JSONObject value) throws Exception {
+        String raw = value.optString("url", "").trim();
+        String lower = raw.toLowerCase(Locale.ROOT);
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            throw new IllegalArgumentException("Only http and https URLs are supported.");
+        }
+        Uri uri = Uri.parse(raw);
+        String scheme = uri.getScheme();
+        if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))
+                || uri.getHost() == null || uri.getHost().isEmpty()) {
+            throw new IllegalArgumentException("URL must include a valid host.");
+        }
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+        try {
+            activity.startActivity(intent);
+        } catch (ActivityNotFoundException error) {
+            throw new IllegalStateException("No application can open this URL.", error);
+        }
+        return new JSONObject().put("opened", true);
+    }
+
+    JSONObject writeClipboard(JSONObject value) throws Exception {
+        Object raw = value.opt("text");
+        if (!(raw instanceof String)) {
+            throw new IllegalArgumentException("Clipboard text must be a string.");
+        }
+        String text = (String) raw;
+        if (text.isEmpty()) {
+            throw new IllegalArgumentException("Clipboard text must not be empty.");
+        }
+        ClipboardManager clipboard = activity.getSystemService(ClipboardManager.class);
+        if (clipboard == null) {
+            throw new IllegalStateException("Clipboard service is unavailable.");
+        }
+        clipboard.setPrimaryClip(ClipData.newPlainText("Gopurr", text));
+        return new JSONObject().put("written", true);
     }
 
     void refreshNotifications() {

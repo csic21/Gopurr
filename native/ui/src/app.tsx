@@ -9,6 +9,7 @@ import { action, activate, activeProfile, appUpdate, busy, changeMode, connected
 import { androidCall, androidHost } from "./mobile/platform";
 import type { AppScope, AppUpdate, InstalledApp, NotificationSettings } from "./mobile/platform";
 import { Action, bytes, compact, Empty, Field, Heading, Icon, Label, Panel } from "./mobile/ui";
+import { MeshPage } from "./mobile/mesh";
 import logo from "../assets/sidebar.png";
 import overviewIcon from "../assets/icons/layout-dashboard.svg";
 import profilesIcon from "../assets/icons/file-text.svg";
@@ -20,7 +21,7 @@ import circleIcon from "../assets/icons/circle.svg";
 const name = signal(""), source = signal(""), yaml = signal("");
 const importKind = signal<"url" | "yaml">("url"), adding = signal(false);
 const appearance = signal<"system" | "light" | "dark">("system");
-const subpage = signal<"" | "apps" | "logs">("");
+const subpage = signal<"" | "apps" | "logs" | "mesh">("");
 const editing = signal(""), editName = signal(""), editURL = signal(""), editKind = signal("");
 const removing = signal<Profile | null>(null);
 const notice = signal("");
@@ -44,9 +45,11 @@ function stateLabel() {
   }
   return status()?.tun ? tr("设备 VPN 已连接", "Device VPN connected") : status()?.running ? tr("本地代理已运行", "Local proxy running") : tr("尚未连接", "Disconnected");
 }
+const meshAvailable = () => !!status()?.mesh?.managed || !!status()?.mesh?.running;
 function connectionDisabled() {
-  if (androidHost()) return session()?.phase === "disconnecting" || !!tasks().connection || (!connected() && !connecting() && (!status()?.activeProfile || mutationBusy()));
-  return !!tasks().connection || (!connected() && (!status()?.activeProfile || mutationBusy()));
+  const canStart = !!status()?.activeProfile || meshAvailable();
+  if (androidHost()) return session()?.phase === "disconnecting" || !!tasks().connection || (!connected() && !connecting() && (!canStart || mutationBusy()));
+  return !!tasks().connection || (!connected() && (!canStart || mutationBusy()));
 }
 function connectionAction() {
   if (session()?.phase === "disconnecting") return tr("正在断开…", "Disconnecting…");
@@ -67,8 +70,9 @@ function Overview() {
     <Heading title={tr("连接", "Connect")} description={tr("当前配置与网络连接。", "Your profile and network connection.")} action={() => <Action label={tr("刷新", "Refresh")} disabled={false} onPress={() => void refresh()} />} />
     <Panel>
       <View style={{ gap: 8 }}><Text style={{ color: connected() ? colors().success : colors().muted, fontSize: 13, fontWeight: "600" }}>{stateLabel()}</Text>
-        <Text style={{ fontSize: 22, fontWeight: "600", color: colors().text, numberOfLines: 2 }}>{activeProfile()?.name ?? tr("先添加一个订阅", "Add your first profile")}</Text>
-        <Label text={connected() && status()?.vpnSupported ? tr("设备流量按当前配置转发。", "Device traffic follows your active profile.") : status()?.running && !status()?.vpnSupported ? tr(`监听本机端口 ${status()?.mixedPort}`, `Listening locally on port ${status()?.mixedPort}`) : tr("选择配置后即可启动连接。", "Choose a profile to start a connection.")} muted size={12} />
+        <Text style={{ fontSize: 22, fontWeight: "600", color: colors().text, numberOfLines: 2 }}>{activeProfile()?.name ?? (meshAvailable() ? tr("组网直连模式", "Mesh direct mode") : tr("先添加一个订阅", "Add your first profile"))}</Text>
+        <Label text={connected() && status()?.vpnSupported ? (activeProfile() ? tr("设备流量按当前配置转发。", "Device traffic follows your active profile.") : tr("设备组网流量通过 VPN 直连转发。", "Device mesh traffic routes directly via VPN.")) : status()?.running && !status()?.vpnSupported ? tr(`监听本机端口 ${status()?.mixedPort}`, `Listening locally on port ${status()?.mixedPort}`) : meshAvailable() && !activeProfile() ? tr("已启用组网，可直接连接 VPN，无需代理订阅。", "Mesh is ready. Connect VPN directly without a proxy profile.") : tr("选择配置后即可启动连接。", "Choose a profile to start a connection.")} muted size={12} />
+        <If when={!!status()?.mesh?.running}><Label text={tr(`组网已连接 · ${status()?.mesh?.selfIP || status()?.mesh?.tailnet || "Tailscale"}（切到直连或不开代理均不影响组网）`, `Mesh connected · ${status()?.mesh?.selfIP || status()?.mesh?.tailnet || "Tailscale"} (works in Direct mode or without proxy)`)} muted size={12} /></If>
       </View>
       <If when={!!status()?.running && !!selectedGroup()}><Label text={`${selectedGroup()?.name}: ${selectedGroup()?.now}`} muted size={12} /></If>
       <Action testID="toggle-engine" primary label={connectionAction()} onPress={toggleEngine} disabled={connectionDisabled()} />
@@ -255,6 +259,7 @@ function Settings() {
   const changeLanguage = (value: "system" | "zh-Hans" | "en") => { language.set(value); void Storage.setItem("language", value).catch(e => error.set(message(e))); };
   return <Scroll testID="settings-scroll" style={{ flex: 1 }} contentStyle={{ padding: 16, gap: 16 }}><Heading title={tr("设置", "Settings")} description={tr("外观与语言立即生效。", "Appearance and language changes apply immediately.")} />
     <If when={androidHost()}><Panel><Label text="VPN" bold size={16} /><Label text={tr("选择参与连接的应用。", "Choose which apps use VPN.")} muted size={12} /><Action testID="open-app-scope" label={tr("应用范围", "App scope")} disabled={false} onPress={() => subpage.set("apps")} /></Panel><NotificationPanel /></If>
+    <Panel><Label text={tr("组网", "Mesh")} size={16} bold /><Label text={tr("连接自己的设备；切到直连或不开代理均不影响组网。", "Connect your own devices. Works in Direct mode or without a proxy.")} muted size={12} /><Action testID="open-mesh" label={tr("组网设置", "Mesh settings")} disabled={false} onPress={() => subpage.set("mesh")} /></Panel>
     <Panel><Label text={tr("外观", "Appearance")} size={16} bold /><View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}><Action label={tr("跟随系统", "System")} primary={appearance() === "system"} disabled={false} onPress={() => changeAppearance("system")} /><Action label={tr("浅色", "Light")} primary={appearance() === "light"} disabled={false} onPress={() => changeAppearance("light")} /><Action label={tr("深色", "Dark")} primary={appearance() === "dark"} disabled={false} onPress={() => changeAppearance("dark")} /></View></Panel>
     <Panel><Label text={tr("语言", "Language")} size={16} bold /><View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}><Action label={tr("跟随系统", "System")} primary={language() === "system"} disabled={false} onPress={() => changeLanguage("system")} /><Action label="简体中文" primary={language() === "zh-Hans"} disabled={false} onPress={() => changeLanguage("zh-Hans")} /><Action label="English" primary={language() === "en"} disabled={false} onPress={() => changeLanguage("en")} /></View></Panel>
     <Panel><Label text={tr("诊断", "Diagnostics")} size={16} bold /><Action testID="open-logs" label={tr("查看日志", "View logs")} disabled={false} onPress={() => subpage.set("logs")} /><Label text={tr("查看最近的连接与内核事件。", "Review recent connection and engine events.")} muted size={12} /></Panel>
@@ -302,7 +307,7 @@ export function GopurrApp(props: { preview?: boolean } = {}) {
       <If when={!!props.preview}><View style={{ paddingHorizontal: 16, paddingVertical: 6, backgroundColor: colors().selected }}><Text style={{ fontSize: 11, color: colors().accent }}>{tr("界面预览 · 演示数据，不连接真实代理", "UI preview · Fixture data, no live proxy")}</Text></View></If>
       <If when={!!error()}><View testID="error-banner" role="alert" style={{ margin: 16, marginBottom: 0, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors().danger, backgroundColor: colors().surface, gap: 8 }}><Text style={{ color: colors().danger, fontSize: 12 }}>{error()}</Text><View style={{ flexDirection: "row", gap: 8 }}><Action label={tr("重试", "Retry")} disabled={false} onPress={() => void refresh()} /><Action label={tr("关闭提示", "Dismiss")} disabled={false} onPress={() => error.set("")} /></View></View></If>
       <View style={{ flex: 1, minHeight: 0, opacity: pageProgress, transform: [{ translateY: pageProgress.interpolate({ inputRange: [0, 1], outputRange: [4, 0] }) }] }}>
-        <If when={!subpage() && page() === "overview"}><Overview /></If><If when={!subpage() && page() === "profiles"}><Profiles /></If><If when={!subpage() && page() === "proxies"}><Proxies /></If><If when={!subpage() && page() === "settings"}><Settings /></If><If when={subpage() === "apps"}><AppsPage /></If><If when={subpage() === "logs"}><LogsPage /></If>
+        <If when={!subpage() && page() === "overview"}><Overview /></If><If when={!subpage() && page() === "profiles"}><Profiles /></If><If when={!subpage() && page() === "proxies"}><Proxies /></If><If when={!subpage() && page() === "settings"}><Settings /></If><If when={subpage() === "apps"}><AppsPage /></If><If when={subpage() === "logs"}><LogsPage /></If><If when={subpage() === "mesh"}><MeshPage onBack={() => subpage.set("")} /></If>
       </View>
     </View><If when={compact() && !subpage()}><Navigation /></If>
   </View>;

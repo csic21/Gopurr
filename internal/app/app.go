@@ -556,6 +556,11 @@ func (a *App) SetWindowVisible(visible bool) {
 	if a.k != nil {
 		a.k.SetUIActive(visible)
 	}
+	if a.meshClient != nil {
+		if active, ok := a.meshClient.(interface{ SetUIActive(bool) }); ok {
+			active.SetUIActive(visible)
+		}
+	}
 	if visible {
 		a.mu.Lock()
 		a.hist = nil // do not join rates across a hidden interval
@@ -921,7 +926,11 @@ func (a *App) Reload() { a.restart() }
 
 // UseMode switches routing mode from the tray menu.
 func (a *App) UseMode(token string) {
-	if a.k.RunningForChange() {
+	if a.k != nil && a.k.RunningForChange() {
+		if a.hasMeshRoutes() {
+			_ = a.applyMeshMode(token)
+			return
+		}
 		if err := a.k.SetMode(token); err != nil {
 			a.errorNotice(tr("切换模式失败: ") + err.Error())
 			a.modePick = labelFor(a.modeToken)
@@ -935,6 +944,32 @@ func (a *App) UseMode(token string) {
 	a.ov.Mode = token
 	a.notice = ""
 	a.saveOverrides()
+}
+
+// applyMeshMode reloads the kernel when switching proxy mode while mesh routes
+// are active, rolling back mode overrides if the reload fails. Must run on the main thread.
+func (a *App) applyMeshMode(token string) error {
+	prevMode, prevToken := a.ov.Mode, a.modeToken
+	a.ov.Mode = token
+	a.modeToken = token
+	a.modePick = labelFor(token)
+	a.modeIdx = modeIndex(token)
+	if !a.startKernel() {
+		msg := a.notice
+		if msg == "" {
+			msg = tr("操作失败")
+		}
+		a.ov.Mode = prevMode
+		a.modeToken = prevToken
+		a.modePick = labelFor(prevToken)
+		a.modeIdx = modeIndex(prevToken)
+		return errors.New(msg)
+	}
+	ips, addr, password := a.meshRuntimeRoutes()
+	a.meshRouteKey, a.meshRouteError = strings.Join(ips, ",")+addr+password, ""
+	a.notice = ""
+	a.saveOverrides()
+	return nil
 }
 
 func (a *App) toggle() {
@@ -993,16 +1028,26 @@ func (a *App) toggle() {
 	})
 }
 
+// syncObservedMode keeps the user's selected mode when mesh routes force
+// mihomo into rule mode internally, and otherwise adopts readMode().
+func (a *App) syncObservedMode(readMode func() string) {
+	if a.hasMeshRoutes() && (a.ov.Mode == "direct" || a.ov.Mode == "global" || a.ov.Mode == "rule") {
+		a.modeToken = a.ov.Mode
+	} else {
+		a.modeToken = readMode()
+		a.ov.Mode = a.modeToken
+	}
+	a.modePick = labelFor(a.modeToken)
+	a.modeIdx = modeIndex(a.modeToken)
+}
+
 // finishKernelBoot applies mode and restore-proxy preferences once a kernel is
 // known to be running after launch.
 func (a *App) finishKernelBoot() {
 	if a.shutdownPending.Load() || a.k == nil || !a.k.RunningCached() {
 		return
 	}
-	a.modeToken = a.k.Mode()
-	a.ov.Mode = a.modeToken
-	a.modePick = labelFor(a.modeToken)
-	a.modeIdx = modeIndex(a.modeToken)
+	a.syncObservedMode(a.k.Mode)
 	// A proxy that already points at this kernel keeps working across
 	// restarts; re-applying it would only ask for the administrator
 	// password again on every launch.

@@ -63,6 +63,20 @@ type TrafficRates struct {
 	At        int64 `json:"at"`
 }
 
+type MeshSummary struct {
+	Managed     bool   `json:"managed"`
+	Running     bool   `json:"running"`
+	State       string `json:"state"`
+	SelfName    string `json:"selfName,omitempty"`
+	SelfIP      string `json:"selfIP,omitempty"`
+	Tailnet     string `json:"tailnet,omitempty"`
+	PeerCount   int    `json:"peerCount"`
+	ShieldsUp   bool   `json:"shieldsUp"`
+	AuthURL     string `json:"authURL,omitempty"`
+	AccessReady bool   `json:"accessReady"`
+	Error       string `json:"error,omitempty"`
+}
+
 type Status struct {
 	APIVersion        int          `json:"apiVersion"`
 	Running           bool         `json:"running"`
@@ -80,6 +94,7 @@ type Status struct {
 	ReconnectRequired bool         `json:"reconnectRequired"`
 	TunnelPlanVersion int          `json:"tunnelPlanVersion"`
 	AppScope          AppScope     `json:"appScope"`
+	Mesh              *MeshSummary `json:"mesh,omitempty"`
 }
 
 type Operation struct {

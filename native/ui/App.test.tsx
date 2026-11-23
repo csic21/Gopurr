@@ -460,3 +460,184 @@ test("Android update explains install permission and keeps a failed check retrya
   await app.press("id:update-check");
   expect(app.host.calls().filter(c => c.name === "android.update.check").length).toBe(1);
 });
+
+test("mobile Mesh page connects, authorizes ports, probes/blocks peers, and enables mesh-only direct VPN", async () => {
+  const dispatch = fixtureTransport(true);
+  let session = { phase: "idle", generation: 0, busy: false, connected: false, scope: { mode: "all", packages: [], excludeSelf: true } };
+  let tunnel = false;
+  const app = await open("./App.tsx", {
+    locale: "en-US",
+    platform: "android",
+    width: 390,
+    height: 844,
+    host: {
+      params: { android: true },
+      handlers: {
+        "android.session": () => session,
+        "android.connect": () => {
+          tunnel = true;
+          return session = { ...session, phase: "connected", generation: session.generation + 1, busy: false, connected: true };
+        },
+        "android.disconnect": () => {
+          tunnel = false;
+          return session = { ...session, phase: "idle", generation: session.generation + 1, busy: false, connected: false };
+        },
+        "android.notifications": { granted: false, enabled: false, canRequest: true, traffic: true },
+        "android.update": { supported: false, phase: "unsupported", currentVersion: "0.0.0", currentVersionCode: 0, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true },
+        "android.appearance": { ok: true },
+        "android.clipboard.write": { written: true },
+        "android.url.open": { opened: true },
+        "engine.dispatch": async (data: unknown) => {
+          const request = data as { method: string; params: Record<string, unknown> };
+          const result = await dispatch(request.method, request.params) as Record<string, unknown>;
+          if (request.method === "engine.status") {
+            return { result: { ...result, vpnSupported: true, tun: tunnel, running: tunnel || !!result.running, capabilities: { systemProxy: false, tun: true } } };
+          }
+          return { result };
+        },
+      },
+    },
+  });
+
+  await app.waitFor("text:Add your first profile");
+  expect(app.enabled("id:toggle-engine")).toBe(false);
+
+  await app.press("id:nav-settings");
+  await app.waitFor("id:open-mesh");
+  await app.press("id:open-mesh");
+  await app.waitFor("id:mesh-connect");
+
+  await app.press("id:mesh-connect");
+  await app.waitFor("text:Connected to Tailscale");
+  await app.waitFor("id:mesh-device-peer-1");
+  expect(app.texts()).toContain("Android Phone · This device");
+  expect(app.texts()).toContain("MacBook Pro");
+
+  await app.press("id:mesh-autoconnect");
+  await app.waitFor("text:Auto-connect: On");
+
+  await app.type("id:mesh-services-input", "8080/tcp, 5555/tcp");
+  await app.press("id:mesh-services-open");
+  await app.waitFor("text:Open · 8080/tcp, 5555/tcp");
+  await app.press("id:mesh-services-block");
+  await app.waitFor("text:Inbound access closed");
+
+  await app.press("id:mesh-copy-peer-1");
+  expect(app.host.calls().some(c => c.name === "android.clipboard.write" && (c.data as { text?: string }).text === "100.64.0.1")).toBe(true);
+
+  await app.clear("id:mesh-probe-port-peer-1");
+  await app.type("id:mesh-probe-port-peer-1", "8080");
+  await app.press("id:mesh-probe-peer-1");
+  await app.waitFor("id:mesh-probe-result-peer-1");
+  const probeCall = app.host.calls().find(c => (c.data as { method?: string })?.method === "mesh.probe");
+  expect((probeCall?.data as { params?: { id: string; port: number } }).params).toMatchObject({ id: "peer-1", port: 8080 });
+
+  await app.press("id:mesh-block-peer-1");
+  await app.waitFor("text:Unblock");
+  expect(app.enabled("id:mesh-probe-peer-1")).toBe(false);
+
+  await app.type("id:mesh-device-search", "Home Server");
+  await app.waitFor("id:mesh-device-peer-2");
+  expect(app.shows("id:mesh-device-peer-1")).toBe(false);
+  await app.clear("id:mesh-device-search");
+  await app.waitFor("id:mesh-device-peer-1");
+
+  await app.press("id:mesh-back");
+  await app.waitFor("id:open-mesh");
+  await app.press("id:nav-overview");
+  await app.waitFor("text:Mesh direct mode");
+  await app.waitFor("text:Mesh connected · 100.64.0.2 (works in Direct mode or without proxy)");
+  await app.waitUntil(() => app.enabled("id:toggle-engine"));
+
+  await app.press("id:toggle-engine");
+  await app.waitFor("text:Device VPN connected");
+});
+
+test("mobile Mesh login opens Android browser URL and falls back cleanly without Android host", async () => {
+  const dispatch = fixtureTransport(true);
+  let pendingLogin = false;
+  const app = await open("./App.tsx", {
+    locale: "en-US",
+    platform: "android",
+    width: 390,
+    height: 844,
+    host: {
+      params: { android: true },
+      handlers: {
+        "android.session": { phase: "idle", generation: 0, busy: false, connected: false, scope: { mode: "all", packages: [], excludeSelf: true } },
+        "android.notifications": { granted: false, enabled: false, canRequest: true, traffic: true },
+        "android.update": { supported: false, phase: "unsupported", currentVersion: "0.0.0", currentVersionCode: 0, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true },
+        "android.appearance": { ok: true },
+        "android.url.open": { opened: true },
+        "engine.dispatch": async (data: unknown) => {
+          const request = data as { method: string; params: Record<string, unknown> };
+          if (request.method === "mesh.action" && request.params.action === "connect") {
+            pendingLogin = true;
+            const base = await dispatch("mesh.status", {}) as Record<string, unknown>;
+            const st = base.status as Record<string, unknown>;
+            return { result: { ...base, managed: true, started: true, status: { ...st, running: false, state: "NeedsLogin", authURL: "https://login.tailscale.com/a/test-node" } } };
+          }
+          if (request.method === "mesh.status" && pendingLogin) {
+            const base = await dispatch("mesh.status", {}) as Record<string, unknown>;
+            const st = base.status as Record<string, unknown>;
+            return { result: { ...base, managed: true, started: true, status: { ...st, running: false, state: "NeedsLogin", authURL: "https://login.tailscale.com/a/test-node" } } };
+          }
+          if (request.method === "mesh.action" && request.params.action === "login") {
+            return { result: { url: "https://login.tailscale.com/a/test-node" } };
+          }
+          return { result: await dispatch(request.method, request.params) };
+        },
+      },
+    },
+  });
+
+  await app.press("id:nav-settings");
+  await app.press("id:open-mesh");
+  await app.press("id:mesh-connect");
+  await app.waitFor("id:mesh-login");
+  await app.press("id:mesh-login");
+  expect(app.host.calls().some(c => c.name === "android.url.open" && (c.data as { url?: string }).url === "https://login.tailscale.com/a/test-node")).toBe(true);
+});
+
+test("mobile Mesh page falls back gracefully when Android clipboard/URL bridge is unavailable", async () => {
+  const dispatch = fixtureTransport(true);
+  const app = await open("./App.tsx", {
+    locale: "en-US",
+    platform: "ios",
+    width: 390,
+    height: 844,
+    host: {
+      handlers: {
+        "engine.dispatch": async (data: unknown) => {
+          const request = data as { method: string; params: Record<string, unknown> };
+          if (request.method === "mesh.action" && request.params.action === "login") {
+            return { result: { url: "https://login.tailscale.com/a/fallback" } };
+          }
+          if (request.method === "mesh.action" && request.params.action === "connect") {
+            const connected = await dispatch("mesh.action", { action: "connect" }) as Record<string, unknown>;
+            const st = connected.status as Record<string, unknown>;
+            return { result: { ...connected, status: { ...st, authURL: "https://login.tailscale.com/a/fallback" } } };
+          }
+          if (request.method === "mesh.status") {
+            const snap = await dispatch("mesh.status", {}) as Record<string, unknown>;
+            const st = snap.status as Record<string, unknown>;
+            if (st.running) {
+              return { result: { ...snap, status: { ...st, authURL: "https://login.tailscale.com/a/fallback" } } };
+            }
+            return { result: snap };
+          }
+          return { result: await dispatch(request.method, request.params) };
+        },
+      },
+    },
+  });
+
+  await app.press("id:nav-settings");
+  await app.press("id:open-mesh");
+  await app.press("id:mesh-connect");
+  await app.waitFor("id:mesh-copy-peer-1");
+  await app.press("id:mesh-copy-peer-1");
+  await app.waitFor("text:Mesh IP: 100.64.0.1");
+  await app.press("id:mesh-login");
+  await app.waitFor("text:Open sign-in URL in browser: https://login.tailscale.com/a/fallback");
+});

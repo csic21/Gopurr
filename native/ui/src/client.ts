@@ -1,5 +1,19 @@
 import { host } from "nsh";
 
+export interface MeshSummary {
+  managed: boolean;
+  running: boolean;
+  state: string;
+  selfName?: string;
+  selfIP?: string;
+  tailnet?: string;
+  peerCount: number;
+  shieldsUp: boolean;
+  authURL?: string;
+  accessReady: boolean;
+  error?: string;
+}
+
 export interface Status {
   apiVersion: number;
   running: boolean;
@@ -15,6 +29,7 @@ export interface Status {
   busy?: boolean;
   operation?: { method: string; profileId?: string; phase: string };
   reconnectRequired?: boolean;
+  mesh?: MeshSummary;
 }
 
 export interface Profile { id: string; name: string; kind: string; source: string; updated: string; active: boolean; reconnectRequired?: boolean }

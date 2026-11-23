@@ -66,11 +66,7 @@ func (e *Engine) startVPNLocked(ctx context.Context, fd int, protect func(int) b
 	if err := ctx.Err(); err != nil {
 		return Status{}, err
 	}
-	item, err := e.store.Get(e.store.ActiveID())
-	if err != nil {
-		return Status{}, failure("no_profile", "请先导入并选择配置")
-	}
-	raw, err := e.store.Content(item.ID)
+	_, item, raw, err := e.activeRuntimeSourceLocked()
 	if err != nil {
 		return Status{}, err
 	}
@@ -115,6 +111,13 @@ func (e *Engine) startVPNLocked(ctx context.Context, fd int, protect func(int) b
 	e.vpnPlan = &plan
 	e.scope = cloneScope(plan.AppScope)
 	e.acceptRuntimeLocked(managed)
+	e.captureBaseRulesLocked(managed, pending.baseRuleCount)
+	if err := e.applyLiveRoutingLocked(); err != nil {
+		e.meshRouteError = err.Error()
+	} else {
+		e.meshRouteKey = e.meshRouteKeyLocked()
+		e.meshRouteError = ""
+	}
 	e.replaySelectionsLocked(item.ID)
 	e.runtimeRevision = pending.revision
 	e.reconnectRequired = false

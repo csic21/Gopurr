@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopurr/internal/securefs"
@@ -36,8 +37,12 @@ type Controller struct {
 	serial  uint64
 	// The saved choice is separate from the live gate, which stays closed
 	// until a new connection is running and the backend confirms the grant.
-	allowIncoming   bool
-	restoreIncoming bool
+	allowIncoming    bool
+	restoreIncoming  bool
+	inactive         atomic.Bool
+	lastRefresh      time.Time // guarded by mu
+	pollTickInterval time.Duration
+	refreshInterval  time.Duration
 }
 
 func New(backend Backend, path string, wake func()) *Controller {
@@ -98,6 +103,15 @@ func (c *Controller) Start() {
 	}
 	c.s.Started = true
 	managed, auto := c.s.Managed, c.s.AutoConnect
+	tickEvery := c.pollTickInterval
+	if tickEvery <= 0 {
+		tickEvery = time.Second
+	}
+	refreshEvery := c.refreshInterval
+	if refreshEvery <= 0 {
+		refreshEvery = 5 * time.Second
+	}
+	c.lastRefresh = time.Now()
 	c.mu.Unlock()
 	if managed && auto {
 		c.Do("connect")
@@ -108,23 +122,46 @@ func (c *Controller) Start() {
 		c.Refresh()
 	}
 	go func() {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(tickEvery)
 		defer ticker.Stop()
-		lastRefresh := time.Now()
 		for {
 			select {
 			case <-c.stop:
 				return
 			case <-ticker.C:
-				s := c.Snapshot().Status
+				c.mu.Lock()
+				s := c.s.Status
+				sinceRefresh := time.Since(c.lastRefresh)
+				c.mu.Unlock()
 				waitingForLogin := s.State == "Starting" || s.State == "NeedsLogin"
-				if waitingForLogin || time.Since(lastRefresh) >= 5*time.Second {
+				if waitingForLogin || (!c.inactive.Load() && sinceRefresh >= refreshEvery) {
 					c.Refresh()
-					lastRefresh = time.Now()
+					c.mu.Lock()
+					c.lastRefresh = time.Now()
+					c.mu.Unlock()
 				}
 			}
 		}
 	}()
+}
+
+// SetUIActive pauses periodic status polling when the UI is hidden or in the
+// background, except while waiting for initial node login, and triggers an
+// immediate refresh when returning to the foreground.
+func (c *Controller) SetUIActive(active bool) {
+	c.inactive.Store(!active)
+	if !active {
+		return
+	}
+	c.mu.Lock()
+	refresh := c.s.Started && !c.closed
+	if refresh {
+		c.lastRefresh = time.Now()
+	}
+	c.mu.Unlock()
+	if refresh {
+		c.Refresh()
+	}
 }
 
 func (c *Controller) SetAutoConnect(enabled bool) {

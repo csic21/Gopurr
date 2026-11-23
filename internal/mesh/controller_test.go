@@ -260,3 +260,156 @@ func TestAutoConnectPreferenceRollsBackOnStorageFailure(t *testing.T) {
 	}
 	c.Shutdown()
 }
+
+type pollBackend struct {
+	fakeBackend
+	reads  int
+	readCh chan struct{}
+}
+
+func (b *pollBackend) Read(ctx context.Context) (Status, error) {
+	b.mu.Lock()
+	b.reads++
+	b.mu.Unlock()
+	if b.readCh != nil {
+		select {
+		case b.readCh <- struct{}{}:
+		default:
+		}
+	}
+	return b.fakeBackend.Read(ctx)
+}
+
+func (b *pollBackend) readCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.reads
+}
+
+func TestSetUIActiveControlsBackgroundPolling(t *testing.T) {
+	t.Run("skips periodic polling when inactive unless waiting for login", func(t *testing.T) {
+		b := &pollBackend{
+			fakeBackend: fakeBackend{status: Status{Installed: true, Official: true, Running: true, State: "Running", ShieldsKnown: true, ShieldsUp: true}},
+			readCh:      make(chan struct{}, 64),
+		}
+		c := New(b, "", nil)
+		c.pollTickInterval = 10 * time.Millisecond
+		c.refreshInterval = 30 * time.Millisecond
+		t.Cleanup(func() { _ = c.Shutdown() })
+		c.Start()
+		waitIdle(t, c)
+
+		drain := func() {
+			for {
+				select {
+				case <-b.readCh:
+				default:
+					return
+				}
+			}
+		}
+		waitRead := func(msg string) {
+			t.Helper()
+			select {
+			case <-b.readCh:
+			case <-time.After(time.Second):
+				t.Fatal(msg)
+			}
+		}
+
+		drain()
+		waitRead("active controller did not poll periodically")
+
+		c.SetUIActive(false)
+		time.Sleep(20 * time.Millisecond)
+		waitIdle(t, c)
+		drain()
+		before := b.readCount()
+		time.Sleep(120 * time.Millisecond)
+		waitIdle(t, c)
+		if got := b.readCount(); got != before {
+			t.Fatalf("inactive controller kept polling in Running state: before=%d after=%d", before, got)
+		}
+
+		b.mu.Lock()
+		b.status.State = "NeedsLogin"
+		b.mu.Unlock()
+		for c.Snapshot().Status.State != "NeedsLogin" {
+			waitIdle(t, c)
+			c.Refresh()
+			waitIdle(t, c)
+		}
+		drain()
+		waitRead("inactive controller stopped polling while waiting for login")
+
+		b.mu.Lock()
+		b.status.State = "Running"
+		b.mu.Unlock()
+		for c.Snapshot().Status.State != "Running" {
+			waitIdle(t, c)
+			c.Refresh()
+			waitIdle(t, c)
+		}
+		time.Sleep(20 * time.Millisecond)
+		waitIdle(t, c)
+		drain()
+		before = b.readCount()
+		time.Sleep(120 * time.Millisecond)
+		waitIdle(t, c)
+		if got := b.readCount(); got != before {
+			t.Fatalf("inactive controller polled after login completed: before=%d after=%d", before, got)
+		}
+
+		c.SetUIActive(true)
+		waitRead("SetUIActive(true) did not trigger immediate refresh")
+		drain()
+		waitRead("SetUIActive(true) did not resume periodic polling")
+	})
+
+	t.Run("immediate refresh only when started and open", func(t *testing.T) {
+		b := &pollBackend{
+			fakeBackend: fakeBackend{status: Status{Installed: true, Official: true, Running: true, State: "Running", ShieldsKnown: true, ShieldsUp: true}},
+			readCh:      make(chan struct{}, 16),
+		}
+		c := New(b, "", nil)
+		c.SetUIActive(true)
+		if got := b.readCount(); got != 0 {
+			t.Fatalf("SetUIActive(true) before Start triggered %d reads", got)
+		}
+
+		c.Start()
+		waitIdle(t, c)
+		if got := b.readCount(); got != 1 {
+			t.Fatalf("Start read count = %d, want 1", got)
+		}
+		for len(b.readCh) > 0 {
+			<-b.readCh
+		}
+
+		c.SetUIActive(false)
+		waitIdle(t, c)
+		if got := b.readCount(); got != 1 {
+			t.Fatalf("SetUIActive(false) triggered unexpected read: %d", got)
+		}
+
+		c.SetUIActive(true)
+		select {
+		case <-b.readCh:
+		case <-time.After(time.Second):
+			t.Fatal("SetUIActive(true) did not trigger immediate refresh")
+		}
+		waitIdle(t, c)
+		if got := b.readCount(); got != 2 {
+			t.Fatalf("read count after SetUIActive(true) = %d, want 2", got)
+		}
+
+		if err := c.Shutdown(); err != nil {
+			t.Fatal(err)
+		}
+		c.SetUIActive(true)
+		time.Sleep(20 * time.Millisecond)
+		if got := b.readCount(); got != 2 {
+			t.Fatalf("SetUIActive(true) after Shutdown triggered read: %d", got)
+		}
+	})
+}

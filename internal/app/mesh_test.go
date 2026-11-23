@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,9 @@ import (
 	ui "gopurr/internal/appui"
 	"gopurr/internal/core"
 	"gopurr/internal/mesh"
+	"gopurr/internal/patch"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // Fixtures never execute a local Tailscale binary or change network settings.
@@ -767,4 +771,238 @@ func TestMeshQuickLaunchAppliesRoutesBeforeNativeHandoffAndStopsOnFailure(t *tes
 			}
 		})
 	}
+}
+
+func TestMeshOutboundRemainsReadyAcrossAllProxyModes(t *testing.T) {
+	type parsedConfig struct {
+		Mode    string           `yaml:"mode"`
+		Proxies []map[string]any `yaml:"proxies"`
+		Rules   []string         `yaml:"rules"`
+	}
+	parseConfig := func(t *testing.T, raw string) parsedConfig {
+		t.Helper()
+		var cfg parsedConfig
+		if err := yaml.Unmarshal([]byte(raw), &cfg); err != nil {
+			t.Fatalf("unmarshal reloaded config: %v\n%s", err, raw)
+		}
+		return cfg
+	}
+	hasTailnetProxy := func(cfg parsedConfig) bool {
+		for _, p := range cfg.Proxies {
+			if p["name"] == "__GOPURR_TAILNET__" {
+				return true
+			}
+		}
+		return false
+	}
+	readSavedMode := func(t *testing.T, path string) string {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read overrides: %v", err)
+		}
+		var ov patch.Overrides
+		if err := json.Unmarshal(b, &ov); err != nil {
+			t.Fatalf("unmarshal overrides: %v", err)
+		}
+		return ov.Mode
+	}
+
+	t.Run("switches via UseMode, webSetMode, and finishKernelBoot", func(t *testing.T) {
+		a, reloads := newSettingsTestApp(t, nil)
+		a.proxyObservation = observeProxyFixture
+		if err := os.WriteFile(filepath.Join(a.dir, "core.json"), []byte(`{"uid":0}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f := fixtureMesh(a)
+		f.snap.Status.RouteIPs = []netip.Addr{netip.MustParseAddr("100.70.0.2"), netip.MustParseAddr("fd7a:115c:a1e0::2")}
+		f.snap.Status.ProxyAddress = "127.0.0.1:47654"
+		f.snap.Status.ProxyPassword = strings.Repeat("x", 32)
+		if !a.applyMeshPreparation() || !a.meshAccessReady() {
+			t.Fatalf("initial mesh preparation failed: %s", a.meshPrepareError)
+		}
+
+		// Exercise webSetMode on a non-reentrant synchronous main-thread loop
+		// to prove startKernel() never calls runOnMain recursively.
+		queue := make(chan func())
+		workerDone := make(chan struct{})
+		go func() {
+			for fn := range queue {
+				fn()
+			}
+			close(workerDone)
+		}()
+		prevRunOnMain := runOnMain
+		runOnMain = func(fn func()) {
+			done := make(chan struct{})
+			queue <- func() {
+				defer close(done)
+				fn()
+			}
+			<-done
+		}
+		t.Cleanup(func() {
+			runOnMain = prevRunOnMain
+			close(queue)
+			<-workerDone
+		})
+
+		runOnMain(func() { a.UseMode("direct") })
+		if a.notice != "" || a.ov.Mode != "direct" || a.modeToken != "direct" || a.modePick != labelFor("direct") || a.modeIdx != modeIndex("direct") {
+			t.Fatalf("UseMode(direct) state mismatch: mode=%q ov=%q notice=%q", a.modeToken, a.ov.Mode, a.notice)
+		}
+		var directMenu *Menu
+		runOnMain(func() { directMenu = a.TrayMenu(func() {}) })
+		if a.modeToken != "direct" || a.ov.Mode != "direct" || !directMenu.ItemByID("mode-direct").IsChecked() || directMenu.ItemByID("mode-rule").IsChecked() {
+			t.Fatalf("TrayMenu overwrote direct mode while mesh active: token=%q ov=%q", a.modeToken, a.ov.Mode)
+		}
+		if !a.meshAccessReady() {
+			t.Fatal("meshAccessReady() became false in direct mode")
+		}
+		if saved := readSavedMode(t, a.ovPath); saved != "direct" {
+			t.Fatalf("saved mode = %q, want direct", saved)
+		}
+		all := reloads()
+		if len(all) < 2 {
+			t.Fatalf("expected kernel reload on UseMode(direct), got %d reloads", len(all))
+		}
+		directCfg := parseConfig(t, all[len(all)-1])
+		if directCfg.Mode != "rule" || !hasTailnetProxy(directCfg) {
+			t.Fatalf("direct mode payload missing rule mode or __GOPURR_TAILNET__: %+v", directCfg)
+		}
+		if len(directCfg.Rules) < 4 || !strings.Contains(directCfg.Rules[0], "__GOPURR_TAILNET__") {
+			t.Fatalf("direct mode rules missing tailnet prefix: %v", directCfg.Rules)
+		}
+		matchDirectIdx := slices.Index(directCfg.Rules, "MATCH,DIRECT")
+		if matchDirectIdx <= 0 || !strings.Contains(directCfg.Rules[matchDirectIdx-1], "__GOPURR_TAILNET__") {
+			t.Fatalf("MATCH,DIRECT not immediately after tailnet rules: %v", directCfg.Rules)
+		}
+
+		if err := a.webSetMode("global"); err != nil {
+			t.Fatalf("webSetMode(global): %v", err)
+		}
+		if a.notice != "" || a.ov.Mode != "global" || a.modeToken != "global" || a.modePick != labelFor("global") || a.modeIdx != modeIndex("global") {
+			t.Fatalf("webSetMode(global) state mismatch: mode=%q ov=%q notice=%q", a.modeToken, a.ov.Mode, a.notice)
+		}
+		var globalMenu *Menu
+		runOnMain(func() { globalMenu = a.TrayMenu(func() {}) })
+		if a.modeToken != "global" || a.ov.Mode != "global" || !globalMenu.ItemByID("mode-global").IsChecked() || globalMenu.ItemByID("mode-rule").IsChecked() {
+			t.Fatalf("TrayMenu overwrote global mode while mesh active: token=%q ov=%q", a.modeToken, a.ov.Mode)
+		}
+		if !a.meshAccessReady() {
+			t.Fatal("meshAccessReady() became false in global mode")
+		}
+		if saved := readSavedMode(t, a.ovPath); saved != "global" {
+			t.Fatalf("saved mode = %q, want global", saved)
+		}
+		all = reloads()
+		globalCfg := parseConfig(t, all[len(all)-1])
+		if globalCfg.Mode != "rule" || !hasTailnetProxy(globalCfg) {
+			t.Fatalf("global mode payload missing rule mode or __GOPURR_TAILNET__: %+v", globalCfg)
+		}
+		matchGlobalIdx := slices.Index(globalCfg.Rules, "MATCH,GLOBAL")
+		if matchGlobalIdx <= 0 || !strings.Contains(globalCfg.Rules[matchGlobalIdx-1], "__GOPURR_TAILNET__") {
+			t.Fatalf("MATCH,GLOBAL not immediately after tailnet rules: %v", globalCfg.Rules)
+		}
+
+		// finishKernelBoot must keep the user's global/direct mode rather than
+		// overwriting it with mihomo's internal "rule" mode.
+		runOnMain(func() {
+			a.modeToken = "rule"
+			a.modePick, a.modeIdx = labelFor("rule"), modeIndex("rule")
+			a.finishKernelBoot()
+		})
+		if a.modeToken != "global" || a.ov.Mode != "global" || a.modePick != labelFor("global") || a.modeIdx != modeIndex("global") {
+			t.Fatalf("finishKernelBoot overwrote active mesh proxy mode: token=%q ov=%q", a.modeToken, a.ov.Mode)
+		}
+
+		// Switching back to rule mode keeps tailnet routes without MATCH,DIRECT/GLOBAL.
+		if err := a.webSetMode("rule"); err != nil {
+			t.Fatalf("webSetMode(rule): %v", err)
+		}
+		if !a.meshAccessReady() || a.ov.Mode != "rule" || a.modeToken != "rule" {
+			t.Fatalf("webSetMode(rule) failed: ready=%v mode=%q", a.meshAccessReady(), a.modeToken)
+		}
+		all = reloads()
+		ruleCfg := parseConfig(t, all[len(all)-1])
+		if ruleCfg.Mode != "rule" || !hasTailnetProxy(ruleCfg) || slices.Contains(ruleCfg.Rules, "MATCH,DIRECT") || slices.Contains(ruleCfg.Rules, "MATCH,GLOBAL") {
+			t.Fatalf("rule mode payload unexpected: %+v", ruleCfg)
+		}
+
+		// Disconnecting mesh while in direct mode restores ordinary direct config.
+		runOnMain(func() {
+			a.UseMode("direct")
+			f.snap.Status.RouteIPs = nil
+			f.snap.Status.Peers = nil
+			f.snap.Status.ProxyAddress = ""
+			f.snap.Status.ProxyPassword = ""
+			a.reconcileMeshRoutes()
+		})
+		all = reloads()
+		plainCfg := parseConfig(t, all[len(all)-1])
+		if plainCfg.Mode != "direct" || hasTailnetProxy(plainCfg) || slices.Contains(plainCfg.Rules, "MATCH,DIRECT") {
+			t.Fatalf("disconnect did not restore plain direct mode: %+v", plainCfg)
+		}
+		if a.ov.Mode != "direct" || a.modeToken != "direct" {
+			t.Fatalf("disconnect altered user mode: token=%q ov=%q", a.modeToken, a.ov.Mode)
+		}
+	})
+
+	t.Run("rolls back mode on kernel rejection", func(t *testing.T) {
+		a, _ := newSettingsTestApp(t, func(raw string) bool {
+			return strings.Contains(raw, "MATCH,DIRECT")
+		})
+		if err := os.WriteFile(filepath.Join(a.dir, "core.json"), []byte(`{"uid":0}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f := fixtureMesh(a)
+		f.snap.Status.RouteIPs = []netip.Addr{netip.MustParseAddr("100.70.0.2")}
+		f.snap.Status.ProxyAddress = "127.0.0.1:47654"
+		f.snap.Status.ProxyPassword = strings.Repeat("x", 32)
+		if !a.applyMeshPreparation() || !a.meshAccessReady() {
+			t.Fatalf("initial mesh preparation failed: %s", a.meshPrepareError)
+		}
+
+		a.UseMode("direct")
+		if a.ov.Mode != "rule" || a.modeToken != "rule" || a.modePick != labelFor("rule") || a.modeIdx != modeIndex("rule") || a.notice == "" {
+			t.Fatalf("UseMode did not roll back failed reload: mode=%q ov=%q notice=%q", a.modeToken, a.ov.Mode, a.notice)
+		}
+		if !a.meshAccessReady() {
+			t.Fatal("meshAccessReady() became false after UseMode rollback")
+		}
+
+		if err := a.webSetMode("direct"); err == nil {
+			t.Fatal("webSetMode succeeded despite kernel rejection")
+		}
+		if a.ov.Mode != "rule" || a.modeToken != "rule" || a.modePick != labelFor("rule") || a.modeIdx != modeIndex("rule") {
+			t.Fatalf("webSetMode did not roll back failed reload: mode=%q ov=%q", a.modeToken, a.ov.Mode)
+		}
+		if !a.meshAccessReady() {
+			t.Fatal("meshAccessReady() became false after webSetMode rollback")
+		}
+	})
+
+	t.Run("SetWindowVisible forwards UI activity to meshClient", func(t *testing.T) {
+		a := &App{}
+		a.SetWindowVisible(false)
+		a.meshClient = &meshFixture{}
+		a.SetWindowVisible(true)
+
+		activeClient := &meshActiveFixture{meshFixture: &meshFixture{}}
+		a.meshClient = activeClient
+		a.SetWindowVisible(false)
+		a.SetWindowVisible(true)
+		if len(activeClient.active) != 2 || activeClient.active[0] || !activeClient.active[1] {
+			t.Fatalf("SetWindowVisible did not forward SetUIActive(false, true): %v", activeClient.active)
+		}
+	})
+}
+
+type meshActiveFixture struct {
+	*meshFixture
+	active []bool
+}
+
+func (f *meshActiveFixture) SetUIActive(active bool) {
+	f.active = append(f.active, active)
 }

@@ -16,8 +16,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/transport/shadowsocks/core"
 	"github.com/metacubex/tailscale/client/local"
 	"github.com/metacubex/tailscale/envknob"
@@ -227,12 +229,19 @@ func (b *Embedded) Connect(ctx context.Context) (auth string, retErr error) {
 	host, _ := os.Hostname()
 	nctx, cancel := context.WithCancel(context.Background())
 	n := &nodeSession{ctx: nctx, cancel: cancel, peers: map[netip.Addr]bool{}, self: map[netip.Addr]bool{}, sockets: map[*trackedConn]bool{}}
+	socketControl := func(network, address string, c syscall.RawConn) error {
+		if hook := dialer.DefaultSocketHook; hook != nil {
+			return hook(network, address, c)
+		}
+		return nil
+	}
 	n.server = &tsnet.Server{Dir: b.dir, Store: store, Hostname: clean(host) + "-gopurr", ControlURL: controlURL,
 		// This userspace node has no system Tailscale interface to bypass.
 		// Follow the system's working network (including Gopurr TUN) instead
-		// of tsnet's default sockets bound to the physical interface.
-		SystemDialer:         (&net.Dialer{}).DialContext,
-		SystemPacketListener: (&net.ListenConfig{}).ListenPacket,
+		// of tsnet's default sockets bound to the physical interface, while
+		// honoring Android's VpnService socket protection hook when set.
+		SystemDialer:         (&net.Dialer{Control: socketControl}).DialContext,
+		SystemPacketListener: (&net.ListenConfig{Control: socketControl}).ListenPacket,
 		LookupHook: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		},

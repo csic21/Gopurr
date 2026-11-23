@@ -60,6 +60,18 @@ func applyMeshRoutes(doc map[string]any, ov Overrides) error {
 		"cipher": "chacha20-ietf-poly1305", "password": ov.MeshProxyPassword, "udp": true}
 	doc["proxies"] = append(proxies, direct)
 	existing, _ := doc["rules"].([]any)
-	doc["rules"] = append(rules, existing...)
+	// Mihomo's direct and global tunnel modes skip rule matching entirely.
+	// Run in rule mode while mesh routes are active and preserve the chosen
+	// fallback immediately after the tailnet rules.
+	switch ov.Mode {
+	case "direct":
+		doc["mode"] = "rule"
+		doc["rules"] = append(append(rules, "MATCH,DIRECT"), existing...)
+	case "global":
+		doc["mode"] = "rule"
+		doc["rules"] = append(append(rules, "MATCH,GLOBAL"), existing...)
+	default:
+		doc["rules"] = append(rules, existing...)
+	}
 	return nil
 }

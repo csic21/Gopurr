@@ -10,7 +10,7 @@ import (
 )
 
 func (a *App) meshAccessReady() bool {
-	if a.k == nil || !a.tunOn || !a.ov.TunEnable || !a.ov.TunAutoRout || a.modeToken != "rule" || a.meshRouteError != "" {
+	if a.k == nil || !a.tunOn || !a.ov.TunEnable || !a.ov.TunAutoRout || a.meshRouteError != "" {
 		return false
 	}
 	// Rendering several controls must not repeat the same controller request.

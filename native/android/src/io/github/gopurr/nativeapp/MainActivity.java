@@ -49,7 +49,7 @@ public final class MainActivity extends Activity {
             String page = getIntent().getStringExtra("page");
             if ("overview".equals(page) || "profiles".equals(page) || "proxies".equals(page) || "settings".equals(page)) params.put("page", page);
             app.setParams(params);
-            if (!app.setGrantedCapabilities("{\"host\":[\"engine.dispatch\",\"android.session\",\"android.connect\",\"android.disconnect\",\"android.apps\",\"android.scope.get\",\"android.scope.set\",\"android.file.pick\",\"android.notifications\",\"android.notifications.request\",\"android.notifications.settings\",\"android.notifications.configure\",\"android.appearance\",\"android.update\",\"android.update.check\",\"android.update.download\",\"android.update.cancel\",\"android.update.install\"],\"statusBar\":true}")) {
+            if (!app.setGrantedCapabilities("{\"host\":[\"engine.dispatch\",\"android.session\",\"android.connect\",\"android.disconnect\",\"android.apps\",\"android.scope.get\",\"android.scope.set\",\"android.file.pick\",\"android.notifications\",\"android.notifications.request\",\"android.notifications.settings\",\"android.notifications.configure\",\"android.appearance\",\"android.update\",\"android.update.check\",\"android.update.download\",\"android.update.cancel\",\"android.update.install\",\"android.url.open\",\"android.clipboard.write\"],\"statusBar\":true}")) {
                 throw new IllegalStateException("The native host permissions could not be configured.");
             }
             app.handle("android.session", (data, reply) -> reply.resolve(controller.snapshot()));
@@ -74,6 +74,14 @@ public final class MainActivity extends Activity {
             app.handle("android.update.install", (data, reply) -> reply.resolve(updates.install()));
             app.handle("android.appearance", (data, reply) -> {
                 try { reply.resolve(actions.appearance(object(data))); }
+                catch (Exception error) { reply.reject(SessionController.message(error)); }
+            });
+            app.handle("android.url.open", (data, reply) -> {
+                try { reply.resolve(actions.openURL(object(data))); }
+                catch (Exception error) { reply.reject(SessionController.message(error)); }
+            });
+            app.handle("android.clipboard.write", (data, reply) -> {
+                try { reply.resolve(actions.writeClipboard(object(data))); }
                 catch (Exception error) { reply.reject(SessionController.message(error)); }
             });
             app.handle("android.scope.set", (data, reply) -> {
@@ -151,7 +159,7 @@ public final class MainActivity extends Activity {
     }
 
     private static boolean readMethod(String method) {
-        return method.equals("engine.status") || method.equals("engine.traffic") || method.endsWith(".list") || method.endsWith(".get") || method.equals("proxies.groups");
+        return method.equals("engine.status") || method.equals("engine.traffic") || method.equals("mesh.status") || method.endsWith(".list") || method.endsWith(".get") || method.equals("proxies.groups");
     }
 
     private static JSONObject object(Object data) throws Exception {

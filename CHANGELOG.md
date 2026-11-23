@@ -1,5 +1,12 @@
 # 更新记录
 
+## 0.6.68
+
+- 代理模式与组网路由解耦：在直连（`direct`）与全局（`global`）模式下保留内置 Tailscale 组网虚拟 IP（`100.64.0.0/10`、`fd7a:115c:a1e0::/48`）的最高路由优先级，切换模式、刷新托盘菜单或关闭系统代理均不影响组网互访。
+- 移动与共享 SDK 引擎接入内置组网：`sdk/engine` 新增 `mesh.status`、`mesh.action`、`mesh.services`、`mesh.block`、`mesh.autoConnect` 与 `mesh.probe` 接口，支持无代理订阅时的纯组网直连连接，以及运行中切换路由模式或更新组网节点的内存热更新。
+- 组网内核移动端适配：为 `tsnet` 底层连接接入 `dialer.DefaultSocketHook` 以支持 Android `VpnService.protect` 防回环保护，并新增 `SetUIActive` 在窗口隐藏或后台时暂停组网状态轮询。
+- 手机端新增组网界面：在手机端设置页新增「组网设置」次级页面，支持连接与浏览器授权登录、本机入站服务端口授权、设备搜索、IP 复制、端口探测与单设备封禁，并在连接页支持无订阅纯组网直连。
+
 ## 0.6.67
 
 - 优化 Windows 发布流水线：在 `main` 上预热并复用稳定的 Cargo/NSH 依赖缓存，tag 发布可直接恢复，避免每次从零编译约 500 个 Rust 依赖。

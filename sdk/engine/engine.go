@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"gopurr/internal/controllerconfig"
 	"gopurr/internal/core"
 	"gopurr/internal/geodata"
+	"gopurr/internal/mesh"
 	"gopurr/internal/patch"
 	"gopurr/internal/profile"
 	"gopurr/internal/securefs"
@@ -62,6 +64,14 @@ type Engine struct {
 	nextCall          uint64
 	core              *core.Core
 	store             *profile.Store
+	mesh              *mesh.Controller
+	meshBackend       mesh.Backend
+	meshRouteKey      string
+	meshRouteError    string
+	baseRules         []C.Rule
+	baseSubRules      map[string][]C.Rule
+	meshWakeMu        sync.Mutex
+	meshWakeCh        chan struct{}
 	home              string
 	port              int
 	mode              string
@@ -120,6 +130,10 @@ func Open(options Options) (*Engine, error) {
 	if err := e.loadPreferences(); err != nil {
 		return nil, err
 	}
+	e.ensureMeshLocked()
+	if e.mesh != nil && e.mesh.Snapshot().Managed {
+		e.mesh.Start()
+	}
 	e.logSubscription = log.Subscribe()
 	go e.watchLogs()
 	ownership.home, ownership.active = home, true
@@ -146,6 +160,7 @@ func (e *Engine) Close() error {
 		return nil
 	}
 	e.closed = true
+	meshCtrl := e.mesh
 	e.mu.Unlock()
 	e.CancelPending()
 	// A profile commit can be inside Store's atomic cache/index section after
@@ -154,6 +169,9 @@ func (e *Engine) Close() error {
 	// publishes its result and clears operation under that mutex.
 	e.profileMu.Lock()
 	e.profileMu.Unlock()
+	if meshCtrl != nil {
+		_ = meshCtrl.Shutdown()
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.stopLocked()
@@ -209,6 +227,12 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 	if method == "proxies.delay" {
 		return e.delayCall(ctx, params)
 	}
+	if method == "mesh.probe" {
+		return e.meshProbeCall(ctx, params)
+	}
+	if method == "mesh.action" || method == "mesh.services" || method == "mesh.block" || method == "mesh.autoConnect" {
+		return e.meshMutationCall(ctx, method, params)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closed {
@@ -218,6 +242,8 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 		return nil, err
 	}
 	switch method {
+	case "mesh.status":
+		return e.meshStatusCallLocked(params)
 	case "engine.traffic":
 		if err := emptyParams(params); err != nil {
 			return nil, err
@@ -242,7 +268,11 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 		if e.core.Running() {
 			return e.statusLocked(), nil
 		}
-		if err := e.activateLocked(ctx, e.store.ActiveID()); err != nil {
+		id := e.store.ActiveID()
+		if id == "" && e.meshActiveLocked() {
+			id = meshOnlyProfileID
+		}
+		if err := e.activateLocked(ctx, id); err != nil {
 			return nil, err
 		}
 		return e.statusLocked(), nil
@@ -267,7 +297,12 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 		}
 		e.mode = p.Mode
 		if e.core.Running() {
-			e.core.SetMode(p.Mode)
+			if err := e.applyLiveRoutingLocked(); err != nil {
+				e.meshRouteError = err.Error()
+			} else {
+				e.meshRouteKey = e.meshRouteKeyLocked()
+				e.meshRouteError = ""
+			}
 		}
 		return e.statusLocked(), nil
 	case "profiles.list":
@@ -291,6 +326,9 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 		}
 		if err := decodeParams(params, &p); err != nil {
 			return nil, err
+		}
+		if p.ID == meshOnlyProfileID {
+			return nil, failure("no_profile", "请先导入并选择配置")
 		}
 		if err := e.activateLocked(ctx, p.ID); err != nil {
 			return nil, err
@@ -350,10 +388,13 @@ func (e *Engine) statusLocked() Status {
 	s.Capabilities.Tun = s.VPNSupported
 	s.Tun = e.vpn && s.Running
 	if s.Running {
-		s.Mode = e.core.Mode()
+		if s.Mode == "" {
+			s.Mode = e.core.Mode()
+		}
 		sample := e.core.Sample()
 		s.Traffic = Traffic{Up: sample.UpNow, Down: sample.DownNow, UpTotal: sample.UpTotal, DownTotal: sample.DownTotal, Connections: sample.Conns, Memory: sample.Mem, At: time.Now().UnixMilli()}
 	}
+	s.Mesh = e.meshSummaryLocked()
 	return s
 }
 
@@ -388,15 +429,25 @@ func (e *Engine) activateLocked(ctx context.Context, id string) error {
 	if id == "" {
 		return failure("no_profile", "请先导入并选择配置")
 	}
-	p, err := e.store.Get(id)
-	if err != nil {
-		return err
+	var p profile.Profile
+	var raw []byte
+	var err error
+	commit := func(commitCtx context.Context) error { return e.store.SetActiveContext(commitCtx, id) }
+	if id == meshOnlyProfileID {
+		p = profile.Profile{ID: meshOnlyProfileID, Name: "Mesh"}
+		raw = []byte(meshOnlyProfileYAML)
+		commit = func(context.Context) error { return nil }
+	} else {
+		p, err = e.store.Get(id)
+		if err != nil {
+			return err
+		}
+		raw, err = e.store.Content(id)
+		if err != nil {
+			return err
+		}
 	}
-	raw, err := e.store.Content(id)
-	if err != nil {
-		return err
-	}
-	candidate, err := e.prepareLocked(raw, p)
+	candidate, baseCount, err := e.prepareWithBaseCountLocked(raw, p)
 	if err != nil {
 		return err
 	}
@@ -404,6 +455,9 @@ func (e *Engine) activateLocked(ctx context.Context, id string) error {
 		return err
 	}
 	previous := append([]byte(nil), e.runtime...)
+	previousBaseRules := slices.Clone(e.baseRules)
+	previousBaseSubRules := e.baseSubRules
+	previousMeshKey, previousMeshErr := e.meshRouteKey, e.meshRouteError
 	wasRunning := e.core.Running()
 	previousGroups := e.groupsLocked().Groups
 	previousRevision, previousReconnect := e.runtimeRevision, e.reconnectRequired
@@ -413,7 +467,16 @@ func (e *Engine) activateLocked(ctx context.Context, id string) error {
 				e.stopLocked()
 				return err
 			} else {
-				e.core.SetMode(e.mode)
+				e.baseRules = previousBaseRules
+				e.baseSubRules = previousBaseSubRules
+				e.meshRouteKey = previousMeshKey
+				e.meshRouteError = previousMeshErr
+				if err := e.applyLiveRoutingLocked(); err != nil {
+					e.core.SetMode(e.mode)
+				} else {
+					e.meshRouteKey = e.meshRouteKeyLocked()
+					e.meshRouteError = ""
+				}
 				for _, group := range previousGroups {
 					if group.Type == "Selector" && group.Now != "" {
 						_ = e.core.Select(group.Name, group.Now)
@@ -426,12 +489,19 @@ func (e *Engine) activateLocked(ctx context.Context, id string) error {
 		e.runtimeRevision, e.reconnectRequired = previousRevision, previousReconnect
 		return nil
 	}
-	_, err = workflow.RunConfigChange(ctx, workflow.ConfigChange{Candidate: candidate, Apply: e.startLocked, Restore: restore, Commit: func(commitCtx context.Context) error { return e.store.SetActiveContext(commitCtx, id) }})
+	_, err = workflow.RunConfigChange(ctx, workflow.ConfigChange{Candidate: candidate, Apply: e.startLocked, Restore: restore, Commit: commit})
 	if err != nil {
 		e.lastError = err.Error()
 		return err
 	}
 	e.acceptRuntimeLocked(candidate)
+	e.captureBaseRulesLocked(candidate, baseCount)
+	if err := e.applyLiveRoutingLocked(); err != nil {
+		e.meshRouteError = err.Error()
+	} else {
+		e.meshRouteKey = e.meshRouteKeyLocked()
+		e.meshRouteError = ""
+	}
 	e.replaySelectionsLocked(id)
 	e.runtimeRevision = profileRevision(p, raw)
 	e.reconnectRequired = false
@@ -491,6 +561,10 @@ func (e *Engine) stopLocked() {
 		e.core.Stop()
 	}
 	e.stopVPNLocked()
+	e.baseRules = nil
+	e.baseSubRules = nil
+	e.meshRouteKey = ""
+	e.meshRouteError = ""
 	e.pendingPlan = nil
 }
 
@@ -498,21 +572,27 @@ func (e *Engine) stopLocked() {
 // control over every inbound and all OS-facing features. The first NSH host
 // supports a local HTTP/SOCKS endpoint; it must never claim VPN is connected.
 func (e *Engine) prepareLocked(raw []byte, p profile.Profile) ([]byte, error) {
+	managed, _, err := e.prepareWithBaseCountLocked(raw, p)
+	return managed, err
+}
+
+func (e *Engine) prepareWithBaseCountLocked(raw []byte, p profile.Profile) ([]byte, int, error) {
 	ov := patch.Default()
 	ov.MixedPort = e.port
 	ov.Mode = e.mode
 	ov.TunEnable = false
+	ov.MeshIPs, ov.MeshProxyAddress, ov.MeshProxyPassword = e.meshRuntimeRoutesLocked()
 	local := patch.ProfileOverrides{}
 	if p.Overrides != nil {
 		local = *p.Overrides
 	}
 	merged, err := patch.ApplyLayers(raw, ov, local)
 	if err != nil {
-		return nil, &Error{Code: "invalid_config", Message: err.Error()}
+		return nil, -1, &Error{Code: "invalid_config", Message: err.Error()}
 	}
 	var doc map[string]any
 	if err := yaml.Unmarshal(merged, &doc); err != nil {
-		return nil, err
+		return nil, -1, err
 	}
 	controllerconfig.Strip(doc)
 	for _, key := range []string{"port", "socks-port", "redir-port", "tproxy-port", "listeners", "tunnels", "ss-config", "vmess-config", "authentication", "skip-auth-prefixes", "interface-name", "routing-mark", "tls"} {
@@ -536,7 +616,7 @@ func (e *Engine) prepareLocked(raw []byte, p profile.Profile) ([]byte, error) {
 			for _, item := range providers {
 				if provider, ok := item.(map[string]any); ok {
 					if path, ok := provider["path"].(string); ok && path != "" && !filepath.IsLocal(path) {
-						return nil, failure("invalid_config", "配置引用的文件必须位于内核数据目录内")
+						return nil, -1, failure("invalid_config", "配置引用的文件必须位于内核数据目录内")
 					}
 				}
 			}
@@ -544,12 +624,17 @@ func (e *Engine) prepareLocked(raw []byte, p profile.Profile) ([]byte, error) {
 	}
 	managed, err := configyaml.Marshal(merged, doc)
 	if err != nil {
-		return nil, err
+		return nil, -1, err
 	}
-	if _, err := config.Parse(managed); err != nil {
-		return nil, &Error{Code: "invalid_config", Message: err.Error()}
+	parsed, err := config.Parse(managed)
+	if err != nil {
+		return nil, -1, &Error{Code: "invalid_config", Message: err.Error()}
 	}
-	return managed, nil
+	baseCount := len(parsed.Rules)
+	if len(ov.MeshIPs) > 0 && ov.MeshProxyAddress != "" {
+		baseCount = baseRuleCount(raw, ov, local)
+	}
+	return managed, baseCount, nil
 }
 
 func (e *Engine) groupsLocked() GroupList {

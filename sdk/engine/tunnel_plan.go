@@ -37,11 +37,12 @@ type TunnelPlan struct {
 }
 
 type pendingTunnelPlan struct {
-	plan      TunnelPlan
-	profileID string
-	revision  string
-	prepared  []byte
-	mode      string
+	plan          TunnelPlan
+	profileID     string
+	revision      string
+	prepared      []byte
+	mode          string
+	baseRuleCount int
 }
 
 var packageName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$`)
@@ -111,19 +112,11 @@ func (e *Engine) tunnelPlanLocked(scope AppScope) (TunnelPlan, error) {
 	if err != nil {
 		return TunnelPlan{}, err
 	}
-	id := e.store.ActiveID()
-	if id == "" {
-		return TunnelPlan{}, failure("no_profile", "请先导入并选择配置")
-	}
-	p, err := e.store.Get(id)
+	id, p, raw, err := e.activeRuntimeSourceLocked()
 	if err != nil {
 		return TunnelPlan{}, err
 	}
-	raw, err := e.store.Content(id)
-	if err != nil {
-		return TunnelPlan{}, err
-	}
-	prepared, err := e.prepareLocked(raw, p)
+	prepared, baseCount, err := e.prepareWithBaseCountLocked(raw, p)
 	if err != nil {
 		return TunnelPlan{}, err
 	}
@@ -131,7 +124,7 @@ func (e *Engine) tunnelPlanLocked(scope AppScope) (TunnelPlan, error) {
 	if err != nil {
 		return TunnelPlan{}, err
 	}
-	e.pendingPlan = &pendingTunnelPlan{plan: plan, profileID: id, revision: profileRevision(p, raw), prepared: prepared, mode: e.mode}
+	e.pendingPlan = &pendingTunnelPlan{plan: plan, profileID: id, revision: profileRevision(p, raw), prepared: prepared, mode: e.mode, baseRuleCount: baseCount}
 	e.scope = scope
 	return clonePlan(plan), nil
 }
@@ -140,12 +133,11 @@ func (e *Engine) validatePendingPlanLocked(token string) (*pendingTunnelPlan, er
 	if e.pendingPlan == nil || token == "" || token != e.pendingPlan.plan.Token {
 		return nil, failure("stale_plan", "VPN 配置已变化，请重新准备连接")
 	}
-	item, err := e.store.Get(e.store.ActiveID())
+	_, item, raw, err := e.activeRuntimeSourceLocked()
 	if err != nil {
-		return nil, failure("stale_plan", "VPN 配置已变化，请重新准备连接")
-	}
-	raw, err := e.store.Content(item.ID)
-	if err != nil {
+		if asError(err).Code == "no_profile" {
+			return nil, failure("stale_plan", "VPN 配置已变化，请重新准备连接")
+		}
 		return nil, err
 	}
 	if e.pendingPlan.profileID != item.ID || e.pendingPlan.revision != profileRevision(item, raw) || e.pendingPlan.mode != e.mode {
