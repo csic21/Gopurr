@@ -58,9 +58,7 @@ export function NavigationFlight(p: {
   const slide = progress.interpolate({ inputRange: [0, 1], outputRange: [0, -184] });
   const curtainOpacity = progress.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1, 1, 0] });
   const curtainShadow = () => dark() ? [{ x: 10, y: 0, blur: 24, color: "#00000048" }] : [{ x: 10, y: 0, blur: 24, color: "#0f172a16" }];
-  const sidebarRowsFade = progress.interpolate({ inputRange: [0, 0.65], outputRange: [1, 0] });
-  const topTabOpacity = progress.interpolate({ inputRange: [0.35, 1], outputRange: [0, 1] });
-  const topTabY = progress.interpolate({ inputRange: [0.35, 1], outputRange: [-6, 0] });
+  const sidebarRowsFade = progress.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0] });
   const brand = () => brandInterpolation(p.titlebarInset, p.titlebarHeight);
   const brandX = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().x });
   const brandY = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().y });
@@ -90,9 +88,19 @@ export function NavigationFlight(p: {
     <View style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
       {items.map((item, index) => {
         const selected = () => p.page === item.id;
-        return <View style={{ position: "absolute", left: compactLeft(index), top: compactTop(), width: compactWidth(index), height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8, opacity: topTabOpacity, transform: [{ translateY: topTabY }] }}>
-          <If when={selected()}><View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, borderRadius: 8, backgroundColor: colors().selected, borderWidth: 1, borderColor: selectedBorder() }} /></If>
-          <Text style={{ fontSize: 12.5, fontWeight: selected() ? "600" : "500", letterSpacing: -0.1, color: selected() ? colors().accent : colors().muted, numberOfLines: 1 }}>{tr(item.zh, item.en)}</Text>
+        const startX = 8, layoutW = 167;
+        const endX = () => compactLeft(index);
+        const startY = () => top(index);
+        const endY = () => compactTop();
+        const endW = () => compactWidth(index);
+        const pillScale = () => progress.interpolate({ inputRange: [0, 1], outputRange: [1, endW() / layoutW] });
+        const pillX = () => progress.interpolate({ inputRange: [0, 1], outputRange: [startX - endX(), 0] });
+        const pillY = () => progress.interpolate({ inputRange: [0, 1], outputRange: [startY() - endY(), 0] });
+        // The pill scales about its left edge. Dividing cancels that on the
+        // glyphs for the whole flight; a second linear interpolate would not.
+        const textScale = () => progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1] }).div(pillScale());
+        return <View style={{ position: "absolute", left: endX(), top: endY(), width: layoutW, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: selected() ? colors().selected : "transparent", borderWidth: selected() ? 1 : 0, borderColor: selected() ? selectedBorder() : "transparent", opacity: progress, transformOrigin: "left center", transform: [{ translateX: pillX() }, { translateY: pillY() }, { scaleX: pillScale() }] }}>
+          <Text style={{ fontSize: 12.5, fontWeight: selected() ? "600" : "500", letterSpacing: -0.1, color: selected() ? colors().accent : colors().muted, numberOfLines: 1, transformOrigin: "center", transform: [{ scaleX: textScale() }] }}>{tr(item.zh, item.en)}</Text>
         </View>;
       })}
     </View>
