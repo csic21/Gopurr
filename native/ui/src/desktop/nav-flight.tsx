@@ -37,6 +37,17 @@ export const brandInterpolation = (titlebarInset: number, titlebarHeight: number
   };
 };
 
+export const navFlightGeometry = (titlebarHeight: number, layout: NavigationLayout, index: number) => {
+  const rowTop = titlebarHeight + 62 + index * 38 + (index === 7 ? 12 : 0);
+  const compactTop = (titlebarHeight - 30) / 2;
+  const compactLeft = layout.left + layout.widths.slice(0, index).reduce((sum, width) => sum + width + 2, 0);
+  const compactWidth = layout.widths[index];
+  return {
+    pill: { startX: 8, startY: rowTop, startW: 167, startH: 36, endX: compactLeft, endY: compactTop, endW: compactWidth, endH: 30 },
+    item: { rowLeft: 21, startTextX: 48, startY: rowTop, endTextX: compactLeft + layout.padding + 0.5, endY: compactTop - 3, labelScaleTo: 12.5 / 13 },
+  };
+};
+
 export function NavigationFlight(p: {
   progress: AnimatedValue;
   page: Page;
@@ -51,15 +62,15 @@ export function NavigationFlight(p: {
   const progress = p.progress;
   const dark = () => colorScheme() === "dark";
   const selectedBorder = () => dark() ? tint(colors().accent, "2e") : tint(colors().accent, "26");
-  const top = (index: number) => p.titlebarHeight + 62 + index * 38 + (index === 7 ? 12 : 0);
-  const compactTop = () => (p.titlebarHeight - 30) / 2;
-  const compactLeft = (index: number) => p.layout.left + p.layout.widths.slice(0, index).reduce((sum, width) => sum + width + 2, 0);
-  const compactWidth = (index: number) => p.layout.widths[index];
-  const slide = progress.interpolate({ inputRange: [0, 1], outputRange: [0, -184] });
-  const curtainOpacity = progress.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1, 1, 0], extrapolate: "clamp" });
-  const curtainShadow = () => dark() ? [{ x: 10, y: 0, blur: 24, color: "#00000048" }] : [{ x: 10, y: 0, blur: 24, color: "#0f172a16" }];
-  const sidebarRowsFade = progress.interpolate({ inputRange: [0, 0.22], outputRange: [1, 0], extrapolate: "clamp" });
-  const flightOpacity = progress.interpolate({ inputRange: [0, 0.18, 1], outputRange: [0, 1, 1], extrapolate: "clamp" });
+  const slide = progress.interpolate({ inputRange: [0, 1], outputRange: [0, -184], extrapolate: "clamp" });
+  const curtainOpacity = progress.interpolate({ inputRange: [0, 0.92, 1], outputRange: [1, 1, 0], extrapolate: "clamp" });
+  const edgeShadowOpacity = progress.interpolate({ inputRange: [0, 0.12, 0.88, 1], outputRange: [0, 1, 1, 0], extrapolate: "clamp" });
+  const footerOpacity = progress.interpolate({ inputRange: [0, 0.45], outputRange: [1, 0], extrapolate: "clamp" });
+  const iconOpacity = progress.interpolate({ inputRange: [0, 0.42], outputRange: [1, 0], extrapolate: "clamp" });
+  const iconShrink = progress.interpolate({ inputRange: [0, 0.42], outputRange: [1, 0.72], extrapolate: "clamp" });
+  const iconNudge = progress.interpolate({ inputRange: [0, 0.42], outputRange: [0, 6], extrapolate: "clamp" });
+  const labelScale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 12.5 / 13], extrapolate: "clamp" });
+  const pillScaleY = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 30 / 36], extrapolate: "clamp" });
   const brand = () => brandInterpolation(p.titlebarInset, p.titlebarHeight);
   const brandX = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().x });
   const brandY = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().y });
@@ -68,40 +79,35 @@ export function NavigationFlight(p: {
   const brandTextX = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().textShiftX });
   const brandTextY = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().textShiftY });
   return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ pointerEvents: "none", position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
-    <View style={{ position: "absolute", left: 0, top: 0, width: 184, height: "100%", backgroundColor: colors().side, backgroundImage: "linear-gradient(180deg, " + colors().side + " 0%, " + colors().bg + " 100%)", borderRightWidth: 1, borderColor: colors().border, boxShadow: curtainShadow(), opacity: curtainOpacity, transform: [{ translateX: slide }] }}>
-      {items.map((item, index) => {
-        const selected = () => p.page === item.id;
-        return <View style={{ position: "absolute", left: 8, top: top(index), width: 167, height: 36, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderRadius: 8, opacity: sidebarRowsFade }}>
-          <If when={selected()}><View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, borderRadius: 8, backgroundColor: colors().selected, borderWidth: 1, borderColor: selectedBorder() }} /></If>
-          <Icon name={item.id} size={17} color={selected() ? colors().accent : colors().muted} />
-          <Text style={{ fontSize: 13, fontWeight: selected() ? "600" : "500", letterSpacing: -0.1, color: selected() ? colors().accent : colors().muted, numberOfLines: 1 }}>{tr(item.zh, item.en)}</Text>
-        </View>;
-      })}
-      <View style={{ position: "absolute", left: 14, right: 14, bottom: 14, paddingTop: 12, gap: 5, borderTopWidth: 1, borderColor: colors().border, backgroundColor: "transparent" }}>
+    <View style={{ position: "absolute", left: 0, top: 0, width: 184, height: "100%", backgroundColor: colors().side, backgroundImage: "linear-gradient(180deg, " + colors().side + " 0%, " + colors().bg + " 100%)", borderRightWidth: 1, borderColor: colors().border, opacity: curtainOpacity, transform: [{ translateX: slide }] }}>
+      <View style={{ position: "absolute", left: 14, right: 14, bottom: 14, paddingTop: 12, gap: 5, borderTopWidth: 1, borderColor: colors().border, backgroundColor: "transparent", opacity: footerOpacity }}>
         <Row gap={6}><StatusDot on={p.kernel ?? true} size={5.5} /><Label text={p.status} muted size={11} weight={500} /></Row>
         <Text style={{ fontSize: 10.5, color: colors().faint, numberOfLines: 1, fontVariant: "tabular-nums" }}>{`${p.proxies} ${tr("代理", "proxies")} · ${p.rules} ${tr("规则", "rules")}`}</Text>
       </View>
     </View>
+    <View style={{ position: "absolute", left: 184, top: 0, width: 18, height: "100%", backgroundImage: "linear-gradient(90deg, " + (dark() ? "#00000038" : "#0f172a12") + " 0%, transparent 100%)", opacity: edgeShadowOpacity, transform: [{ translateX: slide }] }} />
     <View style={{ position: "absolute", left: 20, top: p.titlebarHeight + 15, flexDirection: "row", alignItems: "center", gap: 10, transform: [{ translateX: brandX().sub(20) }, { translateY: brandY().sub(p.titlebarHeight + 15) }] }}>
       <Image src={logo} style={{ width: 30, height: 30, objectFit: "contain", transform: [{ scale: iconScale() }], transformOrigin: "left top" }} />
       <Text style={{ fontSize: 15, fontWeight: "600", color: colors().text, numberOfLines: 1, transform: [{ translateX: brandTextX() }, { translateY: brandTextY() }, { scale: brandScale() }], transformOrigin: "left center" }}>Gopurr</Text>
     </View>
     <View style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }}>
       {items.map((item, index) => {
+        const geom = () => navFlightGeometry(p.titlebarHeight, p.layout, index).pill;
+        const pillX = () => progress.interpolate({ inputRange: [0, 1], outputRange: [0, geom().endX - geom().startX] });
+        const pillY = () => progress.interpolate({ inputRange: [0, 1], outputRange: [0, geom().endY - geom().startY] });
+        const pillScaleX = () => progress.interpolate({ inputRange: [0, 1], outputRange: [1, geom().endW / geom().startW] });
+        return <If when={p.page === item.id}><View style={{ position: "absolute", left: geom().startX, top: geom().startY, width: geom().startW, height: geom().startH, borderRadius: 8, backgroundColor: colors().selected, borderWidth: 1, borderColor: selectedBorder(), transformOrigin: "left top", transform: [{ translateX: pillX() }, { translateY: pillY() }, { scaleX: pillScaleX() }, { scaleY: pillScaleY }] }} /></If>;
+      })}
+      {items.map((item, index) => {
         const selected = () => p.page === item.id;
-        const startX = 8, layoutW = 167;
-        const endX = () => compactLeft(index);
-        const startY = () => top(index);
-        const endY = () => compactTop();
-        const endW = () => compactWidth(index);
-        const pillScale = () => progress.interpolate({ inputRange: [0, 1], outputRange: [1, endW() / layoutW] });
-        const pillX = () => progress.interpolate({ inputRange: [0, 1], outputRange: [startX - endX(), 0] });
-        const pillY = () => progress.interpolate({ inputRange: [0, 1], outputRange: [startY() - endY(), 0] });
-        // The pill scales about its left edge. Dividing cancels that on the
-        // glyphs for the whole flight; a second linear interpolate would not.
-        const textScale = () => progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1] }).div(pillScale());
-        return <View style={{ position: "absolute", left: endX(), top: endY(), width: layoutW, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: selected() ? colors().selected : "transparent", borderWidth: selected() ? 1 : 0, borderColor: selected() ? selectedBorder() : "transparent", opacity: flightOpacity, transformOrigin: "left center", transform: [{ translateX: pillX() }, { translateY: pillY() }, { scaleX: pillScale() }] }}>
-          <Text style={{ fontSize: 12.5, fontWeight: selected() ? "600" : "500", letterSpacing: -0.1, color: selected() ? colors().accent : colors().muted, numberOfLines: 1, transformOrigin: "center", transform: [{ scaleX: textScale() }] }}>{tr(item.zh, item.en)}</Text>
+        const geom = () => navFlightGeometry(p.titlebarHeight, p.layout, index).item;
+        const itemX = () => progress.interpolate({ inputRange: [0, 1], outputRange: [0, geom().endTextX - geom().startTextX] });
+        const itemY = () => progress.interpolate({ inputRange: [0, 1], outputRange: [0, geom().endY - geom().startY] });
+        return <View style={{ position: "absolute", left: geom().rowLeft, top: geom().startY, height: 36, flexDirection: "row", alignItems: "center", gap: 10, transform: [{ translateX: itemX() }, { translateY: itemY() }] }}>
+          <View style={{ width: 17, height: 17, flexShrink: 0, alignItems: "center", justifyContent: "center", opacity: iconOpacity, transform: [{ translateX: iconNudge }, { scale: iconShrink }] }}>
+            <Icon name={item.id} size={17} color={selected() ? colors().accent : colors().muted} />
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: selected() ? "600" : "500", letterSpacing: -0.1, color: selected() ? colors().accent : colors().muted, numberOfLines: 1, transformOrigin: "left center", transform: [{ scale: labelScale }] }}>{tr(item.zh, item.en)}</Text>
         </View>;
       })}
     </View>

@@ -71,9 +71,12 @@ mobile pages do not require a ShaderView/Vulkan transition surface.
 The desktop entry includes subscription/aggregate and proxy editors, connections,
 mesh, rules and template library, logs, and seven settings categories. It keeps
 unsaved drafts and filters across navigation and supports reduced motion. An
-input-free 240 ms overlay slides the sidebar out and fans its destinations into
-the title bar, while the content region commits its final width as soon as the
-sidebar is toggled. Do not animate the content tree's layout: AppKit interpolates
+input-free 280 ms (`[0.32, 0.72, 0, 1]`) overlay slides the sidebar curtain
+(with a fading edge shadow and footer) while flying each single-copy icon +
+label and morphing the selected pill cleanly between the left sidebar and the
+title bar, and the content region commits its final width once and glides 1:1
+with the curtain edge in both collapse (`184 → 0`) and expand (`-184 → 0`). Do
+not animate the content tree's layout: AppKit interpolates
 the parent width without reflowing descendant cards and group rows, exposing the
 group separator at the cropped edge. The overlay ends on the same label positions
 as the resting navigation, and the real labels take over only then, so the text

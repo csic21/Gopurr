@@ -2,7 +2,7 @@ import { test, open, expect } from "nsh/test";
 import { desktopFixtureTransport } from "./src/desktop/fixture";
 import { mergeDiff } from "./src/desktop/proxies";
 import { navigationLayout } from "./src/desktop/navigation";
-import { brandInterpolation, brandLayout } from "./src/desktop/nav-flight";
+import { brandInterpolation, brandLayout, navFlightGeometry } from "./src/desktop/nav-flight";
 import { switchThumbTransform } from "./src/desktop/ui";
 function host(reject=false) { const dispatch=desktopFixtureTransport();return {handlers:{"desktop.window.dirty":()=>{},"desktop.dispatch":async(value:unknown)=>{const v=value as {method:string;params:any};if(reject&&v.method==="desktop.profiles.import")return {error:{message:"Download failed; draft retained."}};return {result:await dispatch(v.method,v.params)};}}}; }
 test("desktop proxy latency testing never switches selection",async()=>{
@@ -46,7 +46,7 @@ test("the sidebar toggle settles before navigation returns",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN",clock:{}});
  await app.waitFor("id:desktop-toggle-sidebar");
  await app.press("id:desktop-toggle-sidebar");
- await app.clock!.runFor(260);
+ await app.clock!.runFor(300);
  expect(app.enabled("id:desktop-nav-logs")).toBe(true);
  await app.press("id:desktop-nav-logs");
  await app.waitFor("id:logs-search");
@@ -97,6 +97,25 @@ test("the title-bar brand keeps the established 30-to-24 and 15-to-13 travel",()
  expect(travel.textShiftY).toEqual([0,-3]);
  const to=brandLayout(80,38,true);
  expect({iconLeft:travel.x[1],iconTop:travel.y[1],iconSize:30*travel.iconScale[1],textLeft:travel.x[1]+30+10+travel.textShiftX[1],textCenter:travel.y[1]+15+travel.textShiftY[1],textSize:15*travel.textScale[1]}).toEqual({iconLeft:to.left,iconTop:to.top,iconSize:to.icon,textLeft:to.left+to.icon+to.gap,textCenter:to.top+to.icon/2,textSize:to.text});
+});
+test("the flying navigation geometry aligns both sidebar and compact titlebar endpoints",()=>{
+ for(const labels of [[25,25,25,25,25,25,25,25],[56,44,43,76,32,31,28,47]]){
+  for(const width of [840,1060]){
+   const layout=navigationLayout(width,80,labels,48,76);
+   for(let index=0;index<labels.length;index++){
+    const expectedTop=38+62+index*38+(index===7?12:0);
+    const compactLeft=layout.left+layout.widths.slice(0,index).reduce((sum,w)=>sum+w+2,0);
+    const compactTop=(38-30)/2;
+    const geom=navFlightGeometry(38,layout,index);
+    expect(geom.pill).toEqual({startX:8,startY:expectedTop,startW:167,startH:36,endX:compactLeft,endY:compactTop,endW:layout.widths[index],endH:30});
+    expect(geom.item.rowLeft).toBe(21);
+    expect(geom.item.startTextX).toBe(48);
+    expect(geom.item.startY).toBe(expectedTop);
+    expect(geom.item.endY+18).toBe(compactTop+15);
+    expect(geom.item.endTextX).toBe(compactLeft+layout.padding+0.5);
+   }
+  }
+ }
 });
 test("first close cancels without hiding and persists acknowledgment before backgrounding",async()=>{
  const h=host();(h.handlers as Record<string,any>)["desktop.window.close"]=()=>({ok:true});
