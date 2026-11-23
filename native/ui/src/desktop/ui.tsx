@@ -81,11 +81,11 @@ export function Action(p: { label: string; onPress: () => void; primary?: boolea
     : plain
       ? []
       : (dark() ? [{ x: 0, y: 1, blur: 0, color: "#ffffff0b", inset: true }] : [{ x: 0, y: 1, blur: 2, color: "#0f172a0c" }]);
-  return <Button testID={p.testID} onPress={p.onPress} disabled={p.disabled} style={{ height, minHeight: height, paddingHorizontal: plain ? 8 : filled ? 14 : 12, borderRadius: RADIUS.control, alignItems: "center", justifyContent: "center", borderWidth: filled || plain ? 0 : 1, borderColor: dark() ? "#2a3040" : colors().border, backgroundColor: filled ? fill().bg : plain ? "transparent" : (dark() ? "#1b1f2a" : "#ffffff"), boxShadow: shadow(), ...MOTION }}
+  return <Button testID={p.testID} onPress={p.onPress} disabled={p.disabled} style={{ cursor: p.disabled ? "default" : "pointer", height, minHeight: height, paddingHorizontal: plain ? 8 : filled ? 14 : 12, borderRadius: RADIUS.control, alignItems: "center", justifyContent: "center", borderWidth: filled || plain ? 0 : 1, borderColor: dark() ? "#2a3040" : colors().border, backgroundColor: filled ? fill().bg : plain ? "transparent" : (dark() ? "#1b1f2a" : "#ffffff"), boxShadow: shadow(), ...MOTION }}
     hoverStyle={{ backgroundColor: filled ? fill().hover : plain ? colors().hover : (dark() ? "#232836" : colors().hover) }}
     activeStyle={{ backgroundColor: filled ? fill().pressed : colors().selected, opacity: filled ? 1 : 0.92 }}
     focusStyle={{ outlineWidth: 2, outlineColor: colors().accent, outlineOffset: 2 }}
-    disabledStyle={{ opacity: 0.38 }}>
+    disabledStyle={{ opacity: 0.38, cursor: "default" }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
       <If when={!!p.icon}><Icon name={p.icon ?? "circle"} size={filled ? 14 : 13.5} color={filled ? fg() : p.danger ? colors().danger : colors().muted} /></If>
       <Text style={{ fontSize: p.size === "small" ? 12 : 12.5, fontWeight: filled || p.bold ? 600 : 500, color: fg(), numberOfLines: 1 }}>{p.label}</Text>
@@ -94,11 +94,11 @@ export function Action(p: { label: string; onPress: () => void; primary?: boolea
 }
 
 export function IconButton(p: { icon: string; label: string; onPress: () => void; disabled?: boolean; testID?: string; flat?: boolean; size?: number }) {
-  return <Button testID={p.testID} accessibilityLabel={p.label} disabled={p.disabled} onPress={p.onPress} style={{ width: p.size ?? CONTROL_HEIGHT, height: p.size ?? CONTROL_HEIGHT, alignItems: "center", justifyContent: "center", borderRadius: RADIUS.control, backgroundColor: "transparent", ...MOTION }}
+  return <Button testID={p.testID} accessibilityLabel={p.label} disabled={p.disabled} onPress={p.onPress} style={{ cursor: p.disabled ? "default" : "pointer", width: p.size ?? CONTROL_HEIGHT, height: p.size ?? CONTROL_HEIGHT, alignItems: "center", justifyContent: "center", borderRadius: RADIUS.control, backgroundColor: "transparent", ...MOTION }}
     hoverStyle={{ backgroundColor: colors().hover }}
     activeStyle={{ backgroundColor: colors().selected }}
     focusStyle={{ outlineWidth: 2, outlineColor: colors().accent, outlineOffset: 1 }}
-    disabledStyle={{ opacity: 0.35 }}><Icon name={p.icon} size={15} color={colors().muted} /></Button>;
+    disabledStyle={{ opacity: 0.35, cursor: "default" }}><Icon name={p.icon} size={15} color={colors().muted} /></Button>;
 }
 
 export function StatusDot(p: { on: boolean; size?: number; color?: string; glow?: boolean }) {
@@ -170,7 +170,7 @@ export function SearchField(p: { value: string; onChange: (value: string) => voi
     focusWithinStyle={{ borderColor: colors().accent, boxShadow: [{ x: 0, y: 0, blur: 0, spread: 3, color: tint(colors().accent, "1c") }] }}>
     <Icon name="search" size={14} color={colors().faint} />
     <Input testID={p.testID} accessibilityLabel={p.label ?? p.placeholder} value={p.value} onChange={({ value }) => p.onChange(value)} placeholder={p.placeholder} autoCorrect={false} autoCapitalize="none" style={{ flex: 1, minWidth: 0, height: 30, paddingHorizontal: 0, paddingVertical: 0, borderWidth: 0, backgroundColor: "transparent", color: colors().text, placeholderColor: colors().faint, fontSize: 12.5 }} />
-    <If when={!!p.value}><Button testID={p.testID ? `${p.testID}-clear` : undefined} accessibilityLabel={tr("清空搜索", "Clear search")} onPress={() => p.onChange("")} style={{ width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, ...MOTION }} hoverStyle={{ backgroundColor: colors().hover }} focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}><Icon name="x" size={13} /></Button></If>
+    <If when={!!p.value}><Button testID={p.testID ? `${p.testID}-clear` : undefined} accessibilityLabel={tr("清空搜索", "Clear search")} onPress={() => p.onChange("")} style={{ cursor: "pointer", width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, ...MOTION }} hoverStyle={{ backgroundColor: colors().hover }} focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}><Icon name="x" size={13} /></Button></If>
   </View>;
 }
 
@@ -183,8 +183,8 @@ export function Toggle(p: { checked: boolean; onChange: (v: boolean) => void; la
   const dark = () => colorScheme() === "dark";
   const checkedBg = () => accentFill().bg;
   return <Row><If when={!!p.label && p.showLabel !== false}><Label text={p.label ?? ""} /></If>
-    <Switch testID={p.testID} checked={p.checked} disabled={p.disabled} accessibilityLabel={p.label} onChange={({ checked }) => p.onChange(checked)} style={{ width: 36, height: 20, opacity: p.disabled ? 0.38 : 1 }}
-      trackStyle={{ width: 36, height: 20, padding: 2, backgroundColor: p.checked ? checkedBg() : (dark() ? "#252b38" : "#d4dbe6"), borderRadius: 10, borderWidth: 1, borderColor: p.checked ? checkedBg() : (dark() ? "#32394a" : "#c5cedc"), boxShadow: p.checked ? (dark() ? [{ x: 0, y: 1, blur: 2, color: "#00000038" }] : [{ x: 0, y: 1, blur: 2, color: "#0f172a1a" }]) : [{ x: 0, y: 1, blur: 1, color: "#0000000f", inset: true }], transitionProperty: "background-color, border-color, box-shadow", transitionDuration: duration, transitionTimingFunction: "ease-out" }}
+    <Switch testID={p.testID} checked={p.checked} disabled={p.disabled} accessibilityLabel={p.label} onChange={({ checked }) => p.onChange(checked)} style={{ cursor: p.disabled ? "default" : "pointer", width: 36, height: 20, opacity: p.disabled ? 0.38 : 1 }}
+      trackStyle={{ cursor: p.disabled ? "default" : "pointer", width: 36, height: 20, padding: 2, backgroundColor: p.checked ? checkedBg() : (dark() ? "#252b38" : "#d4dbe6"), borderRadius: 10, borderWidth: 1, borderColor: p.checked ? checkedBg() : (dark() ? "#32394a" : "#c5cedc"), boxShadow: p.checked ? (dark() ? [{ x: 0, y: 1, blur: 2, color: "#00000038" }] : [{ x: 0, y: 1, blur: 2, color: "#0f172a1a" }]) : [{ x: 0, y: 1, blur: 1, color: "#0000000f", inset: true }], transitionProperty: "background-color, border-color, box-shadow", transitionDuration: duration, transitionTimingFunction: "ease-out" }}
       thumbStyle={{ width: 14, height: 14, borderRadius: 7, backgroundColor: "#ffffff", boxShadow: [{ x: 0, y: 1, blur: 2.5, color: "#1018283d" }], transform: switchThumbTransform(p.checked), transitionProperty: "transform", transitionDuration: duration, transitionTimingFunction: "ease-out" }} /></Row>;
 }
 
@@ -197,7 +197,7 @@ export function Tabs(p: { items: { id: string; label: string }[]; value: string;
   return <NativeTabs style={{ flexDirection: "row", alignSelf: "flex-start", gap: 2, padding: 3, borderRadius: 10, backgroundColor: dark() ? "#0b0d12" : "#e6eaf2", borderWidth: 1, borderColor: dark() ? "#222733" : "#d6dce8" }}
     indicatorStyle={{ top: 3, bottom: 3, borderRadius: 7, backgroundColor: dark() ? "#202532" : "#ffffff", borderWidth: 1, borderColor: dark() ? "#2e3546" : "#d8dfe9", boxShadow: dark() ? [{ x: 0, y: 1, blur: 2, color: "#00000040" }] : [{ x: 0, y: 1, blur: 2, color: "#131c3018" }] }}>
     <Each of={p.items} key={(item) => item.id}>{(item) => <Tab testID={`${p.testIDPrefix ?? "desktop-tab"}-${item().id}`} selected={p.value === item().id} disabled={p.disabled} onPress={() => p.onChange(item().id)}
-      style={{ paddingHorizontal: 13, paddingVertical: 3, minHeight: 24, borderRadius: 7, backgroundColor: "transparent" }}
+      style={{ cursor: p.disabled ? "default" : "pointer", paddingHorizontal: 13, paddingVertical: 3, minHeight: 24, borderRadius: 7, backgroundColor: "transparent" }}
       hoverStyle={{ backgroundColor: p.value === item().id ? "transparent" : colors().hover }}
       focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}>
       <Text style={{ fontSize: 12, fontWeight: p.value === item().id ? "600" : "500", letterSpacing: p.value === item().id ? -0.1 : 0, color: p.value === item().id ? colors().text : colors().muted }}>{item().label}</Text>

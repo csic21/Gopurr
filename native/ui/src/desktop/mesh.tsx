@@ -293,7 +293,7 @@ export function MeshPage(p:PageProps){
           <If when={quickKind()==='ssh'}><View style={{flex:1,minWidth:0}}><Field label={tr('用户名','Username')} testID="mesh-quick-user" accessibilityLabel={tr('SSH 用户名','SSH username')} value={quickUser()} onChange={v=>quickUser.set(v)} placeholder={tr('用户名（留空用客户端默认）','Username (client default if empty)')}/></View></If>
         </Row>
         <Checkbox testID="mesh-quick-remember" checked={remember()} onChange={({checked})=>remember.set(checked)} accessibilityLabel={tr('记住连接方式（不保存密码）','Remember connection settings (no passwords)')}
-          style={{flexDirection:"row",alignItems:"center",gap:8,minHeight:24}}
+          style={{cursor:"pointer",flexDirection:"row",alignItems:"center",gap:8,minHeight:24}}
           focusStyle={{outlineWidth:2,outlineColor:colors().accent,borderRadius:4}}
           indicatorStyle={{width:16,height:16,borderRadius:4,borderWidth:1,borderColor:remember()?colors().accent:colors().border,backgroundColor:remember()?colors().accent:colors().surface,alignItems:"center",justifyContent:"center",...MOTION}}
           indicator={<If when={remember()}><Image src={checkMark} style={{width:13,height:13,tintColor:colors().accentText}}/></If>}>

@@ -82,7 +82,7 @@ export function ConnectionsPage(p:PageProps) {
     </DetailSection>
   </View>;};
   const connectionRow=(item:any)=>{const active=()=>selected()?.id===item().id;return <Button testID={"connection-"+item().id} selected={active()} onPress={()=>selected.set(item())}
-    style={{minHeight:sideDetail()?58:52,paddingHorizontal:16,paddingVertical:6,backgroundColor:active()?colors().selected:colors().surface,transitionProperty:"background-color, border-color",transitionDuration:140,transitionTimingFunction:"ease-out"}}
+    style={{cursor:"pointer",minHeight:sideDetail()?58:52,paddingHorizontal:16,paddingVertical:6,backgroundColor:active()?colors().selected:colors().surface,transitionProperty:"background-color, border-color",transitionDuration:140,transitionTimingFunction:"ease-out"}}
     hoverStyle={{backgroundColor:active()?colors().selected:colors().hover}}
     focusStyle={{outlineWidth:2,outlineColor:colors().accent,outlineOffset:-2}}>
     <View style={{position:"absolute",left:4,top:10,bottom:10,width:2.5,borderRadius:2,backgroundColor:active()?colors().accent:"transparent"}}/>

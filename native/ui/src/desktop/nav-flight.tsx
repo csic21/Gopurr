@@ -56,9 +56,10 @@ export function NavigationFlight(p: {
   const compactLeft = (index: number) => p.layout.left + p.layout.widths.slice(0, index).reduce((sum, width) => sum + width + 2, 0);
   const compactWidth = (index: number) => p.layout.widths[index];
   const slide = progress.interpolate({ inputRange: [0, 1], outputRange: [0, -184] });
-  const curtainOpacity = progress.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1, 1, 0] });
+  const curtainOpacity = progress.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1, 1, 0], extrapolate: "clamp" });
   const curtainShadow = () => dark() ? [{ x: 10, y: 0, blur: 24, color: "#00000048" }] : [{ x: 10, y: 0, blur: 24, color: "#0f172a16" }];
-  const sidebarRowsFade = progress.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0] });
+  const sidebarRowsFade = progress.interpolate({ inputRange: [0, 0.22], outputRange: [1, 0], extrapolate: "clamp" });
+  const flightOpacity = progress.interpolate({ inputRange: [0, 0.18, 1], outputRange: [0, 1, 1], extrapolate: "clamp" });
   const brand = () => brandInterpolation(p.titlebarInset, p.titlebarHeight);
   const brandX = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().x });
   const brandY = () => progress.interpolate({ inputRange: [0, 1], outputRange: brand().y });
@@ -99,7 +100,7 @@ export function NavigationFlight(p: {
         // The pill scales about its left edge. Dividing cancels that on the
         // glyphs for the whole flight; a second linear interpolate would not.
         const textScale = () => progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1] }).div(pillScale());
-        return <View style={{ position: "absolute", left: endX(), top: endY(), width: layoutW, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: selected() ? colors().selected : "transparent", borderWidth: selected() ? 1 : 0, borderColor: selected() ? selectedBorder() : "transparent", opacity: progress, transformOrigin: "left center", transform: [{ translateX: pillX() }, { translateY: pillY() }, { scaleX: pillScale() }] }}>
+        return <View style={{ position: "absolute", left: endX(), top: endY(), width: layoutW, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: selected() ? colors().selected : "transparent", borderWidth: selected() ? 1 : 0, borderColor: selected() ? selectedBorder() : "transparent", opacity: flightOpacity, transformOrigin: "left center", transform: [{ translateX: pillX() }, { translateY: pillY() }, { scaleX: pillScale() }] }}>
           <Text style={{ fontSize: 12.5, fontWeight: selected() ? "600" : "500", letterSpacing: -0.1, color: selected() ? colors().accent : colors().muted, numberOfLines: 1, transformOrigin: "center", transform: [{ scaleX: textScale() }] }}>{tr(item.zh, item.en)}</Text>
         </View>;
       })}

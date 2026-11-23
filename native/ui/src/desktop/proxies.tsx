@@ -76,7 +76,7 @@ export function ProxiesPage(p:PageProps) {
  const nodeRow=(item:()=>any)=> <View style={{flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderColor:colors().grid,backgroundColor:selected()?.now===item().name?colors().selected:colors().surface,...MOTION}} hoverStyle={{backgroundColor:selected()?.now===item().name?colors().selected:colors().hover}}>
    <View style={{position:"absolute",left:4,top:10,bottom:10,width:2.5,borderRadius:2,backgroundColor:selected()?.now===item().name?colors().accent:"transparent"}}/>
    <Button testID={"proxy-"+item().name} selected={selected()?.now===item().name} disabled={!!p.busy()||!['selector','select'].includes(String(selected()?.type).toLowerCase())} onPress={()=>void p.run("select-proxy",()=>p.call("desktop.group.select",{group:selected()?.name,member:item().name}))}
-     style={{flex:1,minWidth:0,flexDirection:"row",alignItems:"center",gap:10,paddingLeft:15,paddingRight:8,height:ROW_HEIGHT,backgroundColor:"transparent"}}
+     style={{cursor:(!!p.busy()||!['selector','select'].includes(String(selected()?.type).toLowerCase()))?"default":"pointer",flex:1,minWidth:0,flexDirection:"row",alignItems:"center",gap:10,paddingLeft:15,paddingRight:8,height:ROW_HEIGHT,backgroundColor:"transparent"}}
      hoverStyle={{backgroundColor:"transparent"}} activeStyle={{backgroundColor:colors().selected}} focusStyle={{outlineWidth:2,outlineColor:colors().accent}} disabledStyle={{opacity:0.72}}>
      <Icon name={selected()?.now===item().name?"check":"circle"} size={16} color={selected()?.now===item().name?colors().accent:colors().faint}/>
      <View style={{flex:1,minWidth:0,gap:1}}>
@@ -105,7 +105,7 @@ export function ProxiesPage(p:PageProps) {
    <View style={{flex:1,minHeight:0,borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface"),overflow:"hidden"}}>
     <Scroll style={{flex:1,minHeight:0}} contentStyle={{padding:6,gap:2}}>
      <Each of={visibleGroups()} key={(group:any)=>group.name}>{group=><Button testID={"group-"+group().name} selected={selected()?.name===group().name} onPress={()=>{groupName.set(group().name);query.set("");}}
-       style={{width:"100%",flexDirection:"row",alignItems:"center",gap:9,paddingLeft:12,paddingRight:10,paddingVertical:8,minHeight:46,borderRadius:8,backgroundColor:selected()?.name===group().name?colors().selected:"transparent",...MOTION}}
+       style={{cursor:"pointer",width:"100%",flexDirection:"row",alignItems:"center",gap:9,paddingLeft:12,paddingRight:10,paddingVertical:8,minHeight:46,borderRadius:8,backgroundColor:selected()?.name===group().name?colors().selected:"transparent",...MOTION}}
        hoverStyle={{backgroundColor:selected()?.name===group().name?colors().selected:colors().hover}} activeStyle={{backgroundColor:colors().selected}} focusStyle={{outlineWidth:2,outlineColor:colors().accent}}>
        <View style={{position:"absolute",left:3,top:10,bottom:10,width:2.5,borderRadius:2,backgroundColor:selected()?.name===group().name?colors().accent:"transparent"}}/>
        <View style={{flex:1,minWidth:0,gap:2}}>
