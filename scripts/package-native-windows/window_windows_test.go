@@ -28,6 +28,10 @@ func hostWindow(pid uint32) uintptr {
 		var windowPID uint32
 		_, _ = windows.GetWindowThreadProcessId(windows.HWND(hwnd), &windowPID)
 		if windowPID == pid {
+			visible, _, _ := user32.NewProc("IsWindowVisible").Call(hwnd)
+			if visible == 0 {
+				return 1
+			}
 			var title [128]uint16
 			_, _, _ = user32.NewProc("GetWindowTextW").Call(hwnd, uintptr(unsafe.Pointer(&title[0])), uintptr(len(title)))
 			if windows.UTF16ToString(title[:]) == "Gopurr" {
@@ -47,6 +51,25 @@ func windowsHostVisible(pid uint32) bool {
 	}
 	visible, _, _ := user32.NewProc("IsWindowVisible").Call(hwnd)
 	return visible != 0
+}
+
+// appWindows returns each visible top-level window of pid, with its title.
+func appWindows(pid uint32) map[uintptr]string {
+	found := map[uintptr]string{}
+	callback := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
+		var windowPID uint32
+		_, _ = windows.GetWindowThreadProcessId(windows.HWND(hwnd), &windowPID)
+		visible, _, _ := user32.NewProc("IsWindowVisible").Call(hwnd)
+		if windowPID != pid || visible == 0 {
+			return 1
+		}
+		var title [128]uint16
+		_, _, _ = user32.NewProc("GetWindowTextW").Call(hwnd, uintptr(unsafe.Pointer(&title[0])), uintptr(len(title)))
+		found[hwnd] = windows.UTF16ToString(title[:])
+		return 1
+	})
+	_ = windows.EnumWindows(callback, nil)
+	return found
 }
 
 // assertFrontendModules rejects the legacy Go bridge DLL in the actual UI
@@ -199,7 +222,14 @@ func verifyWindowsAutoLaunch(t *testing.T, s windowsSession, frontend string) {
 func verifyWindowsHostUI(t *testing.T, s windowsSession, repo string) {
 	t.Helper()
 	waitWindows(t, 20*time.Second, func() bool { return windowsHostVisible(s.FrontendPID) })
-	hwnd := hostWindow(s.FrontendPID)
+	windows := appWindows(s.FrontendPID)
+	if len(windows) != 1 {
+		t.Fatalf("expected one visible NSH window, found %d: %v", len(windows), windows)
+	}
+	var hwnd uintptr
+	for handle := range windows {
+		hwnd = handle
+	}
 	for _, size := range [][2]int32{{1060, 720}, {840, 560}} {
 		resizeHost(t, hwnd, size[0], size[1])
 		for _, theme := range []string{"light", "dark"} {
@@ -218,7 +248,7 @@ func verifyWindowsHostUI(t *testing.T, s windowsSession, repo string) {
 	// close must hide the NSH window while leaving the same Go backend alive.
 	_, _, _ = user32.NewProc("SendMessageW").Call(hwnd, 0x0010, 0, 0)
 	time.Sleep(time.Second)
-	if !windowsHostVisible(s.FrontendPID) {
+	if len(appWindows(s.FrontendPID)) != 1 {
 		t.Fatal("first close bypassed the background-operation confirmation")
 	}
 	windowsMust(t, s, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"closeToTrayAcknowledged": true, "lightMode": true, "lightDelaySeconds": 1}})
