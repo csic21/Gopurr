@@ -1,7 +1,7 @@
 import { host, mount, signal } from "nsh";
 import { Window } from "nsh/desktop";
 import { DesktopApp } from "./src/desktop/app";
-import { closeRequested } from "./src/desktop/client";
+import { closeRequested, nativeCall, state } from "./src/desktop/client";
 
 // NSH 0.7 opens a desktop app's own windows. The Win32 host keeps the message
 // loop and tray, but it stays invisible: this is the app's only visible window.
@@ -28,7 +28,13 @@ mount(() => (
     defaultSize={{ width: 1060, height: 720 }}
     minSize={{ width: 840, height: 560 }}
     closeOnPress={false}
-    onClosePress={() => closeRequested.set(true)}
+    onClosePress={() => {
+      if (state().prefs.closeToTrayAcknowledged) {
+        void nativeCall("desktop.window.close");
+      } else {
+        closeRequested.set(true);
+      }
+    }}
   >
     <DesktopApp />
   </Window>
