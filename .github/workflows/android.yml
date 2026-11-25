@@ -29,7 +29,8 @@ jobs:
       matrix:
         abi: [arm64-v8a, x86_64]
     # The checksum-pinned NSH compiler currently supports macOS Apple Silicon.
-    runs-on: macos-15
+    # NSH 0.7 embeds an Apple framework built against the iOS 26 SDK.
+    runs-on: macos-26
     timeout-minutes: 40
     env:
       GOPATH: ${{ github.workspace }}/.cache/go

@@ -1,5 +1,5 @@
 use crate::bridge::NativeBridge;
-use nsh_engine::{HostChannel, Policy, parse_capabilities, with_inline_root};
+use nsh_engine::{HostChannel, Policy, parse_capabilities};
 use nsh_platform_windows::{App, AppOptions, AppView, Appearance, AssetBase, Bundle};
 use serde_json::{Value, json};
 use std::{
@@ -724,12 +724,6 @@ fn run_on_ui_thread() -> Result<(), String> {
             size: (width, height),
             host: channel.clone(),
             asset_base: Some(AssetBase::Directory(root.join("nsh/assets"))),
-            // This host owns the one top-level window, its tray, its
-            // title-bar chrome and its updater lifecycle. NSH 0.7
-            // otherwise opens an implicit second "main" window for a
-            // plain desktop root; mount the root inline so the existing
-            // AppView's window remains the only one.
-            context: with_inline_root(Default::default()),
             // NSH 0.4.0 appended the app id to `data_dir`; 0.7.0 uses the
             // directory as given. Name that directory here so existing
             // `nsh/storage.json` preferences remain where they were.
