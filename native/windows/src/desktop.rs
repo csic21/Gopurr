@@ -609,6 +609,10 @@ fn run_on_ui_thread() -> Result<(), String> {
             log::LevelFilter::Warn
         });
     }
+    // The embedding host serves the JS bundle, so every imported nsh/base
+    // component must be registered. The platform default only registers the
+    // core set used by Rust-only apps.
+    nsh_platform_windows::set_ui_sets(vec![nsh_base::registry()]);
     trace("starting frontend");
     let args: Vec<String> = std::env::args().collect();
     // Update relaunches carry the explicit data directory, while login

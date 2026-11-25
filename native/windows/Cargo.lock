@@ -1433,6 +1433,7 @@ name = "gopurr-nsh-windows"
 version = "0.6.72"
 dependencies = [
  "log",
+ "nsh-base",
  "nsh-engine",
  "nsh-platform-windows",
  "serde_json",
