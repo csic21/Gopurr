@@ -245,7 +245,14 @@ func verifyWindowsAutoLaunch(t *testing.T, s windowsSession, frontend string) {
 func verifyWindowsHostUI(t *testing.T, s windowsSession, repo string) {
 	t.Helper()
 	waitWindows(t, 20*time.Second, func() bool { return windowsHostVisible(s.FrontendPID) })
-	hwnd := mainWindow(t, s.FrontendPID)
+	visible := appWindows(s.FrontendPID)
+	if len(visible) != 1 {
+		t.Fatalf("expected exactly one visible app window, found %d: %v", len(visible), visible)
+	}
+	var hwnd uintptr
+	for window := range visible {
+		hwnd = window
+	}
 	for _, size := range [][2]int32{{1060, 720}, {840, 560}} {
 		resizeHost(t, hwnd, size[0], size[1])
 		for _, theme := range []string{"light", "dark"} {

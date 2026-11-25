@@ -9,6 +9,10 @@
   },
   "capabilities": {
     "application": true,
+    "windows": {
+      "kinds": ["normal"],
+      "max": 1
+    },
     "host": [
       "engine.dispatch",
       "desktop.dispatch",

@@ -15,11 +15,13 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{ERROR_SUCCESS, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+        Foundation::{BOOL, ERROR_SUCCESS, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
         System::{
             Ole::{OleInitialize, OleUninitialize},
             Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
-            Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
+            Threading::{
+                GetCurrentProcessId, OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+            },
         },
         UI::{
             HiDpi::{
@@ -283,6 +285,7 @@ struct Window {
     bundle: Bundle,
     prefs: RefCell<Value>,
     page: RefCell<String>,
+    silent_start: bool,
     visible: Cell<bool>,
     loaded: Cell<bool>,
     dirty: Cell<bool>,
@@ -293,9 +296,50 @@ struct Window {
     taskbar_created: u32,
 }
 impl Window {
+    fn app_window(&self) -> Option<HWND> {
+        struct Search {
+            host: HWND,
+            process: u32,
+            found: Option<HWND>,
+        }
+        unsafe extern "system" fn each(window: HWND, data: LPARAM) -> BOOL {
+            // SAFETY: `data` is the `Search` that outlives the enumeration.
+            let search = unsafe { &mut *(data.0 as *mut Search) };
+            if window == search.host {
+                return true.into();
+            }
+            let mut process = 0u32;
+            // SAFETY: a plain query with a local out value.
+            unsafe { GetWindowThreadProcessId(window, Some(&mut process)) };
+            if process != search.process {
+                return true.into();
+            }
+            let mut title = [0u16; 128];
+            // SAFETY: a query into a local buffer.
+            let len = unsafe { GetWindowTextW(window, &mut title) };
+            if String::from_utf16_lossy(&title[..len.max(0) as usize]) == "Gopurr" {
+                search.found = Some(window);
+                return false.into();
+            }
+            true.into()
+        }
+        let mut search = Search {
+            host: self.view.hwnd(),
+            process: unsafe { GetCurrentProcessId() },
+            found: None,
+        };
+        // SAFETY: `each` only reads its `Search`, which outlives the call.
+        unsafe {
+            let _ = EnumWindows(Some(each), LPARAM(&mut search as *mut Search as isize));
+        }
+        search.found
+    }
     fn hide(&self) {
         unsafe {
             let _ = ShowWindow(self.view.hwnd(), SW_HIDE);
+            if let Some(window) = self.app_window() {
+                let _ = ShowWindow(window, SW_HIDE);
+            }
         }
         self.visible.set(false);
         self.hidden_at.set(Instant::now());
@@ -303,15 +347,17 @@ impl Window {
     }
     fn show(&self) {
         if !self.loaded.get() {
-            params(&self.channel, &self.page.borrow());
+            params(&self.channel, &self.page.borrow(), !self.silent_start);
             self.view.load(App::Js(self.bundle.clone()));
             self.loaded.set(true);
         }
         self.visible.set(true);
         self.bridge.visible(true);
         unsafe {
-            let _ = ShowWindow(self.view.hwnd(), SW_RESTORE);
-            let _ = SetForegroundWindow(self.view.hwnd());
+            if let Some(window) = self.app_window() {
+                let _ = ShowWindow(window, SW_RESTORE);
+                let _ = SetForegroundWindow(window);
+            }
         }
     }
     fn refresh_tray(&self) {
@@ -338,7 +384,7 @@ impl Window {
         let Some(menu) = build_tray_menu(items, &mut commands) else {
             return;
         };
-        let hwnd = self.view.hwnd();
+        let hwnd = self.app_window().unwrap_or_else(|| self.view.hwnd());
         let mut point = POINT::default();
         unsafe {
             let _ = GetCursorPos(&mut point);
@@ -391,7 +437,11 @@ impl Window {
                 unsafe {
                     let _ = AllowSetForegroundWindow(self.bridge.pid);
                     trace("destroying window");
+                    if let Some(window) = self.app_window() {
+                        let _ = DestroyWindow(window);
+                    }
                     let _ = DestroyWindow(self.view.hwnd());
+                    PostQuitMessage(0);
                     trace("window destroyed");
                 }
                 return;
@@ -422,6 +472,14 @@ impl Window {
                 }
                 return;
             }
+            "repaint" => {
+                if let Some(window) = self.app_window() {
+                    unsafe {
+                        let _ = PostMessageW(Some(window), WM_PAINT, WPARAM(0), LPARAM(0));
+                    }
+                }
+                return;
+            }
             "focus" => {
                 self.show();
                 return;
@@ -439,8 +497,8 @@ impl Window {
         let _ = self.channel.send("desktop.event", event);
     }
 }
-fn params(channel: &HostChannel, page: &str) {
-    channel.set_params(json!({"desktop":true,"nativeHost":true,"platform":"windows","nativeTitlebarInset":0,"nativeTitlebarHeight":38,"page":page}).as_object().unwrap().clone());
+fn params(channel: &HostChannel, page: &str, show_window: bool) {
+    channel.set_params(json!({"desktop":true,"nativeHost":true,"platform":"windows","nativeTitlebarInset":0,"nativeTitlebarHeight":38,"page":page,"showWindow":show_window}).as_object().unwrap().clone());
 }
 fn post(hwnd: usize, value: Value) {
     let ptr = Box::into_raw(Box::new(value));
@@ -693,7 +751,6 @@ fn run_on_ui_thread() -> Result<(), String> {
     let prefs = snapshot["prefs"].clone();
     let show_window_on_launch = snapshot["startup"]["showWindow"].as_bool().unwrap_or(false);
     let channel = HostChannel::new();
-    params(&channel, &page);
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         OleInitialize(None).map_err(|e| e.to_string())?;
@@ -702,7 +759,15 @@ fn run_on_ui_thread() -> Result<(), String> {
     }
     let bundle_path = root.join("nsh/bundle.nshc");
     let mut bundle = unsafe { Bundle::read_trusted(&bundle_path) }.map_err(|e| e.to_string())?;
-    let granted = parse_capabilities(&json!({"host":CHANNELS, "application":true}).to_string())?;
+    let granted = parse_capabilities(
+        &json!({
+            "host":CHANNELS,
+            "application":true,
+            "windows":{"kinds":["normal"],"max":1},
+            "statusBar":true
+        })
+        .to_string(),
+    )?;
     let declared = bundle.policy.declared.clone();
     bundle = bundle.with_policy(Policy {
         declared,
@@ -753,14 +818,7 @@ fn run_on_ui_thread() -> Result<(), String> {
                 return;
             }
             if name == "desktop.window.repaint" {
-                // NSH 0.4.0's Win32 backend stops asking for frames once a
-                // dialog's exit animation ends: the dismissed dialog stays in
-                // the back buffer and later changes are not drawn either. A
-                // plain `WM_PAINT` draws the whole window once, which clears
-                // that frame and resumes painting (see `Modal` on the UI side).
-                unsafe {
-                    let _ = PostMessageW(Some(HWND(hwnd as _)), WM_PAINT, WPARAM(0), LPARAM(0));
-                }
+                post(hwnd, json!({"kind":"repaint"}));
                 call.resolve(json!({"ok":true}));
                 return;
             }
@@ -810,6 +868,12 @@ fn run_on_ui_thread() -> Result<(), String> {
     };
     let taskbar_created = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
     let running = Arc::new(AtomicBool::new(true));
+    let silent = tray
+        .as_ref()
+        .is_some_and(|tray| tray.added.get())
+        && prefs["silentStart"].as_bool() == Some(true)
+        && !show_window_on_launch
+        && !explicit_relaunch;
     let state = Box::new(Window {
         view: view.clone(),
         channel: channel.clone(),
@@ -817,6 +881,7 @@ fn run_on_ui_thread() -> Result<(), String> {
         bundle: bundle.clone(),
         prefs: RefCell::new(prefs),
         page: RefCell::new(page),
+        silent_start: silent,
         visible: Cell::new(true),
         loaded: Cell::new(true),
         dirty: Cell::new(false),
@@ -860,20 +925,9 @@ fn run_on_ui_thread() -> Result<(), String> {
             }
         }
     }
-    let tray_ready = state
-        .tray
-        .borrow()
-        .as_ref()
-        .is_some_and(|tray| tray.added.get());
+    params(&channel, &page, !silent);
     view.load(App::Js(bundle));
-    if tray_ready
-        && state.prefs.borrow()["silentStart"].as_bool() == Some(true)
-        && !show_window_on_launch
-        && !explicit_relaunch
-    {
-        state.hide();
-    } else {
-        view.show();
+    if !silent {
         bridge.visible(true);
     }
     let polling = bridge.clone();

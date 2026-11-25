@@ -45,7 +45,7 @@ if (-not (Test-Path "$sdk/verified-0.7.0")) {
 }
 & python native/ui/sync-assets.py
 if ($LASTEXITCODE) { throw 'Sync NSH assets failed' }
-& $nsh build native/ui/Desktop.tsx --release --out "$stage/nsh"
+& $nsh build native/ui/Windows.tsx --release --out "$stage/nsh"
 if ($LASTEXITCODE) { throw 'Build shared desktop UI failed' }
 # Runtime and installer share the rendered brand, with real ICO dimensions.
 & go run ./scripts/windows-icon -out "$stage/Gopurr.ico"
