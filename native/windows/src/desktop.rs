@@ -849,9 +849,15 @@ fn run_on_ui_thread() -> Result<(), String> {
     };
     let taskbar_created = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
     let running = Arc::new(AtomicBool::new(true));
-    let silent = tray
+    let tray_ready = tray
         .as_ref()
-        .is_some_and(|tray| tray.added.get())
+        .is_some_and(|tray| tray.add(view.hwnd()));
+    if tray.is_some() && !tray_ready {
+        unsafe {
+            SetTimer(Some(view.hwnd()), TRAY_TIMER, 1000, None);
+        }
+    }
+    let silent = tray_ready
         && prefs["silentStart"].as_bool() == Some(true)
         && !show_window_on_launch;
     params(&channel, &page, !silent);
@@ -897,11 +903,6 @@ fn run_on_ui_thread() -> Result<(), String> {
                 Some(WPARAM(ICON_BIG as usize)),
                 Some(LPARAM(icon.0 as isize)),
             );
-        }
-        if let Some(tray) = state.tray.borrow().as_ref() {
-            if !tray.add(view.hwnd()) {
-                SetTimer(Some(view.hwnd()), TRAY_TIMER, 1000, None);
-            }
         }
     }
     view.load(App::Js(bundle));
