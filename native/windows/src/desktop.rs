@@ -15,7 +15,7 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{BOOL, ERROR_SUCCESS, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+        Foundation::{ERROR_SUCCESS, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
         System::{
             Ole::{OleInitialize, OleUninitialize},
             Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
@@ -37,7 +37,7 @@ use windows::{
             WindowsAndMessaging::*,
         },
     },
-    core::{HSTRING, PCWSTR, w},
+    core::{BOOL, HSTRING, PCWSTR, w},
 };
 
 // Enabled only for a disposable acceptance session. Never record RPC payloads
@@ -93,7 +93,6 @@ fn diagnostic_level() -> log::Level {
 
 const EVENT: u32 = WM_APP + 0x47;
 const TRAY: u32 = WM_APP + 0x48;
-const TIMER: usize = 0x4750;
 const TRAY_TIMER: usize = 0x4751;
 const TRAY_TIP: &str = "Gopurr · 左键显示窗口，右键打开菜单";
 
@@ -289,7 +288,6 @@ struct Window {
     visible: Cell<bool>,
     loaded: Cell<bool>,
     dirty: Cell<bool>,
-    hidden_at: Cell<Instant>,
     running: Arc<AtomicBool>,
     tray: RefCell<Option<TrayIcon>>,
     tray_menu_pending: Cell<bool>,
@@ -342,7 +340,6 @@ impl Window {
             }
         }
         self.visible.set(false);
-        self.hidden_at.set(Instant::now());
         self.bridge.visible(false);
     }
     fn show(&self) {
@@ -357,6 +354,13 @@ impl Window {
             if let Some(window) = self.app_window() {
                 let _ = ShowWindow(window, SW_RESTORE);
                 let _ = SetForegroundWindow(window);
+            } else {
+                // A silent launch has no app window yet. The UI owns it, so
+                // ask it to open one rather than showing the hidden host.
+                let _ = self.channel.send(
+                    "desktop.event",
+                    json!({"kind":"show","value":{"page":self.page.borrow().as_str()}}),
+                );
             }
         }
     }
@@ -579,24 +583,6 @@ unsafe extern "system" fn subclass(
                         let _ = KillTimer(Some(hwnd), TRAY_TIMER);
                     }
                 }
-            }
-            return LRESULT(0);
-        }
-        WM_TIMER if w.0 == TIMER => {
-            if !state.visible.get()
-                && state.loaded.get()
-                && !state.dirty.get()
-                && state.prefs.borrow()["lightMode"].as_bool() == Some(true)
-                && state.hidden_at.get().elapsed().as_secs()
-                    >= state.prefs.borrow()["lightDelaySeconds"]
-                        .as_u64()
-                        .unwrap_or(60)
-                        .max(1)
-            {
-                trace("light-mode view release begin");
-                state.view.stop();
-                state.loaded.set(false);
-                trace("light-mode view release complete");
             }
             return LRESULT(0);
         }
@@ -874,6 +860,7 @@ fn run_on_ui_thread() -> Result<(), String> {
         && prefs["silentStart"].as_bool() == Some(true)
         && !show_window_on_launch
         && !explicit_relaunch;
+    params(&channel, &page, !silent);
     let state = Box::new(Window {
         view: view.clone(),
         channel: channel.clone(),
@@ -885,7 +872,6 @@ fn run_on_ui_thread() -> Result<(), String> {
         visible: Cell::new(true),
         loaded: Cell::new(true),
         dirty: Cell::new(false),
-        hidden_at: Cell::new(Instant::now()),
         running: running.clone(),
         tray: RefCell::new(tray),
         tray_menu_pending: Cell::new(false),
@@ -902,7 +888,6 @@ fn run_on_ui_thread() -> Result<(), String> {
         {
             return Err("Cannot install desktop window lifecycle".into());
         }
-        SetTimer(Some(view.hwnd()), TIMER, 500, None);
         let icon = LoadImageW(
             None,
             PCWSTR(HSTRING::from(root.join("Gopurr.ico").to_string_lossy().as_ref()).as_ptr()),
@@ -925,7 +910,6 @@ fn run_on_ui_thread() -> Result<(), String> {
             }
         }
     }
-    params(&channel, &page, !silent);
     view.load(App::Js(bundle));
     if !silent {
         bridge.visible(true);
