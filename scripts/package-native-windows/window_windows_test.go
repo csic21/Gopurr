@@ -100,6 +100,15 @@ func assertFrontendModules(t *testing.T, pid uint32) {
 	}
 }
 
+func frontendWindows(t *testing.T, pid uint32) string {
+	t.Helper()
+	output, err := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").CombinedOutput()
+	if err != nil {
+		return err.Error()
+	}
+	return strings.TrimSpace(string(output))
+}
+
 type windowRect struct{ Left, Top, Right, Bottom int32 }
 
 func resizeHost(t *testing.T, hwnd uintptr, width, height int32) {
@@ -224,7 +233,7 @@ func verifyWindowsHostUI(t *testing.T, s windowsSession, repo string) {
 	waitWindows(t, 20*time.Second, func() bool { return windowsHostVisible(s.FrontendPID) })
 	windows := appWindows(s.FrontendPID)
 	if len(windows) != 1 {
-		t.Fatalf("expected one visible NSH window, found %d: %v", len(windows), windows)
+		t.Fatalf("expected one visible NSH window, found %d: %v (frontend %d: %s)", len(windows), windows, s.FrontendPID, frontendWindows(t, s.FrontendPID))
 	}
 	var hwnd uintptr
 	for handle := range windows {
