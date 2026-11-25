@@ -334,6 +334,7 @@ public final class SessionController {
             if (!machine.connected(ticket) || owner.destroyed()) { cleanup(owner, ticket); finishIfUnwanted(owner, startId); return; }
             synchronized (this) { errorMessage = ""; complete(ticket, result); }
             publish();
+            UpdateManager.notifyProxyConnected(context);
             MAIN.post(() -> { if (machine.currentConnect(ticket) && !owner.destroyed()) owner.refreshNotification(snapshot()); });
         } catch (Exception error) {
             cleanup(owner, ticket);

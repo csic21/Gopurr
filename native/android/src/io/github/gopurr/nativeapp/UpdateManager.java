@@ -23,6 +23,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.Proxy;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.util.Set;
@@ -71,6 +72,7 @@ final class UpdateManager {
     private File apk;
     private int installSession;
     private boolean autoChecked;
+    private boolean autoCheckFailed;
     private boolean canInstall;
     private volatile boolean cancelled;
     private volatile HttpsURLConnection connection;
@@ -117,8 +119,25 @@ final class UpdateManager {
         synchronized (this) {
             if (autoChecked || !supported) return;
             autoChecked = true;
+            autoCheckFailed = false;
         }
-        check();
+        checkInternal(true);
+    }
+
+    static void notifyProxyConnected(Context context) {
+        UpdateManager current;
+        synchronized (UpdateManager.class) {
+            current = instance;
+        }
+        if (current != null) current.retryAutoCheckIfNeeded();
+    }
+
+    void retryAutoCheckIfNeeded() {
+        synchronized (this) {
+            if (!supported || busy() || !autoCheckFailed || !"failed".equals(phase)) return;
+            autoCheckFailed = false;
+        }
+        checkInternal(false);
     }
 
     void refreshPermission() {
@@ -131,14 +150,19 @@ final class UpdateManager {
     }
 
     JSONObject check() {
+        return checkInternal(false);
+    }
+
+    private JSONObject checkInternal(boolean automatic) {
         synchronized (this) {
             if (!supported || busy()) return snapshot();
             resetAvailable();
             phase = "checking";
             cancelled = false;
+            autoCheckFailed = false;
         }
         notifyChange();
-        WORKER.execute(this::checkWorker);
+        WORKER.execute(() -> checkWorker(automatic));
         return snapshot();
     }
 
@@ -271,12 +295,13 @@ final class UpdateManager {
         apk = null;
     }
 
-    private void checkWorker() {
+    private void checkWorker(boolean automatic) {
         try {
             UpdateManifest manifest = UpdateManifest.parse(readText(FEED, MAX_MANIFEST_BYTES), abi);
             synchronized (this) {
                 if (cancelled) {
                     cancelled = false;
+                    autoCheckFailed = false;
                     phase = "idle";
                     return;
                 }
@@ -284,6 +309,7 @@ final class UpdateManager {
                 notes = manifest.notes;
                 detail = "";
                 error = "";
+                autoCheckFailed = false;
                 if (manifest.versionCode <= currentVersionCode) {
                     phase = "current";
                     availableVersionCode = 0;
@@ -301,11 +327,13 @@ final class UpdateManager {
             synchronized (this) {
                 if (cancelled) {
                     cancelled = false;
+                    autoCheckFailed = false;
                     phase = "idle";
                     error = "";
                 } else {
                     phase = "failed";
                     error = message(failure);
+                    autoCheckFailed = automatic;
                 }
             }
         }
@@ -503,22 +531,52 @@ final class UpdateManager {
         }
     }
 
+    private Proxy resolveProxy() {
+        NativeEngine engine = NativeEngine.current();
+        if (engine == null) return null;
+        try {
+            JSONObject envelope = new JSONObject(engine.dispatch("{\"method\":\"engine.status\"}"));
+            if (envelope.has("error")) return null;
+            JSONObject result = envelope.optJSONObject("result");
+            if (result == null) return null;
+            return UpdateProxy.localProxy(result.optBoolean("running"), result.optInt("mixedPort", 0));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private HttpsURLConnection open(String address) throws IOException {
         URL url = new URL(address);
+        Proxy proxy = resolveProxy();
         for (int attempt = 0; attempt <= MAX_REDIRECTS; attempt++) {
+            if (cancelled) throw new IOException("cancelled");
             if (!"https".equalsIgnoreCase(url.getProtocol())) {
                 throw new IOException("Update downloads must use HTTPS.");
             }
-            HttpsURLConnection active = (HttpsURLConnection) url.openConnection();
+            HttpsURLConnection active = (HttpsURLConnection) (proxy != null ? url.openConnection(proxy) : url.openConnection());
             active.setInstanceFollowRedirects(false);
             active.setConnectTimeout(15_000);
             active.setReadTimeout(30_000);
             active.setUseCaches(false);
             active.setRequestProperty("User-Agent", "Gopurr/" + currentVersion + " (Android)");
             active.setRequestProperty("Accept", "application/json, application/octet-stream");
-            int code = active.getResponseCode();
+            connection = active;
+            int code;
+            try {
+                code = active.getResponseCode();
+            } catch (IOException failure) {
+                connection = null;
+                active.disconnect();
+                if (!cancelled && UpdateProxy.shouldFallbackToDirect(proxy, failure)) {
+                    proxy = null;
+                    attempt--;
+                    continue;
+                }
+                throw failure;
+            }
             if (code >= 300 && code < 400) {
                 String location = active.getHeaderField("Location");
+                connection = null;
                 active.disconnect();
                 if (location == null) throw new IOException("The update server returned an invalid redirect.");
                 url = new URL(url, location);

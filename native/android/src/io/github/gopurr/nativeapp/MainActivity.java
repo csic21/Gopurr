@@ -50,7 +50,7 @@ public final class MainActivity extends Activity {
             String page = getIntent().getStringExtra("page");
             if ("overview".equals(page) || "profiles".equals(page) || "proxies".equals(page) || "settings".equals(page)) params.put("page", page);
             app.setParams(params);
-            if (!app.setGrantedCapabilities("{\"host\":[\"engine.dispatch\",\"android.session\",\"android.connect\",\"android.disconnect\",\"android.apps\",\"android.scope.get\",\"android.scope.set\",\"android.file.pick\",\"android.notifications\",\"android.notifications.request\",\"android.notifications.settings\",\"android.notifications.configure\",\"android.appearance\",\"android.update\",\"android.update.check\",\"android.update.download\",\"android.update.cancel\",\"android.update.install\",\"android.url.open\",\"android.clipboard.write\"],\"statusBar\":true}")) {
+            if (!app.setGrantedCapabilities("{\"host\":[\"engine.dispatch\",\"android.session\",\"android.connect\",\"android.disconnect\",\"android.apps\",\"android.scope.get\",\"android.scope.set\",\"android.file.pick\",\"android.notifications\",\"android.notifications.request\",\"android.notifications.settings\",\"android.notifications.configure\",\"android.appearance\",\"android.update\",\"android.update.check\",\"android.update.download\",\"android.update.cancel\",\"android.update.install\",\"android.url.open\",\"android.clipboard.write\",\"android.haptic\"],\"statusBar\":true}")) {
                 throw new IllegalStateException("The native host permissions could not be configured.");
             }
             app.handle("android.session", (data, reply) -> reply.resolve(controller.snapshot()));
@@ -84,6 +84,10 @@ public final class MainActivity extends Activity {
             app.handle("android.clipboard.write", (data, reply) -> {
                 try { reply.resolve(actions.writeClipboard(object(data))); }
                 catch (Exception error) { reply.reject(SessionController.message(error)); }
+            });
+            app.handle("android.haptic", (data, reply) -> {
+                actions.haptic(data);
+                reply.resolve(null);
             });
             app.handle("android.scope.set", (data, reply) -> {
                 try { reply.resolve(controller.setScope(object(data))); }

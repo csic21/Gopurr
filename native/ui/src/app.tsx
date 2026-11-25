@@ -12,7 +12,7 @@ import {
   refresh, selectedGroup, session, showToast, startMobileStore, status, subpage, switchProfile,
   tasks, testMember, toggleEngine, visibleGroups, vpnActive,
 } from "./mobile/store";
-import { androidCall, androidHost } from "./mobile/platform";
+import { androidCall, androidHost, haptic } from "./mobile/platform";
 import type { AppScope, AppUpdate, InstalledApp, NotificationSettings } from "./mobile/platform";
 import {
   Action, BottomSheet, bytes, compact, confirmDialog, Empty, Field, formatRateParts,
@@ -142,7 +142,7 @@ async function requestDeleteProfile(target: Profile) {
   const done = await action("delete", async () => {
     await call("profiles.delete", { id: target.id });
   });
-  if (done) showToast(tr("已删除订阅", "Profile deleted"));
+  if (done) { haptic("confirm"); showToast(tr("已删除订阅", "Profile deleted")); }
 }
 
 async function importProfile() {
@@ -152,7 +152,7 @@ async function importProfile() {
     await call("profiles.import", { name: name().trim(), ...(importKind() === "url" ? { url: source().trim() } : { yaml: yaml() }) });
     source.set(""); yaml.set(""); name.set(""); adding.set(false);
   });
-  if (ok) showToast(tr("订阅已导入", "Profile imported"));
+  if (ok) { haptic("confirm"); showToast(tr("订阅已导入", "Profile imported")); }
   else importError.set(error());
 }
 
@@ -171,7 +171,7 @@ async function saveEdit() {
     await call("profiles.update", { id: editing(), name: editName().trim(), ...(editKind() === "url" ? { url: editURL().trim() } : {}) });
     editing.set("");
   });
-  if (ok) showToast(tr("订阅信息已保存", "Profile details saved"));
+  if (ok) { haptic("confirm"); showToast(tr("订阅信息已保存", "Profile details saved")); }
   else editError.set(error());
 }
 
@@ -205,12 +205,12 @@ function Navigation() {
         <Label text="Gopurr" size={16} bold />
       </View>
     </If>
-    <Each of={nav}>{item => {
+    <Each of={nav} key={item => item.id}>{item => {
       const active = () => page() === item().id;
       return <Button
         testID={`nav-${item().id}`}
         selected={active()}
-        onPress={() => navigate(item().id)}
+        onPress={() => { if (page() !== item().id) haptic("selection"); navigate(item().id); }}
         style={{
           flex: compact() ? 1 : undefined,
           minHeight: compact() ? 52 : 46,
@@ -220,7 +220,7 @@ function Navigation() {
           gap: compact() ? 3 : 10,
           paddingHorizontal: compact() ? 4 : 12,
           borderRadius: 10,
-          backgroundColor: active() ? colors().selected : "transparent",
+          backgroundColor: active() ? colors().selected : colors().side,
           transitionProperty: "background-color",
           transitionDuration: reduceMotion() ? 0 : 140,
         }}
@@ -275,6 +275,7 @@ function Overview() {
   const upParts = () => formatRateParts(status()?.traffic.up ?? 0);
   const showRate = () => loaded() && !!status()?.running;
   const pullRefresh = () => {
+    haptic("impact");
     overviewRefreshing.set(true);
     void refresh().finally(() => overviewRefreshing.set(false));
   };
@@ -288,7 +289,7 @@ function Overview() {
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <StatusPill testID="overview-status-pill" label={stateLabel()} tone={stateTone()} />
-          <IconButton testID="overview-refresh" icon="refresh" label={tr("刷新", "Refresh")} onPress={() => void refresh()} />
+          <IconButton testID="overview-refresh" icon="refresh" label={tr("刷新", "Refresh")} onPress={() => { haptic("selection"); void refresh(); }} />
         </View>
       </View>
     </If>
@@ -296,7 +297,7 @@ function Overview() {
       <If when={!compact()}>
         <Heading title={tr("连接", "Connect")} action={() => <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <StatusPill testID="overview-status-pill" label={stateLabel()} tone={stateTone()} />
-          <IconButton testID="overview-refresh" icon="refresh" label={tr("刷新", "Refresh")} onPress={() => void refresh()} />
+          <IconButton testID="overview-refresh" icon="refresh" label={tr("刷新", "Refresh")} onPress={() => { haptic("selection"); void refresh(); }} />
         </View>} />
       </If>
 
@@ -526,6 +527,7 @@ function Profiles() {
                   disabled={mutationBusy()}
                   onPress={() => void action(`refresh-${active()!.id}`, async () => {
                     await call("profiles.refresh", { id: active()!.id });
+                    haptic("confirm");
                     showToast(status()?.running ? tr("更新已保存，重连后生效", "Update saved, reconnect to apply") : tr("订阅已更新", "Profile refreshed"));
                   })} />
               </If>
@@ -610,6 +612,7 @@ function Profiles() {
                 profileMenu.set(null);
                 void action(`refresh-${target.id}`, async () => {
                   await call("profiles.refresh", { id: target.id });
+                  haptic("confirm");
                   showToast(target.active && status()?.running ? tr("更新已保存，重连后生效", "Update saved, reconnect to apply") : tr("订阅已更新", "Profile refreshed"));
                 });
               }} />
@@ -652,11 +655,13 @@ function Proxies() {
   const isManualGroup = () => selectedGroup()?.type === "Selector";
   const toggleBatchTest = () => {
     if (batchProgress()) {
+      haptic("impact");
       batchStop = true;
       return;
     }
     const names = selectedGroup()?.members.map(m => m.name) ?? [];
     if (!names.length) return;
+    haptic("impact");
     batchStop = false;
     batchProgress.set({ done: 0, total: names.length });
     void action("delay-group", async () => {
@@ -708,7 +713,7 @@ function Proxies() {
             return <Button
               testID={`group-${g().name}`}
               selected={active()}
-              onPress={() => { groupName.set(g().name); query.set(""); }}
+              onPress={() => { if (!active()) haptic("selection"); groupName.set(g().name); query.set(""); }}
               style={{
                 minHeight: 40, paddingHorizontal: 14, borderRadius: RADIUS.pill,
                 alignItems: "center", justifyContent: "center",
@@ -786,7 +791,10 @@ function Proxies() {
               testID={`node-${m().name}`}
               selected={isSelected()}
               disabled={!status()?.running || mutationBusy() || !isManualGroup()}
-              onPress={() => void action("select", async () => { await call("proxies.select", { group: selectedGroup()?.name, member: m().name }); })}
+              onPress={() => {
+                if (!isSelected()) haptic("selection");
+                void action("select", async () => { await call("proxies.select", { group: selectedGroup()?.name, member: m().name }); });
+              }}
               style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minHeight: 58, paddingHorizontal: 12, paddingVertical: 8 }}
               hoverStyle={{ backgroundColor: colors().hover }}
               focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}
@@ -801,7 +809,7 @@ function Proxies() {
               testID={`delay-${m().name}`}
               accessibilityLabel={tr(`测速 ${m().name}`, `Test ${m().name}`)}
               disabled={!status()?.running || !!busy()}
-              onPress={() => void testMember(m().name)}
+              onPress={() => { haptic("selection"); void testMember(m().name); }}
               style={{ minWidth: 64, minHeight: 44, paddingHorizontal: 10, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "transparent" }}
               hoverStyle={{ backgroundColor: colors().hover }}
               activeStyle={{ backgroundColor: colors().selected, opacity: 0.78 }}
@@ -834,7 +842,10 @@ function Proxies() {
           subtitle={`${groupTypeLabel(g().type)} · ${g().now || "—"}`}
           trailing={() => <If when={selectedGroup()?.name === g().name}><Tag text={tr("当前", "Current")} tone="accent" /></If>}
           chevron={selectedGroup()?.name !== g().name}
-          onPress={() => { groupName.set(g().name); query.set(""); groupPickerOpen.set(false); }} />}</Each>
+          onPress={() => {
+            if (selectedGroup()?.name !== g().name) haptic("selection");
+            groupName.set(g().name); query.set(""); groupPickerOpen.set(false);
+          }} />}</Each>
       </Group>
     </BottomSheet>
   </View>;
@@ -870,10 +881,13 @@ function AppsPage() {
       .sort((a, b) => Number(selected.has(b.packageName)) - Number(selected.has(a.packageName)) || a.name.localeCompare(b.name));
   };
 
-  const toggle = (pkg: string) => scope.set({
-    ...scope(),
-    packages: scope().packages.includes(pkg) ? scope().packages.filter(p => p !== pkg) : [...scope().packages, pkg],
-  });
+  const toggle = (pkg: string) => {
+    haptic("selection");
+    scope.set({
+      ...scope(),
+      packages: scope().packages.includes(pkg) ? scope().packages.filter(p => p !== pkg) : [...scope().packages, pkg],
+    });
+  };
 
   const handleBack = () => {
     if (!isDirty()) { subpage.set(""); return; }
@@ -897,10 +911,11 @@ function AppsPage() {
     void androidCall<AppScope>("android.scope.set", { mode: scope().mode, packages: scope().packages })
       .then(saved => {
         appScopeSummary.set(saved ?? scope());
+        haptic("confirm");
         showToast(tr("应用范围已保存", "App scope saved"));
         subpage.set("");
       })
-      .catch(e => scopeError.set(message(e)))
+      .catch(e => { haptic("reject"); scopeError.set(message(e)); })
       .finally(() => saving.set(false));
   };
 
@@ -1002,8 +1017,8 @@ function LogsPage() {
     if (!text) return;
     if (androidHost()) {
       void androidCall("android.clipboard.write", { text })
-        .then(() => showToast(tr(`已复制 ${filtered().length} 条日志`, `Copied ${filtered().length} log entries`)))
-        .catch(() => showToast(tr("当前环境无法写入剪贴板，请长按日志选中复制", "Clipboard unavailable; long-press log text to copy")));
+        .then(() => { haptic("confirm"); showToast(tr(`已复制 ${filtered().length} 条日志`, `Copied ${filtered().length} log entries`)); })
+        .catch(() => { haptic("reject"); showToast(tr("当前环境无法写入剪贴板，请长按日志选中复制", "Clipboard unavailable; long-press log text to copy")); });
       return;
     }
     showToast(tr("请选中日志正文进行复制", "Select log text directly to copy"));
@@ -1016,7 +1031,7 @@ function LogsPage() {
       onBack={() => subpage.set("")}
       action={() => <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <Action testID="logs-copy" size="compact" quiet label={tr("复制", "Copy")} disabled={!filtered().length} onPress={copyLogs} />
-        <IconButton testID="logs-refresh" icon="refresh" label={tr("刷新日志", "Refresh logs")} onPress={reload} />
+        <IconButton testID="logs-refresh" icon="refresh" label={tr("刷新日志", "Refresh logs")} onPress={() => { haptic("impact"); reload(); }} />
       </View>} />
     <View style={{ flex: 1, padding: 16, gap: 10 }}>
       <SearchField testID="logs-search" value={search()} onChange={value => search.set(value)} placeholder={tr("搜索日志", "Search logs")} />
@@ -1035,7 +1050,7 @@ function LogsPage() {
         each={filtered()}
         keyExtractor={(l, i) => `${i}-${l.at}`}
         refreshing={refreshing()}
-        onRefresh={reload}
+        onRefresh={() => { haptic("impact"); reload(); }}
         keyboardDismissMode="on-drag"
         style={{ flex: 1, backgroundColor: colors().surface, borderRadius: RADIUS.surface, borderWidth: 1, borderColor: colors().border }}
         empty={<Empty
@@ -1081,7 +1096,8 @@ function updateSummary(value: AppUpdate): string {
 }
 
 function updateAction(method: string) {
-  void androidCall<AppUpdate>(`android.update.${method}`).then(value => appUpdate.set(value)).catch(value => error.set(message(value)));
+  haptic("impact");
+  void androidCall<AppUpdate>(`android.update.${method}`).then(value => appUpdate.set(value)).catch(value => { haptic("reject"); error.set(message(value)); });
 }
 
 function NotificationSheet() {

@@ -13,6 +13,7 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.view.View;
@@ -26,6 +27,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Map;
 
 /** System pickers and optional notification permission belong to the visible Activity. */
 final class NativeActions {
@@ -188,6 +190,28 @@ final class NativeActions {
         }
         clipboard.setPrimaryClip(ClipData.newPlainText("Gopurr", text));
         return new JSONObject().put("written", true);
+    }
+
+    void haptic(Object data) {
+        String kind = "";
+        if (data instanceof JSONObject) {
+            kind = ((JSONObject) data).optString("kind", "");
+        } else if (data instanceof Map) {
+            Object value = ((Map<?, ?>) data).get("kind");
+            if (value != null) kind = String.valueOf(value);
+        } else {
+            return;
+        }
+        int constant = Haptics.constantFor(kind, Build.VERSION.SDK_INT);
+        if (constant == Haptics.NONE) return;
+        Window window = activity.getWindow();
+        if (window == null) return;
+        View decor = window.getDecorView();
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            decor.performHapticFeedback(constant);
+        } else {
+            decor.post(() -> decor.performHapticFeedback(constant));
+        }
     }
 
     void refreshNotifications() {

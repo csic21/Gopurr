@@ -870,3 +870,78 @@ test("Mesh shieldsKnown=false keeps defensive block path, block confirmation can
   await app.press("id:mesh-services-block");
   await app.waitUntil(() => app.host.calls().some(c => (c.data as { method?: string; params?: { action?: string } })?.method === "mesh.action" && (c.data as { params?: { action?: string } }).params?.action === "block"));
 });
+
+test("Android UI emits restrained semantic haptic posts for navigation, controls, session outcomes and errors", async () => {
+  const dispatch = fixtureTransport();
+  let session: Record<string, unknown> = { phase: "idle", generation: 0, busy: false, connected: false, scope: { mode: "all", packages: [], excludeSelf: true } };
+  const app = await open("./App.tsx", {
+    locale: "en-US",
+    platform: "android",
+    width: 390,
+    height: 844,
+    host: {
+      params: { android: true },
+      handlers: {
+        "android.session": () => session,
+        "android.connect": () => session = { ...session, phase: "connecting", generation: 1, busy: true },
+        "android.disconnect": () => session = { ...session, phase: "disconnecting", generation: 2, busy: true },
+        "android.notifications": { granted: true, enabled: true, canRequest: false, traffic: true },
+        "android.scope.get": { mode: "all", packages: [], excludeSelf: true },
+        "android.update": { supported: false, phase: "unsupported", currentVersion: "0.0.0", currentVersionCode: 0, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true },
+        "android.appearance": { ok: true },
+        "android.haptic": () => {},
+        "engine.dispatch": async (data: unknown) => {
+          const req = data as { method: string; params: Record<string, unknown> };
+          return { result: await dispatch(req.method, req.params) };
+        },
+      },
+    },
+  });
+
+  await app.waitFor("id:toggle-engine");
+  const haptics = () => app.host.posts().filter(p => p.name === "android.haptic").map(p => (p.data as { kind: string }).kind);
+
+  // Initial mount must not vibrate.
+  expect(haptics()).toEqual([]);
+
+  // Tapping the already-active tab emits nothing; switching tabs emits selection.
+  await app.press("id:nav-overview");
+  expect(haptics()).toEqual([]);
+
+  await app.press("id:nav-proxies");
+  await app.waitFor("id:node-示例节点 / Example proxy");
+  await app.press("id:node-示例节点 / Example proxy");
+  await app.press("id:nav-overview");
+  await app.waitFor("id:mode-global");
+  await app.press("id:mode-global");
+  await app.press("id:nav-settings");
+  await app.waitFor("id:open-mesh");
+  await app.press("id:nav-overview");
+  await app.waitFor("id:toggle-engine");
+
+  await app.press("id:toggle-engine");
+  session = { ...session, phase: "connected", generation: 1, busy: false, connected: true };
+  await app.host.send("android.session", session);
+
+  session = { ...session, phase: "failed", generation: 2, busy: false, connected: false, error: { code: "vpn_failed", message: "VPN failed" } };
+  await app.host.send("android.session", session);
+
+  session = { ...session, phase: "connected", generation: 3, busy: false, connected: true };
+  await app.host.send("android.session", session);
+  session = { ...session, phase: "idle", generation: 4, busy: false, connected: false };
+  await app.host.send("android.session", session);
+
+  expect(haptics()).toEqual([
+    "selection", // nav-proxies
+    "selection", // node select
+    "selection", // nav-overview
+    "selection", // mode-global
+    "selection", // nav-settings
+    "selection", // nav-overview
+    "impact",    // toggle-engine
+    "confirm",   // connected
+    "reject",    // failed
+    "confirm",   // connected again
+    "toggleOff", // idle after connected
+  ]);
+});

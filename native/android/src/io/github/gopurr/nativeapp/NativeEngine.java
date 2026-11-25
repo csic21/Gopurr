@@ -16,6 +16,10 @@ public final class NativeEngine {
 
     static { System.loadLibrary("gopurrjni"); }
 
+    public static synchronized NativeEngine current() {
+        return instance;
+    }
+
     public static synchronized NativeEngine get(Context context) throws Exception {
         if (instance == null) instance = new NativeEngine(new File(context.getFilesDir(), "gopurr"));
         return instance;

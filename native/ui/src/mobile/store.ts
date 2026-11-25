@@ -2,7 +2,7 @@ import { cleanup, effect, host, lifecycle, signal } from "nsh";
 import { bridgeAvailable, call } from "../client";
 import type { Group, Profile, Status } from "../client";
 import { tr } from "../i18n";
-import { androidCall, androidHost } from "./platform";
+import { androidCall, androidHost, haptic } from "./platform";
 import type { AndroidSession, AppUpdate } from "./platform";
 
 export type Page = "overview" | "profiles" | "proxies" | "settings";
@@ -127,7 +127,7 @@ export async function action(key: string, fn: () => Promise<void>, reload = true
   if (tasks()[key]) return false;
   tasks.set({ ...tasks(), [key]: true }); error.set("");
   try { await fn(); if (reload) await refresh(false); return true; }
-  catch (value) { error.set(message(value)); return false; }
+  catch (value) { haptic("reject"); error.set(message(value)); return false; }
   finally { const next = { ...tasks() }; delete next[key]; tasks.set(next); }
 }
 
@@ -185,6 +185,7 @@ export async function switchProfile(id: string, options: { name?: string; reconn
           throw new Error(reconnected.error?.message || tr("重新连接 VPN 失败。", "Failed to reconnect VPN."));
         }
         showToast(label ? tr(`已切换到「${label}」，正在重新连接`, `Switched to "${label}", reconnecting`) : tr("配置已切换，正在重新连接", "Profile switched, reconnecting"));
+        haptic("confirm");
         return;
       }
       const stopped = await call<Status>("engine.stop");
@@ -197,11 +198,13 @@ export async function switchProfile(id: string, options: { name?: string; reconn
       acceptStatus(started);
       await refreshLists();
       showToast(label ? tr(`已切换到「${label}」`, `Switched to "${label}"`) : tr("已切换配置", "Profile switched"));
+      haptic("confirm");
       return;
     }
     acceptStatus(await call<Status>("profiles.activate", { id }));
     await refreshLists();
     showToast(label ? tr(`已切换到「${label}」`, `Switched to "${label}"`) : tr("已切换配置", "Profile switched"));
+    haptic("confirm");
   }, false);
 }
 
@@ -212,6 +215,11 @@ export function activate(id: string): void {
 function acceptSession(next: AndroidSession) {
   if (session() && next.generation < session()!.generation) return;
   const previous = session(); session.set(next);
+  if (previous && previous.phase !== next.phase) {
+    if (next.phase === "connected") haptic("confirm");
+    else if (next.phase === "failed") haptic("reject");
+    else if ((previous.phase === "connected" || previous.phase === "disconnecting") && next.phase === "idle") haptic("toggleOff");
+  }
   for (const listener of [...sessionListeners]) listener(next);
   if (next.error) error.set(next.error.message);
   if (previous?.phase !== next.phase && !next.busy && lifecycle() === "active") void refresh(false);
@@ -222,12 +230,14 @@ export function toggleEngine(): void {
   if (session()?.phase === "disconnecting") return;
   if (androidHost()) {
     const stop = connected() || connecting();
+    haptic("impact");
     // The host command only acknowledges intent. Its state/traffic refresh may
     // wait behind core startup; it must never hold the Cancel button busy.
     void action("connection", async () => { acceptSession(await androidCall<AndroidSession>(stop ? "android.disconnect" : "android.connect")); }, false);
     return;
   }
   if (tasks().connection) return;
+  haptic("impact");
   const generation = ++connectionGeneration;
   void action("connection", async () => {
     const next = await call<Status>(connected() ? "engine.stop" : "engine.start");
@@ -248,7 +258,18 @@ export async function testMember(name: string) {
 export function startMobileStore() {
   if (androidHost()) {
     cleanup(host.on("android.session", value => acceptSession(value as unknown as AndroidSession)));
-    cleanup(host.on("android.update", value => appUpdate.set(value as unknown as AppUpdate)));
+    cleanup(host.on("android.update", value => {
+      const prev = appUpdate();
+      const next = value as unknown as AppUpdate;
+      appUpdate.set(next);
+      if (prev && prev.phase !== next.phase) {
+        if ((prev.phase === "checking" || prev.phase === "downloading") && (next.phase === "available" || next.phase === "ready" || next.phase === "installed")) {
+          haptic("confirm");
+        } else if ((prev.phase === "checking" || prev.phase === "downloading") && next.phase === "failed") {
+          haptic("reject");
+        }
+      }
+    }));
     void androidCall<AndroidSession>("android.session").then(acceptSession).catch(e => error.set(message(e)));
     void androidCall<AppUpdate>("android.update").then(value => appUpdate.set(value)).catch(() => {});
   }

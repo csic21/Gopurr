@@ -5,10 +5,16 @@ cd "$project_dir"
 output="$project_dir/.cache/nsh/android-host-tests"
 mkdir -p "$output"
 javac -source 17 -target 17 -d "$output" \
+  native/android/src/io/github/gopurr/nativeapp/Haptics.java \
   native/android/src/io/github/gopurr/nativeapp/SessionMachine.java \
   native/android/src/io/github/gopurr/nativeapp/TunnelOwnership.java \
   native/android/src/io/github/gopurr/nativeapp/TrafficText.java \
+  native/android/src/io/github/gopurr/nativeapp/UpdateProxy.java \
+  native/android/test/host/HapticsTest.java \
   native/android/test/host/SessionMachineTest.java \
-  native/android/test/host/TrafficTextTest.java
+  native/android/test/host/TrafficTextTest.java \
+  native/android/test/host/UpdateProxyTest.java
+java -ea -cp "$output" io.github.gopurr.nativeapp.HapticsTest
 java -ea -cp "$output" io.github.gopurr.nativeapp.SessionMachineTest
 java -ea -cp "$output" io.github.gopurr.nativeapp.TrafficTextTest
+java -ea -cp "$output" io.github.gopurr.nativeapp.UpdateProxyTest

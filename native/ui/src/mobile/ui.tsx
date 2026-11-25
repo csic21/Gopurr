@@ -3,6 +3,7 @@ import type { BoxShadowLayer, ImageAsset, JSX, StyleProp, ViewStyle } from "nsh"
 import { AlertDialog, Button, Dialog, Input, Sheet, Switch, Tab, Tabs as NativeTabs } from "nsh/base";
 import { colors } from "../theme";
 import { tr } from "../i18n";
+import { haptic } from "./platform";
 import { mutationBusy, sheetDismissSeq, toast } from "./store";
 import activityIcon from "../../assets/icons/activity.svg";
 import arrowDownIcon from "../../assets/icons/arrow-down-left.svg";
@@ -247,7 +248,7 @@ export function Action(props: {
       backgroundColor: filled() ? fill().bg : plain() ? "transparent" : (dark() ? "#1b1f2a" : colors().surface),
       borderWidth: filled() || plain() ? 0 : 1,
       borderColor: dark() ? "#2a3040" : colors().border,
-      transitionProperty: "background-color, opacity",
+      transitionProperty: plain() ? "opacity" : "background-color, opacity",
       transitionDuration: reduceMotion() ? 0 : 140,
     }}
     hoverStyle={{ backgroundColor: filled() ? fill().hover : plain() ? colors().hover : (dark() ? "#232836" : colors().hover) }}
@@ -271,7 +272,7 @@ export function IconButton(props: { icon: MobileIconName; label: string; onPress
       width: 44, height: 44, borderRadius: RADIUS.control,
       alignItems: "center", justifyContent: "center",
       backgroundColor: "transparent",
-      transitionProperty: "background-color, opacity",
+      transitionProperty: "opacity",
       transitionDuration: reduceMotion() ? 0 : 140,
     }}
     hoverStyle={{ backgroundColor: colors().hover }}
@@ -315,7 +316,7 @@ export function ToggleSwitch(props: { checked: boolean; onChange: (checked: bool
     disabled={props.disabled}
     accessibilityLabel={props.label}
     hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-    onChange={({ checked }) => props.onChange(checked)}
+    onChange={({ checked }) => { haptic(checked ? "toggleOn" : "toggleOff"); props.onChange(checked); }}
     style={{ width: 44, height: 26, opacity: props.disabled ? 0.4 : 1 }}
     trackStyle={{
       width: 44, height: 26, padding: 3, borderRadius: 13,
@@ -362,7 +363,7 @@ export function Segmented(props: { items: SegmentedItem[]; value: string; onChan
       testID={item().testID ?? (props.testIDPrefix ? `${props.testIDPrefix}-${item().id}` : undefined)}
       selected={props.value === item().id}
       disabled={props.disabled}
-      onPress={() => props.onChange(item().id)}
+      onPress={() => { if (props.value !== item().id) haptic("selection"); props.onChange(item().id); }}
       style={{ flex: 1, minHeight: 38, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "transparent" }}
       hoverStyle={{ backgroundColor: props.value === item().id ? "transparent" : colors().hover }}
       focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}>
@@ -690,6 +691,7 @@ export async function confirmDialog(options: {
       { id: "confirm", label: options.confirmLabel, role: options.destructive ? "destructive" : "default" },
     ],
   });
+  if (result.action === "confirm" && options.destructive) haptic("reject");
   return result.action === "confirm";
 }
 

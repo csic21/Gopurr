@@ -3,7 +3,7 @@ import { Button, Input } from "nsh/base";
 import { call } from "../client";
 import { tr } from "../i18n";
 import { colors } from "../theme";
-import { androidCall, androidHost } from "./platform";
+import { androidCall, androidHost, haptic } from "./platform";
 import {
   awaitingMeshPermission,
   connected,
@@ -402,6 +402,7 @@ export function MeshPage(props: { onBack: () => void }) {
       if (syncOverview) void refreshStatus().catch(() => {});
     } catch (err) {
       if (!disposed) {
+        haptic("reject");
         const text = message(err);
         if (errorTarget) errorTarget(text); else meshError.set(text);
       }
@@ -425,6 +426,7 @@ export function MeshPage(props: { onBack: () => void }) {
   }
 
   function beginConnect() {
+    haptic("impact");
     userInitiatedConnect = true;
     lastAutoOpenedAuthURL = "";
     fallbackAuthNotice.set("");
@@ -480,6 +482,7 @@ export function MeshPage(props: { onBack: () => void }) {
         portsSheetOpen.set(false);
         portsSheetError.set("");
         applySnapshot(next);
+        haptic("confirm");
         showToast(tr("已开放并保存授权端口。", "Authorized ports saved and opened."));
       }
     }, true, msg => portsSheetError.set(msg));
@@ -501,6 +504,7 @@ export function MeshPage(props: { onBack: () => void }) {
       const next = await call<MeshSnapshot>("mesh.block", { id, blocked: nextBlocked });
       if (!disposed) {
         applySnapshot(next);
+        haptic("confirm");
         showToast(nextBlocked ? tr("已在本机封禁该设备。", "Device blocked on this device.") : tr("已解除对该设备的封禁。", "Device unblocked."));
       }
     }, false, fromSheet ? msg => deviceSheetError.set(msg) : undefined);
@@ -531,7 +535,7 @@ export function MeshPage(props: { onBack: () => void }) {
     });
     if (!confirmed || disposed) return;
     await runAction("clearHistory");
-    if (!disposed) showToast(tr("访问记录已清空", "Access history cleared"));
+    if (!disposed) { haptic("confirm"); showToast(tr("访问记录已清空", "Access history cleared")); }
   }
 
   async function copyText(text: string, copiedMsg: string, fallbackMsg: string) {
@@ -539,7 +543,7 @@ export function MeshPage(props: { onBack: () => void }) {
     if (androidHost()) {
       try {
         await androidCall("android.clipboard.write", { text });
-        if (!disposed) showToast(copiedMsg, 3200);
+        if (!disposed) { haptic("confirm"); showToast(copiedMsg, 3200); }
         return;
       } catch {
         // Fall through to showing text directly when clipboard bridge is unavailable.
@@ -566,16 +570,24 @@ export function MeshPage(props: { onBack: () => void }) {
     const rawPort = (probePorts()[device.id] ?? defaultProbePort(device)).trim();
     const port = Number(rawPort);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      haptic("reject");
       deviceSheetError.set(tr("检测端口须为 1–65535 的整数。", "Probe port must be an integer between 1 and 65535."));
       return;
     }
+    haptic("impact");
     deviceSheetError.set("");
     probing.set({ ...probing(), [device.id]: true });
     try {
       const result = await call<MeshProbeResult>("mesh.probe", { id: device.id, protocol: probeProtocol(port), port });
-      if (!disposed) probeResults.set({ ...probeResults(), [device.id]: result });
+      if (!disposed) {
+        probeResults.set({ ...probeResults(), [device.id]: result });
+        haptic(result.state === "connected" || result.state === "verified" ? "confirm" : "reject");
+      }
     } catch (err) {
-      if (!disposed) deviceSheetError.set(message(err));
+      if (!disposed) {
+        haptic("reject");
+        deviceSheetError.set(message(err));
+      }
     } finally {
       if (!disposed) {
         const next = { ...probing() };
@@ -746,7 +758,7 @@ export function MeshPage(props: { onBack: () => void }) {
       title={tr("组网", "Mesh")}
       onBack={goBack}
       backTestID="mesh-back"
-      action={() => <IconButton testID="mesh-refresh" icon="refresh" label={tr("刷新", "Refresh")} disabled={working()} onPress={() => void runAction("refresh")} />}
+      action={() => <IconButton testID="mesh-refresh" icon="refresh" label={tr("刷新", "Refresh")} disabled={working()} onPress={() => { haptic("impact"); void runAction("refresh"); }} />}
     />
 
     <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10, gap: 10 }}>
@@ -761,7 +773,7 @@ export function MeshPage(props: { onBack: () => void }) {
               <Action testID="mesh-login" primary={!status()?.running} size="compact" label={tr("浏览器登录", "Sign in via browser")} disabled={working()} onPress={() => void openLogin()} />
             </If>
             <If when={!!status()?.running || !!snap()?.busy || !!status()?.authURL}>
-              <Action testID="mesh-disconnect" size="compact" label={status()?.running ? tr("断开", "Disconnect") : tr("取消", "Cancel")} disabled={working()} onPress={() => void runAction("disconnect")} />
+              <Action testID="mesh-disconnect" size="compact" label={status()?.running ? tr("断开", "Disconnect") : tr("取消", "Cancel")} disabled={working()} onPress={() => { haptic("impact"); void runAction("disconnect"); }} />
             </If>
           </View>
         </View>
@@ -825,7 +837,7 @@ export function MeshPage(props: { onBack: () => void }) {
           text={androidHost()
             ? tr("组网已连，但设备路由尚未就绪。可重新请求 VPN 权限，或检查应用范围设置。", "Mesh connected, but device routing is not ready. Retry VPN permission or check App scope.")
             : tr("组网已连；在连接页启动本地代理后可转发设备组网流量。", "Mesh connected. Start the local proxy from Connect to route mesh traffic.")}
-          action={androidHost() ? () => <Action testID="mesh-retry-route" size="compact" label={tr("重试路由", "Retry route")} disabled={working()} onPress={() => void runAction("refresh")} /> : undefined}
+          action={androidHost() ? () => <Action testID="mesh-retry-route" size="compact" label={tr("重试路由", "Retry route")} disabled={working()} onPress={() => { haptic("impact"); void runAction("refresh"); }} /> : undefined}
         />
       </If>
 
@@ -849,7 +861,7 @@ export function MeshPage(props: { onBack: () => void }) {
           each={filtered()}
           keyExtractor={d => d.id}
           refreshing={working()}
-          onRefresh={() => void runAction("refresh")}
+          onRefresh={() => { haptic("impact"); void runAction("refresh"); }}
           style={{ flex: 1 }}
           empty={
             !status()?.running && !devices().length
