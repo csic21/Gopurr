@@ -659,11 +659,6 @@ fn run_on_ui_thread() -> Result<(), String> {
     nsh_platform_windows::set_ui_sets(vec![nsh_base::registry()]);
     trace("starting frontend");
     let args: Vec<String> = std::env::args().collect();
-    // Update relaunches carry the explicit data directory, while login
-    // launches use --autostart. This also covers the first restart from a
-    // version that predates the one-shot relaunch marker.
-    let explicit_relaunch = args.iter().any(|arg| arg == "--gopurr-home")
-        && !args.iter().any(|arg| arg == "--autostart");
     if args.len() == 2 && args[1] == "--version" {
         println!("Gopurr {}", env!("GOPURR_VERSION"));
         return Ok(());
@@ -858,8 +853,7 @@ fn run_on_ui_thread() -> Result<(), String> {
         .as_ref()
         .is_some_and(|tray| tray.added.get())
         && prefs["silentStart"].as_bool() == Some(true)
-        && !show_window_on_launch
-        && !explicit_relaunch;
+        && !show_window_on_launch;
     params(&channel, &page, !silent);
     let state = Box::new(Window {
         view: view.clone(),
