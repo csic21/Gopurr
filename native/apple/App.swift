@@ -398,7 +398,7 @@ final class GopurrController: UIViewController {
         ])
         do {
             // Native work is only reachable through the explicit engine handler.
-            let capabilities = try JSONSerialization.data(withJSONObject: ["host":channels, "statusBar":true])
+            let capabilities = try JSONSerialization.data(withJSONObject: ["host":channels, "statusBar":true, "application":true])
             try app.grantCapabilities(String(decoding: capabilities, as: UTF8.self))
             guard let bundle = Bundle.main.url(forResource: "bundle", withExtension: "nshc", subdirectory: "nsh") else {
                 throw BridgeError("The Gopurr interface bundle is missing")

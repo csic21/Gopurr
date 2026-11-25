@@ -72,6 +72,10 @@ mkdir -p "$build_dir" "$project_dir/.cache/nsh/android-aar"
 rm -rf "$build_dir/classes" "$build_dir/dex" "$build_dir/apk" "$build_dir/generated" "$build_dir/res"
 unzip -q -o "$sdk_dir/embed/android/nsh.aar" -d "$project_dir/.cache/nsh/android-aar"
 aar_dir="$project_dir/.cache/nsh/android-aar"
+# Carry NSH's consumer keep rules if this build ever starts minifying or if
+# the packaging is moved to Gradle/R8. The standalone d8 path leaves names
+# intact today, but libnsh.so finds these classes and members over JNI.
+[[ -s "$aar_dir/proguard.txt" ]] || { echo 'NSH AAR lacks its consumer keep rules' >&2; exit 1; }
 # cmfa leaves Android's app/route management to our VpnService. Without it,
 # upstream attempts to read the root-only /data/system/packages.xml file.
 go build -trimpath -ldflags="-s -w" -tags=with_gvisor,cmfa -buildmode=c-shared -o "$build_dir/libgopurr.so" ./cmd/gopurr-bridge

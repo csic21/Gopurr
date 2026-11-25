@@ -167,7 +167,7 @@ swift_args=(
   -F "$framework_dir" -framework NativeShell -framework UIKit
   -framework Foundation -framework CoreText -framework CoreGraphics
   -framework QuartzCore -framework Security -framework SystemConfiguration
-  -framework Metal -framework CoreVideo -framework AVFoundation -lresolv
+  -framework Network -framework Metal -framework CoreVideo -framework AVFoundation -lresolv
   -import-objc-header "$build_dir/host.h"
 )
 if [[ "$target" == catalyst ]]; then

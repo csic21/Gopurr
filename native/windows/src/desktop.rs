@@ -1,5 +1,5 @@
 use crate::bridge::NativeBridge;
-use nsh_engine::{HostChannel, Policy, parse_capabilities};
+use nsh_engine::{HostChannel, Policy, parse_capabilities, with_inline_root};
 use nsh_platform_windows::{App, AppOptions, AppView, Appearance, AssetBase, Bundle};
 use serde_json::{Value, json};
 use std::{
@@ -698,7 +698,7 @@ fn run_on_ui_thread() -> Result<(), String> {
     }
     let bundle_path = root.join("nsh/bundle.nshc");
     let mut bundle = unsafe { Bundle::read_trusted(&bundle_path) }.map_err(|e| e.to_string())?;
-    let granted = parse_capabilities(&json!({"host":CHANNELS}).to_string())?;
+    let granted = parse_capabilities(&json!({"host":CHANNELS, "application":true}).to_string())?;
     let declared = bundle.policy.declared.clone();
     bundle = bundle.with_policy(Policy {
         declared,
@@ -724,7 +724,16 @@ fn run_on_ui_thread() -> Result<(), String> {
             size: (width, height),
             host: channel.clone(),
             asset_base: Some(AssetBase::Directory(root.join("nsh/assets"))),
-            data_dir: Some(home.join("nsh")),
+            // This host owns the one top-level window, its tray, its
+            // title-bar chrome and its updater lifecycle. NSH 0.7
+            // otherwise opens an implicit second "main" window for a
+            // plain desktop root; mount the root inline so the existing
+            // AppView's window remains the only one.
+            context: with_inline_root(Default::default()),
+            // NSH 0.4.0 appended the app id to `data_dir`; 0.7.0 uses the
+            // directory as given. Name that directory here so existing
+            // `nsh/storage.json` preferences remain where they were.
+            data_dir: Some(home.join("nsh").join("io.github.gopurr.nsh.preview")),
             appearance: match prefs["appearance"].as_str() {
                 Some("dark") => Appearance::Dark,
                 Some("light") => Appearance::Light,

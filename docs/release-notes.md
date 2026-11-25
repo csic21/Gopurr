@@ -1,15 +1,16 @@
-Gopurr 0.6.71 修复 Android 应用内自动更新无法走本地代理、底部导航栏切换菜单时原先菜单出现深色闪烁动画的问题，并为手机端核心交互补充原生系统触觉反馈。
+Gopurr 0.6.72 将原生界面运行时升级到 NSH 0.7.0，并修复升级后暴露的弹层层级与原生选择器焦点问题。
 
-- Android 应用内更新走本地代理：更新清单检查与 APK 下载优先复用运行中的本地 HTTP 代理端口（`127.0.0.1:<mixedPort>`），端口并发关闭时自动回退直连；冷启动未连代理导致的首次自动检查失败会在代理 VPN 连接成功后自动重查一次。
-- 修复底部导航切换闪烁：未选中标签改用导航栏同色不透明底色并去除透明按钮的背景色过渡插值，消除 Android 非预乘透明黑中间帧造成的深色闪动。
-- 原生 UX/UE 触觉反馈：通过 Android 系统 `View.performHapticFeedback`（无需额外震动权限且遵循系统触感开关）为标签/分段切换、开关、连接与刷新触发、保存/复制/连接成功确认以及错误或破坏性操作拒绝提供细腻触感反馈。
+- NSH 0.4.0 → 0.7.0：更新 macOS/Windows CLI 固定版本、校验和与 Cargo revision；Apple/Android 嵌入 SDK 改为独立资产下载和校验。桌面与手机 bundle 均重新构建。
+- 适配 NSH 0.7 的能力和窗口生命周期：桌面应用显式授予 `application` 能力；Windows 继续使用原来的应用级数据目录，升级不会把界面偏好迁到新的存储位置。
+- 修复移动端订阅操作面板未关闭就切换页面造成的点击遮挡；“准备访问”确认框现在位于连接设置上方；桌面下拉选择器恢复 0.7 的指针焦点行为，同时保留键盘导航。
+- 保留现有 Windows 对话框重绘、Win32 纯色遮罩和 Catalyst 字体缩放兼容处理，待实机截图验收后再单独评估。
 
 下载：
 
-- macOS 12 及以上 Apple Silicon：`gopurr-0.6.71-arm64.dmg`。
-- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.71-amd64.exe`。
-- Android 9 及以上 ARM64：`gopurr-0.6.71-android-arm64-v8a.apk`。
-- Android x86_64：`gopurr-0.6.71-android-x86_64.apk`。
+- macOS 12 及以上 Apple Silicon：`gopurr-0.6.72-arm64.dmg`。
+- Windows 10 1809 及以上／Windows 11 x64：`gopurr-setup-0.6.72-amd64.exe`。
+- Android 9 及以上 ARM64：`gopurr-0.6.72-android-arm64-v8a.apk`。
+- Android x86_64：`gopurr-0.6.72-android-x86_64.apk`。
 
 也可在应用内检查更新。
 

@@ -27,12 +27,12 @@ $env:LIBCLANG_PATH = 'C:/Program Files/LLVM/bin'
 $env:PATH = "C:/Program Files/LLVM/bin;$env:PATH"
 $sdk = "$root/.cache/nsh-windows"
 $nsh = "$sdk/nsh/bin/nsh.exe"
-$hash = 'e4cc3893700a1fcceb974c73ef8e08bc94a47a7a85c96d797d49c16dde95dff3'
-if (-not (Test-Path "$sdk/verified-0.4.0")) {
+$hash = '1c6ef86afe754198209fd452625f20f32077ecfca3a4431f960a411b0e51d8f3'
+if (-not (Test-Path "$sdk/verified-0.7.0")) {
     New-Item $sdk -ItemType Directory -Force | Out-Null
     $archive = "$sdk/nsh-windows-x86_64.zip"
     if (-not (Test-Path $archive) -or (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash) {
-        & gh release download v0.4.0 --repo longbridge/nsh --pattern nsh-windows-x86_64.zip --output "$archive.part" --clobber
+        & gh release download v0.7.0 --repo longbridge/nsh --pattern nsh-windows-x86_64.zip --output "$archive.part" --clobber
         if ($LASTEXITCODE) { throw 'Download the official pinned NSH Windows SDK failed' }
         if ((Get-FileHash "$archive.part" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash) { throw 'NSH Windows SDK checksum mismatch' }
         Move-Item "$archive.part" $archive -Force
@@ -40,8 +40,8 @@ if (-not (Test-Path "$sdk/verified-0.4.0")) {
     Expand-Archive $archive -DestinationPath $sdk -Force
     if (-not (Test-Path $nsh)) { throw 'NSH SDK executable missing' }
     $sdkVersion = & $nsh --version
-    if ($LASTEXITCODE -or $sdkVersion -notmatch '0\.4\.0.*e626a8d') { throw "Unexpected NSH SDK: $sdkVersion" }
-    Set-Content "$sdk/verified-0.4.0" $hash
+    if ($LASTEXITCODE -or $sdkVersion -notmatch '0\.7\.0.*3f8ecd8') { throw "Unexpected NSH SDK: $sdkVersion" }
+    Set-Content "$sdk/verified-0.7.0" $hash
 }
 & python native/ui/sync-assets.py
 if ($LASTEXITCODE) { throw 'Sync NSH assets failed' }

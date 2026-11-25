@@ -24,7 +24,7 @@ export function Select(p:{items:{value:string;title:string}[];value:string;onCha
   const close=()=>open.set(false);
   return <Popover open={open()} onOpenChange={({open:next})=>open.set(next&&!p.disabled)} placement="bottom" align="end" offset={4} margin={12}
     popupStyle={{minWidth:Math.max(150,width()),maxWidth:Math.min(340,windowSize().width-32),padding:5,borderWidth:1,borderColor:colors().border,borderRadius:10,backgroundColor:colors().surface,boxShadow:elevation("popover")}}
-    onClose={()=>{if(alive&&!p.disabled&&(platform.os==='macos'||platform.os==='web'))trigger?.focus();}}
+    onClose={()=>{}}
     trigger={<View testID={p.testID} ref={node=>{trigger=node;}} role="combobox" accessibilityLabel={p.label} accessibilityValue={{text:p.items.find(i=>i.value===p.value)?.title??p.value}} accessibilityState={{expanded:open(),disabled:!!p.disabled}} disabled={p.disabled}
       onLayout={({bounds})=>{if(bounds.size.width>0&&Math.abs(width()-bounds.size.width)>.5)width.set(bounds.size.width);}}
       style={{cursor:p.disabled?'default':'pointer',height:30,minHeight:30,minWidth:104,maxWidth:Math.min(320,windowSize().width-64),paddingHorizontal:10,paddingVertical:4,borderRadius:8,borderWidth:1,borderColor:open()?colors().accent:colors().border,backgroundColor:colorScheme()==='dark'?'#11141c':colors().surface,flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10,opacity:p.disabled ? .4 : 1,transitionProperty:'border-color, background-color',transitionDuration:140}}
@@ -53,7 +53,7 @@ function SelectOptions(p:{items:()=>CommandItem[];value:string;label?:string;tes
   keymap.bind('escape',p.onClose);
   for(const key of 'abcdefghijklmnopqrstuvwxyz0123456789')keymap.bind(key,()=>{const now=Date.now();prefix=(now-typedAt<600?prefix:'')+key;typedAt=now;const row=p.items().find(v=>v.label.toLowerCase().startsWith(prefix));if(row)highlight(row.id);});
   return (
-<Command testID={p.testID?`${p.testID}-options`:undefined} ref={node=>{list=node;cancelAnimationFrame(focusFrame);focusFrame=requestAnimationFrame(()=>{const id=current;if(platform.os==='macos'||platform.os==='web')list?.focus();ready=true;highlight(id);});}} items={p.items()} searchable={false} accessibilityLabel={p.label} onHighlightChange={({highlighted})=>{if(ready&&highlighted)current=highlighted;}}
+<Command testID={p.testID?`${p.testID}-options`:undefined} ref={node=>{list=node;cancelAnimationFrame(focusFrame);focusFrame=requestAnimationFrame(()=>{const id=current;ready=true;highlight(id);});}} items={p.items()} searchable={false} accessibilityLabel={p.label} onHighlightChange={({highlighted})=>{if(ready&&highlighted)current=highlighted;}}
       listStyle={{maxHeight:Math.min(264,windowSize().height-96)}}
       itemClass={`focus:bg-[${colors().hover}] checked:bg-[${colors().selected}]`}
       itemStyle={{cursor:'pointer',color:colors().text,fontSize:12.5,paddingHorizontal:9,paddingVertical:7,borderRadius:6}}

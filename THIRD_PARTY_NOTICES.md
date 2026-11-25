@@ -12,8 +12,9 @@ The complete source and build instructions are at https://github.com/csic21/Gopu
   hashes are recorded in internal/geodata/data/manifest.json. Upstream data
   sources and build scripts are published in that repository.
 - Native Shell (NSH): https://github.com/longbridge/nsh — Apache-2.0; the macOS desktop,
-  Windows desktop and mobile clients embed the NSH v0.4.0 runtime
-  (commit e626a8d). See
+  Windows desktop and mobile clients embed the NSH v0.7.0 runtime
+  (commit 3f8ecd8). The Apple and Android embedding SDKs are separate
+  checksum-pinned release assets. See
   licenses/nsh-apache-2.0.txt, copied from the verified SDK's LICENSE-APACHE.
   The Windows NSH package additionally includes locked Rust dependency license
   texts under licenses/rust/.

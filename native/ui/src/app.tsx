@@ -585,6 +585,7 @@ function Profiles() {
 
     <BottomSheet
       testID="profile-actions-sheet"
+      closeTestID="profile-actions-close"
       open={!!profileMenu()}
       onClose={() => profileMenu.set(null)}
       title={profileMenu()?.name ?? ""}

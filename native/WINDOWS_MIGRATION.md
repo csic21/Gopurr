@@ -7,7 +7,12 @@ Windows host run. Treat the linked run as evidence for the earlier DLL bridge
 only until the checks in [Performance checks](#performance-checks) and the
 Windows workflow have been repeated on the new payload.
 
-The Win32 frontend (`native/windows`) embeds NSH 0.4.0 at upstream commit `e626a8dd8f8d8b277b9507cfd5ac74d0e67020f3`. It runs the shared `native/ui/Desktop.tsx` eight-page desktop. A Rust bridge (`native/windows/src/bridge.rs`) starts the existing Go `gopurr-desktop.exe` backend in its own process and speaks its private authenticated Unix-socket JSON protocol; the UI process does not load a Go DLL or run a second Go runtime. The host, backend, UI assets and graceful NSH uninstaller ship in the same installation directory so the existing updater replaces the complete payload. NSIS emits the replacement uninstaller without installing files or writing registry entries on the builder.
+The Win32 frontend (`native/windows`) embeds NSH 0.7.0 at upstream commit `3f8ecd8b3c55ad6274c6babbf7ee55c4cd4ae359`. It runs the shared `native/ui/Desktop.tsx` eight-page desktop. A Rust bridge (`native/windows/src/bridge.rs`) starts the existing Go `gopurr-desktop.exe` backend in its own process and speaks its private authenticated Unix-socket JSON protocol; the UI process does not load a Go DLL or run a second Go runtime. The host, backend, UI assets and graceful NSH uninstaller ship in the same installation directory so the existing updater replaces the complete payload. NSIS emits the replacement uninstaller without installing files or writing registry entries on the builder.
+
+NSH 0.7 uses `AppOptions::data_dir` as given, while 0.4 appended the app id.
+The host names `.../nsh/io.github.gopurr.nsh.preview` explicitly so an update
+keeps reading the existing `storage.json`; the UI bundle also grants
+`application`, now required when capabilities are declared.
 
 ## Preserved contracts
 
@@ -32,7 +37,7 @@ The NSH Windows runtime requires Windows 10 1809 or later. This minimum must app
 go run ./scripts/release -platform windows/amd64 -release
 ```
 
-The build verifies the pinned NSH SDK archive SHA-256, uses Rust 1.99.1 and the checked-in Cargo lock, and bundles Rust dependency notices. Go and Rust caches remain inside `.cache`. Runtime fixtures restrict PATH to the Windows system directory so developer toolchain DLLs cannot satisfy a missing runtime dependency.
+The build verifies the pinned NSH SDK archive SHA-256, uses Rust 1.99.1 and the checked-in Cargo lock, and bundles Rust dependency notices. Go and Rust caches remain inside `.cache`. Runtime fixtures restrict PATH to the Windows system directory so developer toolchain DLLs cannot satisfy a missing runtime dependency. The NSH Win32 acceptance run must be repeated for 0.7 before this document claims 0.7-specific dialog and lifecycle evidence.
 
 ## Acceptance evidence
 

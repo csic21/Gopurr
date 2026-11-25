@@ -11,7 +11,7 @@ at phone and tablet widths with:
 .cache/nsh/nsh/bin/nsh test native/ui/AndroidPreview.tsx --target macos < native/ui/android-update-progress.steps.js
 ```
 
-The UI targets **NSH v0.4.0**. `Desktop.tsx` is the full eight-page desktop
+The UI targets **NSH v0.7.0**. `Desktop.tsx` is the full eight-page desktop
 entry; it uses `desktop.dispatch` and the existing desktop business model in a
 private helper process. `App.tsx` is the four-page mobile entry. It calls the native host's `engine.dispatch` handler and never
 falls back to a demo or remote desktop connection. The host returns the SDK JSON

@@ -264,6 +264,8 @@ test("profile edits, refresh staging and deletion stay explicit", async () => {
   await app.press("id:more-imported");
   await app.waitFor("id:delete-imported");
   expect(app.enabled("id:delete-imported")).toBe(false);
+  await app.press("id:profile-actions-close");
+  await app.waitFor("id:delete-imported", { state: "gone" });
   await app.press("id:nav-overview");
   await app.waitFor("id:reconnect-required");
   await app.press("id:toggle-engine");

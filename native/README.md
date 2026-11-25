@@ -1,6 +1,6 @@
 # NSH 原生客户端
 
-这是 Gopurr 的 NSH 原生客户端。macOS 与 Windows 正式构建和发布入口使用八页 NSH 桌面，手机继续 Android 优先。NSH 固定为 **0.4.0 / e626a8d**，SDK 下载到仓库内 `.cache/nsh` 并验证 SHA-256，不全局安装工具。迁移设计和已运行验证见 [macOS 验收记录](MACOS_MIGRATION.md) 与 [Windows 验收记录](WINDOWS_MIGRATION.md)。
+这是 Gopurr 的 NSH 原生客户端。macOS 与 Windows 正式构建和发布入口使用八页 NSH 桌面，手机继续 Android 优先。NSH 固定为 **0.7.0 / 3f8ecd8**，CLI 以及 Apple/Android 嵌入 SDK 下载到仓库内 `.cache/nsh` 并分别验证 SHA-256，不全局安装工具。迁移设计和已运行验证见 [macOS 验收记录](MACOS_MIGRATION.md) 与 [Windows 验收记录](WINDOWS_MIGRATION.md)。
 
 ## 结构
 

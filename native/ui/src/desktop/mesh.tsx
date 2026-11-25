@@ -251,10 +251,6 @@ export function MeshPage(p:PageProps){
       </Group>
     </Modal>
 
-    <Modal title={tr('准备访问其他设备','Prepare access to other devices')} open={prepare()} onClose={()=>prepare.set(false)} error={error()||m().error||p.snapshot().meshAccess?.prepareError} footer={()=><Row justify="flex-end"><Action label={tr('取消','Cancel')} disabled={working()} onPress={()=>prepare.set(false)}/><Action primary label={tr('启用并准备','Enable and prepare')} disabled={working()} onPress={()=>void work(async()=>{await p.call('desktop.mesh.action',{action:'prepare'});prepare.set(false);})}/></Row>}>
-      <Label text={tr('将启用 Gopurr TUN 自动路由并切换到规则模式；需要时安装自带的系统服务，系统会请求管理员授权。本机服务仍由访问开关单独控制。','Enable Gopurr TUN automatic routes and rule mode. Install the bundled system service if needed; macOS may ask for administrator authorization. Local services remain controlled by the inbound access switch.')} lines={4}/>
-    </Modal>
-
     <Modal title={tr('授权本机服务端口','Authorize local service ports')} open={portsOpen()} onClose={()=>portsOpen.set(false)} error={error()||m().error||p.snapshot().meshAccess?.prepareError} footer={()=><Row justify="flex-end"><Action label={tr('取消','Cancel')} disabled={working()} onPress={()=>portsOpen.set(false)}/><Action primary label={allowAfterSave()?tr('保存并允许访问','Save and allow access'):tr('保存端口','Save ports')} disabled={working()||(allowAfterSave()&&!portDraft().trim())} onPress={()=>void work(async()=>{await p.call('desktop.mesh.services',{protocol:portDraft(),enabled:allowAfterSave()});portsOpen.set(false);})}/></Row>}>
       <Label text={tr('仅添加你确实需要开放的本机端口。授权不会启动系统服务；网络成员仍受官方 ACL 和本机封禁限制。','Authorize only the local ports you need. This does not start system services. Official ACLs and local device blocks still apply.')} muted lines={3}/>
       <Row wrap gap={6}>
@@ -311,6 +307,10 @@ export function MeshPage(p:PageProps){
           <Action label={tr('忘记设置','Forget settings')} disabled={working()||!p.snapshot().meshShortcuts?.[quick()?.id]} onPress={()=>void work(async()=>{await p.call('desktop.mesh.shortcut.forget',{id:quick()?.id});quickNotice.set(tr('已忘记连接设置','Connection settings forgotten'));},true)}/>
         </Row>
       </View>
+    </Modal>
+
+    <Modal title={tr('准备访问其他设备','Prepare access to other devices')} open={prepare()} onClose={()=>prepare.set(false)} error={error()||m().error||p.snapshot().meshAccess?.prepareError} footer={()=><Row justify="flex-end"><Action label={tr('取消','Cancel')} disabled={working()} onPress={()=>prepare.set(false)}/><Action primary label={tr('启用并准备','Enable and prepare')} disabled={working()} onPress={()=>void work(async()=>{await p.call('desktop.mesh.action',{action:'prepare'});prepare.set(false);})}/></Row>}>
+      <Label text={tr('将启用 Gopurr TUN 自动路由并切换到规则模式；需要时安装自带的系统服务，系统会请求管理员授权。本机服务仍由访问开关单独控制。','Enable Gopurr TUN automatic routes and rule mode. Install the bundled system service if needed; macOS may ask for administrator authorization. Local services remain controlled by the inbound access switch.')} lines={4}/>
     </Modal>
 
     <Modal title={tr('清空本机访问记录？','Clear local access history?')} open={clear()} onClose={()=>clear.set(false)} footer={()=><Row justify="flex-end"><Action label={tr('取消','Cancel')} disabled={working()} onPress={()=>clear.set(false)}/><Action danger label={tr('清空记录','Clear history')} disabled={working()} onPress={()=>void work(async()=>{await p.call('desktop.mesh.action',{action:'clearHistory'});clear.set(false);})}/></Row>}>
