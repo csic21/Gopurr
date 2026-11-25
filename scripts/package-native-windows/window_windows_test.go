@@ -72,6 +72,20 @@ func appWindows(pid uint32) map[uintptr]string {
 	return found
 }
 
+// mainWindow returns the visible app window that is not the surface host:
+// the host's title is empty, while the app's own window is titled.
+func mainWindow(t *testing.T, pid uint32) uintptr {
+	t.Helper()
+	windows := appWindows(pid)
+	for handle, title := range windows {
+		if title != "" {
+			return handle
+		}
+	}
+	t.Fatalf("no titled NSH app window among %v", windows)
+	return 0
+}
+
 // assertFrontendModules rejects the legacy Go bridge DLL in the actual UI
 // process. Checking the install payload alone would not catch a stale build
 // that still loads it dynamically.
@@ -231,14 +245,7 @@ func verifyWindowsAutoLaunch(t *testing.T, s windowsSession, frontend string) {
 func verifyWindowsHostUI(t *testing.T, s windowsSession, repo string) {
 	t.Helper()
 	waitWindows(t, 20*time.Second, func() bool { return windowsHostVisible(s.FrontendPID) })
-	windows := appWindows(s.FrontendPID)
-	if len(windows) != 1 {
-		t.Fatalf("expected one visible NSH window, found %d: %v (frontend %d: %s)", len(windows), windows, s.FrontendPID, frontendWindows(t, s.FrontendPID))
-	}
-	var hwnd uintptr
-	for handle := range windows {
-		hwnd = handle
-	}
+	hwnd := mainWindow(t, s.FrontendPID)
 	for _, size := range [][2]int32{{1060, 720}, {840, 560}} {
 		resizeHost(t, hwnd, size[0], size[1])
 		for _, theme := range []string{"light", "dark"} {
@@ -257,7 +264,7 @@ func verifyWindowsHostUI(t *testing.T, s windowsSession, repo string) {
 	// close must hide the NSH window while leaving the same Go backend alive.
 	_, _, _ = user32.NewProc("SendMessageW").Call(hwnd, 0x0010, 0, 0)
 	time.Sleep(time.Second)
-	if len(appWindows(s.FrontendPID)) != 1 {
+	if !windowsHostVisible(s.FrontendPID) {
 		t.Fatal("first close bypassed the background-operation confirmation")
 	}
 	windowsMust(t, s, "desktop.prefs.save", map[string]any{"prefs": map[string]any{"closeToTrayAcknowledged": true, "lightMode": true, "lightDelaySeconds": 1}})
