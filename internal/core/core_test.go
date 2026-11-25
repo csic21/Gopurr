@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"github.com/metacubex/mihomo/component/profile/cachefile"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,16 +13,36 @@ import (
 
 func freePort(t *testing.T) int {
 	t.Helper()
-	for attempt := 0; attempt < 100; attempt++ {
+	available := func(port int) bool {
+		address := fmt.Sprintf("127.0.0.1:%d", port)
+		tcp, err := net.Listen("tcp", address)
+		if err != nil {
+			return false
+		}
+		defer tcp.Close()
+		udp, err := net.ListenPacket("udp", address)
+		if err != nil {
+			return false
+		}
+		return udp.Close() == nil
+	}
+	candidates := make([]int, 0, 600)
+	for attempt := 0; attempt < 300; attempt++ {
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
-			t.Fatal(err)
+			break
 		}
-		port := ln.Addr().(*net.TCPAddr).Port
-		udp, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+		candidates = append(candidates, ln.Addr().(*net.TCPAddr).Port)
 		_ = ln.Close()
-		if err == nil {
-			_ = udp.Close()
+	}
+	// Windows can reserve much of its dynamic range (Hyper-V exclusions), so
+	// also try static high ports rather than exhausting one ephemeral block.
+	start := 20000 + rand.IntN(30000)
+	for offset := 0; offset < 5000; offset++ {
+		candidates = append(candidates, 20000+(start-20000+offset)%38000)
+	}
+	for _, port := range candidates {
+		if available(port) {
 			return port
 		}
 	}
