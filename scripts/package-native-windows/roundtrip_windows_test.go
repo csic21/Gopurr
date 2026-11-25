@@ -298,11 +298,11 @@ func TestWindowsNativeMigrationRoundtrip(t *testing.T) {
 			return false
 		}
 		session = s
-		return hostWindow(s.FrontendPID) != 0
+		return true
 	})
 	time.Sleep(time.Second)
-	if windowsHostVisible(session.FrontendPID) {
-		t.Fatal("silent login launch displayed its window")
+	if visible := appWindows(session.FrontendPID); len(visible) != 0 {
+		t.Fatalf("silent login launch displayed windows: %v", visible)
 	}
 	windowsMust(t, session, "host.activate", nil)
 	waitWindows(t, 10*time.Second, func() bool { return windowsHostVisible(session.FrontendPID) })
