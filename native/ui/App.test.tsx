@@ -947,3 +947,158 @@ test("Android UI emits restrained semantic haptic posts for navigation, controls
     "toggleOff", // idle after connected
   ]);
 });
+
+test("Nodes tab pastes VPS URIs with partial error tolerance, appends safely, and hides DIRECT delay button", async () => {
+  const app = await open("./App.tsx", { host: host(), locale: "en-US", width: 390, height: 844 });
+  await app.press("id:nav-proxies");
+  await app.waitFor("id:nodes-add-btn");
+  expect(app.shows("id:delay-DIRECT")).toBe(false);
+  expect(app.shows("id:delay-示例节点 / Example proxy")).toBe(true);
+
+  await app.press("id:nodes-add-btn");
+  await app.waitFor("id:add-node-paste");
+  await app.press("id:add-node-paste");
+  await app.waitFor("id:paste-links-input");
+  await app.type("id:paste-links-input", "vless://11111111-2222-3333-4444-555555555555@vps1.example.com:443#MyVPS\ninvalid-line\nhysteria2://secret@jp.example.com:443#JP-Hy2");
+  await app.press("id:paste-links-parse");
+  await app.waitFor("id:parse-preview-confirm");
+  expect(app.texts().some(t => t.includes("1 lines failed"))).toBe(true);
+  await app.press("id:parse-preview-confirm");
+  await app.waitFor("id:node-MyVPS");
+
+  const saveCall = app.host.calls().find(c => (c.data as { method?: string })?.method === "proxies.save");
+  expect(saveCall).toBeTruthy();
+  const edits = (saveCall?.data as { params?: { edits?: { nodes?: unknown[]; groups?: Array<{ appendMembers?: string[] }> } } }).params?.edits;
+  expect(edits?.nodes?.length).toBe(2);
+  expect(edits?.groups?.[0]?.appendMembers).toEqual(["MyVPS", "JP-Hy2"]);
+});
+
+test("Zero-profile manual node editor auto-creates Local Nodes profile and protects dirty drafts", async () => {
+  const app = await open("./App.tsx", { host: host(true), locale: "en-US", width: 390, height: 844 });
+  await app.press("id:nav-proxies");
+  await app.waitFor("id:empty-add-node");
+  await app.press("id:empty-add-node");
+  await app.waitFor("id:add-node-manual");
+  await app.press("id:add-node-manual");
+  await app.waitFor("id:node-editor-server");
+
+  await app.type("id:node-editor-server", "zero.example.com");
+  await app.type("id:node-editor-uuid", "11111111-2222-3333-4444-555555555555");
+  await app.press("id:node-editor-uuid-reveal");
+
+  // Dirty draft prompts confirmation when tapping back; cancelling stays in editor.
+  app.onDialog(() => "Keep editing");
+  await app.press("id:node-editor-back");
+  expect(app.shows("id:node-editor-save")).toBe(true);
+
+  await app.press("id:node-editor-save");
+  await app.waitUntil(() => app.host.calls().some(c => (c.data as { method?: string })?.method === "profiles.createLocal"));
+  await app.waitFor("id:node-VLESS-zero.example.com");
+});
+
+test("Connected Android VPN node edit shows reconnect banner and strictly runs disconnect -> wait idle -> connect", async () => {
+  const dispatch = fixtureTransport();
+  let session: Record<string, unknown> = { phase: "connected", generation: 1, busy: false, connected: true, scope: { mode: "all", packages: [], excludeSelf: true } };
+  const order: string[] = [];
+  const app = await open("./App.tsx", {
+    locale: "en-US",
+    platform: "android",
+    width: 390,
+    height: 844,
+    host: {
+      params: { android: true },
+      handlers: {
+        "android.session": () => session,
+        "android.notifications": { granted: true, enabled: true, canRequest: false, traffic: true },
+        "android.scope.get": { mode: "all", packages: [], excludeSelf: true },
+        "android.update": { supported: false, phase: "unsupported", currentVersion: "0.0.0", currentVersionCode: 0, version: "", notes: "", downloaded: 0, total: 0, error: "", detail: "", canInstall: true },
+        "android.appearance": { ok: true },
+        "android.disconnect": () => {
+          order.push("disconnect");
+          session = { ...session, phase: "disconnecting", generation: Number(session.generation) + 1, busy: true, connected: true };
+          setTimeout(() => {
+            session = { ...session, phase: "idle", generation: Number(session.generation) + 1, busy: false, connected: false };
+            void app.host.send("android.session", session);
+          }, 20);
+          return session;
+        },
+        "android.connect": () => {
+          order.push("connect");
+          session = { ...session, phase: "connected", generation: Number(session.generation) + 1, busy: false, connected: true };
+          return session;
+        },
+        "engine.dispatch": async (data: unknown) => {
+          const req = data as { method: string; params: Record<string, unknown> };
+          const res = await dispatch(req.method, req.params) as Record<string, unknown>;
+          if (req.method === "engine.status") {
+            return { result: { ...res, vpnSupported: true, tun: !!session.connected, running: !!session.connected, capabilities: { systemProxy: false, tun: true } } };
+          }
+          return { result: res };
+        },
+      },
+    },
+  });
+
+  await app.press("id:nav-proxies");
+  await app.waitFor("id:nodes-add-btn");
+  await app.press("id:nodes-add-btn");
+  await app.press("id:add-node-manual");
+  await app.waitFor("id:node-editor-server");
+  await app.type("id:node-editor-name", "SafeVPNNode");
+  await app.type("id:node-editor-server", "safe.example.com");
+  await app.type("id:node-editor-uuid", "11111111-2222-3333-4444-555555555555");
+  await app.press("id:node-editor-save");
+
+  await app.waitFor("id:nodes-reconnect-banner");
+  expect(order).toEqual([]); // Never silently hot-reloads or reconnects on save!
+
+  await app.press("id:nodes-reconnect-btn");
+  await app.waitUntil(() => order.length === 2);
+  expect(order).toEqual(["disconnect", "connect"]);
+});
+
+test("Policy groups manager supports dual-mode AppendMembers vs custom Members and Subscriptions support quota, optional name & full settings", async () => {
+  const app = await open("./App.tsx", { host: host(), locale: "en-US", width: 390, height: 844 });
+
+  // Verify traffic quota progress bar & full profile settings on Subscriptions tab
+  await app.press("id:nav-profiles");
+  await app.waitFor("id:quota-fixture-profile");
+  await app.waitFor("id:quota-bar-fixture-profile");
+
+  await app.press("id:edit-fixture-profile");
+  await app.waitFor("id:profile-overlay-summary");
+  await app.press("id:edit-profile-use-proxy");
+  await app.press("id:edit-update-6");
+  await app.press("id:save-profile");
+  await app.waitUntil(() => app.host.calls().some(c => {
+    const req = c.data as { method?: string; params?: { useProxy?: boolean; updateHours?: number } };
+    return req?.method === "profiles.update" && req.params?.useProxy === true && req.params?.updateHours === 6;
+  }));
+
+  // Smart import with blank name + HTTP ambiguity toggle + advanced options
+  await app.press("id:add-profile");
+  await app.waitFor("id:profile-url");
+  await app.type("id:profile-url", "https://auto.example.invalid/sub");
+  await app.waitFor("id:import-http-toggle");
+  await app.press("id:import-advanced-toggle");
+  await app.press("id:import-use-proxy");
+  await app.press("id:import-profile");
+  await app.waitUntil(() => app.host.calls().some(c => {
+    const req = c.data as { method?: string; params?: { url?: string; useProxy?: boolean; name?: string } };
+    return req?.method === "profiles.import" && req.params?.url === "https://auto.example.invalid/sub" && req.params?.useProxy === true && !req.params?.name;
+  }));
+
+  // Policy Groups Manager & Dual-Mode Editor
+  await app.press("id:nav-proxies");
+  await app.waitFor("id:nodes-groups-btn");
+  await app.press("id:nodes-groups-btn");
+  await app.waitFor("id:manage-group-代理选择");
+  await app.press("id:manage-group-代理选择");
+  await app.waitFor("id:group-inherited-toggle");
+  await app.press("id:group-switch-explicit");
+  await app.waitFor("id:group-add-member");
+  await app.press("id:group-switch-append");
+  await app.waitFor("id:group-inherited-toggle");
+  await app.press("id:group-editor-back");
+  await app.waitFor("id:groups-manager-back");
+});

@@ -128,6 +128,17 @@ func Open(options Options) (*Engine, error) {
 		return nil, err
 	}
 	e := &Engine{core: core.New(kernelHome), store: s, home: home, port: port, mode: "rule", vpnFD: -1, delays: map[string]uint16{}, logsDone: make(chan struct{})}
+	s.SetProxyURL(func() *url.URL {
+		e.mu.Lock()
+		running := e.proxyRunningLocked()
+		p := e.port
+		e.mu.Unlock()
+		if !running || p <= 0 {
+			return nil
+		}
+		u, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", p))
+		return u
+	})
 	if err := e.loadPreferences(); err != nil {
 		return nil, err
 	}
@@ -225,6 +236,9 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 	if method == "profiles.import" || method == "profiles.refresh" {
 		return e.profileNetworkCall(ctx, method, params)
 	}
+	if method == "proxies.parse" {
+		return e.parseProxiesCall(params)
+	}
 	if method == "proxies.delay" {
 		return e.delayCall(ctx, params)
 	}
@@ -311,8 +325,14 @@ func (e *Engine) Call(ctx context.Context, method string, params json.RawMessage
 			return nil, err
 		}
 		return e.profilesLocked(), nil
+	case "profiles.createLocal":
+		return e.createLocalProfileLocked(ctx, params)
 	case "profiles.update", "profiles.delete", "profiles.editor":
 		return e.profileLocalCallLocked(ctx, method, params)
+	case "proxies.editor":
+		return e.proxyEditorCallLocked(params)
+	case "proxies.save":
+		return e.proxySaveCallLocked(ctx, params)
 	case "engine.tunnelPlan":
 		var p struct {
 			AppScope AppScope `json:"appScope"`
@@ -407,21 +427,55 @@ func (e *Engine) statusLocked() Status {
 func (e *Engine) profilesLocked() ProfileList {
 	list := ProfileList{Active: e.store.ActiveID(), Profiles: []Profile{}}
 	for _, p := range e.store.List() {
-		summary := profileSummary(p, list.Active)
+		summary := e.profileSummaryLocked(p, list.Active)
 		summary.ReconnectRequired = summary.Active && e.reconnectRequired && e.proxyRunningLocked()
 		list.Profiles = append(list.Profiles, summary)
 	}
 	return list
 }
 
+func (e *Engine) profileSummaryLocked(p profile.Profile, active string) Profile {
+	summary := profileSummary(p, active)
+	if e.store != nil {
+		inspect := e.store.InspectProfile(p)
+		summary.NodeCount = inspect.NodeCount
+		summary.LocalNodeCount = inspect.LocalNodeCount
+		summary.EditedNodeCount = inspect.EditedNodeCount
+		summary.EditedGroupCount = inspect.EditedGroupCount
+		summary.ExtraRuleCount = inspect.ExtraRuleCount
+		summary.TemplateCount = inspect.TemplateCount
+		summary.LastError = inspect.LastError
+		summary.DependentAggregates = inspect.DependentAggregates
+		summary.Aggregate = inspect.Aggregate
+	}
+	return summary
+}
+
 func profileSummary(p profile.Profile, active string) Profile {
 	source := "本地配置"
-	if p.URL != "" {
-		if u, err := url.Parse(p.URL); err == nil {
+	if p.IsAggregate() {
+		source = "聚合订阅"
+	} else if p.URL != "" {
+		if u, err := url.Parse(p.URL); err == nil && u.Hostname() != "" {
 			source = u.Hostname()
 		}
 	}
-	return Profile{ID: p.ID, Name: p.Name, Kind: p.Kind, Source: source, Updated: p.Updated, Active: p.ID == active}
+	return Profile{
+		ID:                  p.ID,
+		Name:                p.Name,
+		Kind:                p.Kind,
+		Source:              source,
+		Updated:             p.Updated,
+		Active:              p.ID == active,
+		Info:                p.Info,
+		UserAgent:           p.UserAgent,
+		UpdateHours:         p.UpdateHours,
+		UseProxy:            p.UseProxy,
+		IsAggregate:         p.IsAggregate(),
+		HasPath:             p.Path != "",
+		IsPureLocal:         p.IsPureLocal(),
+		DependentAggregates: []profile.AggregateRef{},
+	}
 }
 
 func (e *Engine) activateLocked(ctx context.Context, id string) error {

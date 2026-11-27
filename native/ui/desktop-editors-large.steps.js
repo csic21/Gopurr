@@ -13,6 +13,15 @@ for(const size of [{width:1060,height:720}]) {
   await app.press('id:add-aggregate');
   await app.screenshot(`native/ui/screenshots/desktop-aggregate-${scheme}-${size.width}x${size.height}.png`);
   await app.press('id:aggregate-dialog-close');
+  await app.press('id:desktop-nav-proxies');
+  await app.press('id:edit-proxy-香港 01');
+  await app.waitFor('id:proxy-inline-inspector');
+  await app.screenshot(`native/ui/screenshots/desktop-proxy-inspector-${scheme}-${size.width}x${size.height}.png`);
+  await app.press('id:proxy-inspector-close');
+  await app.press('id:edit-group-节点选择');
+  await app.waitFor('id:proxy-inline-inspector');
+  await app.screenshot(`native/ui/screenshots/desktop-group-inspector-${scheme}-${size.width}x${size.height}.png`);
+  await app.press('id:proxy-inspector-close');
   await app.press('id:desktop-nav-conns');
   await app.press('id:connection-conn-0');
   await app.screenshot(`native/ui/screenshots/desktop-connection-detail-${scheme}-${size.width}x${size.height}.png`);

@@ -383,3 +383,107 @@ func TestNativeSnapshotReportsExplicitRelaunchWindow(t *testing.T) {
 		t.Fatal("explicit relaunch window intent missing", snapshot["startup"])
 	}
 }
+
+func TestNativeCreateLocalParseOfflinePreviewAndAggregatePreviewLite(t *testing.T) {
+	nativeDispatchFixture(t)
+	a, _ := newSettingsTestApp(t, nil)
+
+	// 1. desktop.proxies.parse
+	parsed := nativeInvoke(t, a, "desktop.proxies.parse", map[string]any{
+		"text": "trojan://pw1@jp.example.com:443#JP%20VPS\nnot-a-uri\n",
+	}).(profile.ParseResult)
+	if parsed.Kind != "nodes" || len(parsed.Nodes) != 1 || len(parsed.Failures) != 1 || parsed.Nodes[0].Name != "JP VPS" {
+		t.Fatalf("unexpected parse result: %+v", parsed)
+	}
+
+	// 2. desktop.profiles.createLocal
+	created := nativeInvoke(t, a, "desktop.profiles.createLocal", map[string]any{
+		"name":     "Self Hosted VPS",
+		"nodes":    parsed.Nodes,
+		"activate": true,
+	}).(map[string]any)
+	localProf := created["profile"].(profile.Profile)
+	if !localProf.IsPureLocal() || a.store.ActiveID() != localProf.ID {
+		t.Fatalf("createLocal failed: %+v active=%q", localProf, a.store.ActiveID())
+	}
+
+	// 3. desktop.proxies.editor returns enriched contract
+	ed := nativeInvoke(t, a, "desktop.proxies.editor", map[string]any{"id": localProf.ID}).(map[string]any)
+	if ed["profileId"] != localProf.ID || ed["profileKind"] != profile.KindFile || ed["isPureLocal"] != true {
+		t.Fatalf("enriched editor metadata missing: %+v", ed)
+	}
+	edGroups := ed["groups"].([]any)
+	firstGroup := edGroups[0].(map[string]any)
+	if _, ok := firstGroup["inheritedMembers"]; !ok {
+		t.Fatalf("missing inheritedMembers: %+v", firstGroup)
+	}
+	if _, ok := firstGroup["appendMembers"]; !ok {
+		t.Fatalf("missing appendMembers: %+v", firstGroup)
+	}
+	if _, ok := firstGroup["explicitMembers"]; !ok {
+		t.Fatalf("missing explicitMembers: %+v", firstGroup)
+	}
+
+	// 4. desktop.proxies.save on pure local persists directly to base YAML (and clears ProxyEdits)
+	nativeInvoke(t, a, "desktop.proxies.save", map[string]any{
+		"id": localProf.ID,
+		"edits": map[string]any{
+			"nodes": []any{
+				map[string]any{
+					"source":  "",
+					"localId": "local-2",
+					"name":    "SG VPS",
+					"server":  "sg.example.com",
+					"port":    443,
+					"options": map[string]any{"type": "trojan", "password": "pw2"},
+				},
+			},
+			"groups": []any{
+				map[string]any{"source": profile.AggregateSelect, "appendMembers": []string{"SG VPS"}},
+			},
+		},
+	})
+	rawLocal, err := a.store.Content(localProf.ID)
+	if err != nil || !strings.Contains(string(rawLocal), "SG VPS") {
+		t.Fatalf("pure local edit did not write directly to YAML: %v %s", err, rawLocal)
+	}
+	if a.profileOverrides(localProf.ID).ProxyEdits != nil {
+		t.Fatal("pure local profile should not retain ProxyEdits overlay after direct YAML write")
+	}
+
+	// 5. desktop.profiles.updateAll skips pure local profile without error
+	nativeInvoke(t, a, "desktop.profiles.updateAll", map[string]any{})
+
+	// 6. desktop.profiles.aggregatePreview with includeYaml: false omits yaml
+	spec := profile.AggregateSpec{Sources: []profile.AggregateSource{{ID: localProf.ID}}, Dedupe: true}
+	lite := nativeInvoke(t, a, "desktop.profiles.aggregatePreview", map[string]any{"spec": spec, "includeYaml": false}).(map[string]any)
+	if _, hasYaml := lite["yaml"]; hasYaml {
+		t.Fatalf("includeYaml:false still returned yaml: %+v", lite)
+	}
+	if names := lite["names"].([]string); len(names) != 2 {
+		t.Fatalf("expected 2 preview names, got %v", names)
+	}
+
+	// 7. NativeSnapshot enriches profiles[] and webHost.Groups falls back to offline preview when stopped
+	t.Setenv("GOPURR_HOME", t.TempDir())
+	stopped := New()
+	stopped.store = a.store
+	stopped.ov = a.ov
+	stopped.dir = a.dir
+	snap, err := stopped.NativeSnapshot(context.Background(), "proxies", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap["groupsPreview"] != true {
+		t.Fatalf("expected groupsPreview=true when stopped, got %v", snap["groupsPreview"])
+	}
+	groups := snap["groups"].([]any)
+	if len(groups) == 0 {
+		t.Fatal("stopped desktop webHost.Groups did not return offline preview")
+	}
+	profs := snap["profiles"].([]any)
+	p0 := profs[0].(map[string]any)
+	if p0["nodeCount"] != float64(2) || p0["isPureLocal"] != true || p0["hasPath"] != false {
+		t.Fatalf("enriched snapshot profile fields unexpected: %+v", p0)
+	}
+}

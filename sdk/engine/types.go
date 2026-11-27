@@ -6,6 +6,9 @@ package engine
 import (
 	"encoding/json"
 	"time"
+
+	"gopurr/internal/patch"
+	"gopurr/internal/profile"
 )
 
 const APIVersion = 1
@@ -104,13 +107,29 @@ type Operation struct {
 }
 
 type Profile struct {
-	ID                string    `json:"id"`
-	Name              string    `json:"name"`
-	Kind              string    `json:"kind"`
-	Source            string    `json:"source"`
-	Updated           time.Time `json:"updated"`
-	Active            bool      `json:"active"`
-	ReconnectRequired bool      `json:"reconnectRequired"`
+	ID                  string                    `json:"id"`
+	Name                string                    `json:"name"`
+	Kind                string                    `json:"kind"`
+	Source              string                    `json:"source"`
+	Updated             time.Time                 `json:"updated"`
+	Active              bool                      `json:"active"`
+	ReconnectRequired   bool                      `json:"reconnectRequired"`
+	Info                profile.Info              `json:"info"`
+	UserAgent           string                    `json:"userAgent,omitempty"`
+	UpdateHours         *int                      `json:"updateHours,omitempty"`
+	UseProxy            bool                      `json:"useProxy,omitempty"`
+	IsAggregate         bool                      `json:"isAggregate"`
+	HasPath             bool                      `json:"hasPath"`
+	IsPureLocal         bool                      `json:"isPureLocal"`
+	NodeCount           int                       `json:"nodeCount"`
+	LocalNodeCount      int                       `json:"localNodeCount"`
+	EditedNodeCount     int                       `json:"editedNodeCount"`
+	EditedGroupCount    int                       `json:"editedGroupCount"`
+	ExtraRuleCount      int                       `json:"extraRuleCount"`
+	TemplateCount       int                       `json:"templateCount"`
+	LastError           string                    `json:"lastError,omitempty"`
+	DependentAggregates []profile.AggregateRef    `json:"dependentAggregates"`
+	Aggregate           *profile.AggregateSummary `json:"aggregate,omitempty"`
 }
 
 type ProfileMutation struct {
@@ -122,10 +141,76 @@ type ProfileMutation struct {
 }
 
 type ProfileEditor struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
-	Kind string `json:"kind"`
+	ID                  string                    `json:"id"`
+	Name                string                    `json:"name"`
+	URL                 string                    `json:"url"`
+	Kind                string                    `json:"kind"`
+	Info                profile.Info              `json:"info"`
+	UserAgent           string                    `json:"userAgent,omitempty"`
+	UpdateHours         *int                      `json:"updateHours,omitempty"`
+	UseProxy            bool                      `json:"useProxy"`
+	IsAggregate         bool                      `json:"isAggregate"`
+	HasPath             bool                      `json:"hasPath"`
+	IsPureLocal         bool                      `json:"isPureLocal"`
+	NodeCount           int                       `json:"nodeCount"`
+	LocalNodeCount      int                       `json:"localNodeCount"`
+	EditedNodeCount     int                       `json:"editedNodeCount"`
+	EditedGroupCount    int                       `json:"editedGroupCount"`
+	ExtraRuleCount      int                       `json:"extraRuleCount"`
+	TemplateCount       int                       `json:"templateCount"`
+	LastError           string                    `json:"lastError,omitempty"`
+	DependentAggregates []profile.AggregateRef    `json:"dependentAggregates"`
+	Aggregate           *profile.AggregateSummary `json:"aggregate,omitempty"`
+}
+
+type ProviderNodeInfo struct {
+	Provider string `json:"provider"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+}
+
+type ProxyEditorNode struct {
+	Source  string           `json:"source"`
+	LocalID string           `json:"localId,omitempty"`
+	Name    string           `json:"name"`
+	Type    string           `json:"type"`
+	Server  string           `json:"server"`
+	Port    int              `json:"port"`
+	Options map[string]any   `json:"options"`
+	Edited  bool             `json:"edited"`
+	Missing bool             `json:"missing"`
+	Base    *patch.ProxyNode `json:"base,omitempty"`
+}
+
+type ProxyEditorGroup struct {
+	Source           string            `json:"source"`
+	Name             string            `json:"name"`
+	Type             string            `json:"type"`
+	Members          []string          `json:"members"`
+	InheritedMembers []string          `json:"inheritedMembers"`
+	AppendMembers    []string          `json:"appendMembers"`
+	Explicit         bool              `json:"explicit"`
+	ExplicitMembers  bool              `json:"explicitMembers"`
+	Edited           bool              `json:"edited"`
+	Missing          bool              `json:"missing"`
+	Deleted          bool              `json:"deleted"`
+	Use              []string          `json:"use"`
+	IncludeAll       bool              `json:"includeAll"`
+	Base             *patch.ProxyGroup `json:"base,omitempty"`
+}
+
+type ProxyEditorPayload struct {
+	ID             string             `json:"id"`
+	ProfileID      string             `json:"profileId"`
+	ProfileName    string             `json:"profileName"`
+	ProfileKind    string             `json:"profileKind"`
+	IsPureLocal    bool               `json:"isPureLocal"`
+	Nodes          []ProxyEditorNode  `json:"nodes"`
+	Groups         []ProxyEditorGroup `json:"groups"`
+	Edits          *patch.ProxyEdits  `json:"edits"`
+	Options        []string           `json:"options"`
+	AvailableNames []string           `json:"availableNames"`
+	ProviderNodes  []ProviderNodeInfo `json:"providerNodes"`
 }
 
 type ProfileList struct {

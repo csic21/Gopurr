@@ -30,6 +30,7 @@ type NodeEdit struct {
 	Server  *string        `json:"server,omitempty"`
 	Port    *int           `json:"port,omitempty"`
 	Options map[string]any `json:"options,omitempty"` // recursive merge patch; null removes a key
+	Delete  bool           `json:"delete,omitempty"`
 }
 
 type GroupEdit struct {
@@ -43,13 +44,16 @@ type GroupEdit struct {
 }
 
 type ProxyNode struct {
-	Name, Type, Server string
-	Port               int
-	Options            map[string]any
+	Name    string         `json:"name"`
+	Type    string         `json:"type"`
+	Server  string         `json:"server"`
+	Port    int            `json:"port"`
+	Options map[string]any `json:"options,omitempty"`
 }
 type ProxyGroup struct {
-	Name, Type string
-	Members    []string
+	Name    string   `json:"name"`
+	Type    string   `json:"type"`
+	Members []string `json:"members"`
 }
 
 // ProxyEditorBase builds the intermediate source identities for the visual
@@ -160,7 +164,7 @@ func (edits *ProxyEdits) Target(name string) string {
 		return name
 	}
 	for _, e := range edits.Nodes {
-		if e.Source != "" && e.Source == name {
+		if e.Source != "" && e.Source == name && !e.Delete {
 			if e.Name != nil {
 				return *e.Name
 			}
@@ -183,7 +187,7 @@ func (edits *ProxyEdits) aliasTarget(name string) string {
 		return name
 	}
 	for _, e := range edits.Nodes {
-		if slices.Contains(e.Aliases, name) {
+		if !e.Delete && slices.Contains(e.Aliases, name) {
 			if e.Name != nil {
 				return *e.Name
 			}
@@ -199,6 +203,189 @@ func (edits *ProxyEdits) aliasTarget(name string) string {
 		}
 	}
 	return name
+}
+
+// PruneDeletedLocalNodeRefs cleans references to removed local nodes (Source == "")
+// out of GroupEdit.Members and GroupEdit.AppendMembers, returning the pruned
+// ProxyEdits along with the list of deleted local node names so callers can
+// validate that no dialer-proxy or rule references broke.
+func PruneDeletedLocalNodeRefs(previous, next *ProxyEdits) (*ProxyEdits, []string) {
+	out := CloneProxyEdits(next)
+	survivingLocalIDs := map[string]bool{}
+	survivingNames := map[string]bool{}
+	var deletedCandidates []string
+
+	if out != nil {
+		keptNodes := make([]NodeEdit, 0, len(out.Nodes))
+		for _, e := range out.Nodes {
+			if e.Source == "" && e.Delete {
+				if e.Name != nil && *e.Name != "" {
+					deletedCandidates = append(deletedCandidates, *e.Name)
+				}
+				deletedCandidates = append(deletedCandidates, e.Aliases...)
+				continue
+			}
+			keptNodes = append(keptNodes, e)
+			if e.Source == "" && e.LocalID != "" {
+				survivingLocalIDs[e.LocalID] = true
+			}
+			if !e.Delete {
+				if e.Name != nil && *e.Name != "" {
+					survivingNames[*e.Name] = true
+				} else if e.Source != "" {
+					survivingNames[e.Source] = true
+				}
+			}
+		}
+		out.Nodes = keptNodes
+	}
+	if previous != nil {
+		for _, e := range previous.Nodes {
+			if e.Source != "" {
+				continue
+			}
+			if e.LocalID != "" && survivingLocalIDs[e.LocalID] {
+				continue
+			}
+			if e.Name != nil && *e.Name != "" {
+				deletedCandidates = append(deletedCandidates, *e.Name)
+			}
+			deletedCandidates = append(deletedCandidates, e.Aliases...)
+		}
+	}
+	deletedSet := map[string]bool{}
+	var deletedNames []string
+	for _, name := range deletedCandidates {
+		if name == "" || survivingNames[name] || deletedSet[name] {
+			continue
+		}
+		deletedSet[name] = true
+		deletedNames = append(deletedNames, name)
+	}
+	if out == nil {
+		return nil, deletedNames
+	}
+	if len(deletedSet) > 0 {
+		keptGroups := make([]GroupEdit, 0, len(out.Groups))
+		for _, g := range out.Groups {
+			if g.Members != nil {
+				filtered := make([]string, 0, len(*g.Members))
+				for _, m := range *g.Members {
+					if !deletedSet[m] {
+						filtered = append(filtered, m)
+					}
+				}
+				g.Members = &filtered
+			}
+			if len(g.AppendMembers) > 0 {
+				filtered := make([]string, 0, len(g.AppendMembers))
+				for _, m := range g.AppendMembers {
+					if !deletedSet[m] {
+						filtered = append(filtered, m)
+					}
+				}
+				g.AppendMembers = filtered
+			}
+			if g.Source != "" && !g.Delete && g.Name == nil && g.Type == nil && g.Members == nil && len(g.AppendMembers) == 0 && len(g.Aliases) == 0 {
+				continue
+			}
+			keptGroups = append(keptGroups, g)
+		}
+		out.Groups = keptGroups
+	}
+	if len(out.Nodes) == 0 && len(out.Groups) == 0 {
+		return nil, deletedNames
+	}
+	return out, deletedNames
+}
+
+// ValidateDeletedNodeRefs checks that a compiled configuration no longer
+// references any deleted local node via dialer-proxy, listeners, tunnels, or rules.
+func ValidateDeletedNodeRefs(raw []byte, deletedNames []string) error {
+	if len(deletedNames) == 0 {
+		return nil
+	}
+	doc, err := readConfigMap(raw, localize.Text("订阅配置"))
+	if err != nil {
+		return err
+	}
+	existing := ruleTargets(doc)
+	deleted := map[string]bool{}
+	for _, name := range deletedNames {
+		if name != "" && !existing[name] {
+			deleted[name] = true
+		}
+	}
+	if len(deleted) == 0 {
+		return nil
+	}
+	var checkDialers func(any) error
+	checkDialers = func(value any) error {
+		switch v := value.(type) {
+		case map[string]any:
+			for key, item := range v {
+				if key == "dialer-proxy" {
+					if target, ok := item.(string); ok && deleted[target] {
+						return fmt.Errorf(localize.Text("节点 %q 仍被 dialer-proxy 使用，请先修改链式代理"), target)
+					}
+				}
+				if err := checkDialers(item); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, item := range v {
+				if err := checkDialers(item); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := checkDialers(doc); err != nil {
+		return err
+	}
+	for _, section := range []string{"listeners", "tunnels"} {
+		for _, entry := range proxyEntries(doc, section) {
+			switch item := entry.(type) {
+			case map[string]any:
+				if target, ok := item["proxy"].(string); ok && deleted[target] {
+					return fmt.Errorf(localize.Text("节点 %q 仍被入站或端口转发使用，请先修改对应出口"), target)
+				}
+			case string:
+				if section != "tunnels" {
+					continue
+				}
+				parts := strings.Split(item, ",")
+				if len(parts) == 4 && deleted[strings.TrimSpace(parts[3])] {
+					return fmt.Errorf(localize.Text("节点 %q 仍被入站或端口转发使用，请先修改对应出口"), strings.TrimSpace(parts[3]))
+				}
+			}
+		}
+	}
+	if rules, ok := doc["rules"].([]any); ok {
+		for _, v := range rules {
+			rule, _ := v.(string)
+			kind, _, target, _ := RC.ParseRulePayload(rule, true)
+			if kind != "SUB-RULE" && deleted[target] {
+				return fmt.Errorf(localize.Text("节点 %q 仍被规则使用，请先修改规则"), target)
+			}
+		}
+	}
+	if subs, ok := doc["sub-rules"].(map[string]any); ok {
+		for _, v := range subs {
+			if rules, ok := v.([]any); ok {
+				for _, item := range rules {
+					rule, _ := item.(string)
+					kind, _, target, _ := RC.ParseRulePayload(rule, true)
+					if kind != "SUB-RULE" && deleted[target] {
+						return fmt.Errorf(localize.Text("节点 %q 仍被规则使用，请先修改规则"), target)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func RewriteProxyRuleTargets(rules []string, edits *ProxyEdits) []string {
@@ -234,12 +421,15 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 		return err
 	}
 	nodes, groups := proxyEntries(doc, "proxies"), proxyEntries(doc, "proxy-groups")
-	nodeSource, groupSource, groupIndex := map[string]map[string]any{}, map[string]map[string]any{}, map[string]int{}
+	nodeSource, groupSource := map[string]map[string]any{}, map[string]map[string]any{}
+	nodeIndex, groupIndex := map[string]int{}, map[string]int{}
 	sourceOwner := map[string]string{}
-	for _, v := range nodes {
+	for i, v := range nodes {
 		m := v.(map[string]any)
-		nodeSource[m["name"].(string)] = m
-		sourceOwner[m["name"].(string)] = "node:" + m["name"].(string)
+		name := m["name"].(string)
+		nodeSource[name] = m
+		nodeIndex[name] = i
+		sourceOwner[name] = "node:" + name
 	}
 	for i, v := range groups {
 		m := v.(map[string]any)
@@ -249,9 +439,14 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 		sourceOwner[name] = "group:" + name
 	}
 	seen := map[string]bool{}
+	deletedNodes := map[string]bool{}
+	deletedNodeIndices := map[int]bool{}
 	for _, e := range edits.Nodes {
 		identity := e.Source
 		if e.Source == "" {
+			if e.Delete {
+				return fmt.Errorf("%s", localize.Text("新增节点不能标记为删除"))
+			}
 			identity = "local:" + e.LocalID
 			if e.LocalID == "" {
 				return fmt.Errorf("%s", localize.Text("本地节点缺少标识，请重新添加"))
@@ -267,6 +462,14 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 			nodes = append(nodes, m)
 		} else if m == nil {
 			return fmt.Errorf(localize.Text("原节点 %q 已不存在，请移除其本地修改后重试"), e.Source)
+		}
+		if e.Delete {
+			deletedNodes[e.Source] = true
+			for _, alias := range e.Aliases {
+				deletedNodes[alias] = true
+			}
+			deletedNodeIndices[nodeIndex[e.Source]] = true
+			continue
 		}
 		for _, key := range []string{"name", "server", "port"} {
 			if _, ok := e.Options[key]; ok {
@@ -302,6 +505,15 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 		if kind, _ := m["type"].(string); strings.TrimSpace(kind) == "" {
 			return fmt.Errorf("%s", localize.Text("请选择节点协议"))
 		}
+	}
+	if len(deletedNodeIndices) > 0 {
+		keptNodes := make([]any, 0, len(nodes))
+		for i, v := range nodes {
+			if !deletedNodeIndices[i] {
+				keptNodes = append(keptNodes, v)
+			}
+		}
+		nodes = keptNodes
 	}
 	deleted := map[string]bool{}
 	deletedIndices := map[int]bool{}
@@ -388,10 +600,12 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 		}
 	}
 	for source, m := range nodeSource {
-		finalOwner[m["name"].(string)] = "node:" + source
+		if !deletedNodes[source] {
+			finalOwner[m["name"].(string)] = "node:" + source
+		}
 	}
 	for _, e := range edits.Nodes {
-		if e.Source == "" {
+		if e.Source == "" && !e.Delete {
 			finalOwner[*e.Name] = "local-node:" + e.LocalID
 		}
 	}
@@ -458,6 +672,9 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 						if deleted[next] {
 							return fmt.Errorf(localize.Text("策略组 %q 仍被 dialer-proxy 使用，请先修改链式代理"), next)
 						}
+						if deletedNodes[next] {
+							return fmt.Errorf(localize.Text("节点 %q 仍被 dialer-proxy 使用，请先修改链式代理"), next)
+						}
 						v[key] = next
 					}
 				}
@@ -491,6 +708,9 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 					if deleted[next] {
 						return fmt.Errorf(localize.Text("策略组 %q 仍被入站或端口转发使用，请先修改对应出口"), next)
 					}
+					if deletedNodes[next] {
+						return fmt.Errorf(localize.Text("节点 %q 仍被入站或端口转发使用，请先修改对应出口"), next)
+					}
 					item["proxy"] = next
 				}
 			case string:
@@ -507,6 +727,9 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 				if deleted[next] {
 					return fmt.Errorf(localize.Text("策略组 %q 仍被入站或端口转发使用，请先修改对应出口"), next)
 				}
+				if deletedNodes[next] {
+					return fmt.Errorf(localize.Text("节点 %q 仍被入站或端口转发使用，请先修改对应出口"), next)
+				}
 				if next != target {
 					parts[3] = next
 					entries[i] = strings.Join(parts, ",")
@@ -518,28 +741,80 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 	for _, v := range groups {
 		m := v.(map[string]any)
 		name := m["name"].(string)
-		members := proxyMembers(m)
-		inheritedCount := len(members)
-		members = append(members, appendedMembers[name]...)
-		for i, member := range members {
-			// Members supplied by an edited group use final names, while inherited
-			// references follow source renames. This permits swapping two names.
-			if !explicitMembers[name] && i < inheritedCount {
-				members[i] = edits.Target(member)
-			} else {
-				members[i] = edits.aliasTarget(member)
+		rawInherited := proxyMembers(m)
+		rawAppended := appendedMembers[name]
+		members := make([]string, 0, len(rawInherited)+len(rawAppended))
+		nodeDeletedFromGroup := false
+
+		if !explicitMembers[name] {
+			seenInherited := map[string]bool{}
+			for _, member := range rawInherited {
+				resolved := edits.Target(member)
+				if deletedNodes[resolved] {
+					nodeDeletedFromGroup = true
+					continue
+				}
+				if deleted[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 仍被 %q 使用，请先修改成员"), resolved, name)
+				}
+				if changedGroups[name] && !all[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 的成员 %q 不存在"), name, resolved)
+				}
+				if seenInherited[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 的成员重复"), name)
+				}
+				seenInherited[resolved] = true
+				members = append(members, resolved)
 			}
-			if deleted[members[i]] {
-				return fmt.Errorf(localize.Text("策略组 %q 仍被 %q 使用，请先修改成员"), members[i], name)
+			seenAppended := map[string]bool{}
+			for _, member := range rawAppended {
+				resolved := edits.aliasTarget(member)
+				if deletedNodes[resolved] {
+					nodeDeletedFromGroup = true
+					continue
+				}
+				if deleted[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 仍被 %q 使用，请先修改成员"), resolved, name)
+				}
+				if changedGroups[name] && !all[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 的成员 %q 不存在"), name, resolved)
+				}
+				if seenAppended[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 的成员重复"), name)
+				}
+				seenAppended[resolved] = true
+				// Auto-deduplicate AppendMembers against inherited members so an
+				// upstream refresh introducing a same-named member never breaks.
+				if seenInherited[resolved] {
+					continue
+				}
+				members = append(members, resolved)
 			}
-			if changedGroups[name] && !all[members[i]] {
-				return fmt.Errorf(localize.Text("策略组 %q 的成员 %q 不存在"), name, members[i])
-			}
-			if slices.Contains(members[:i], members[i]) {
-				return fmt.Errorf(localize.Text("策略组 %q 的成员重复"), name)
+		} else {
+			seenMembers := map[string]bool{}
+			combined := make([]string, 0, len(rawInherited)+len(rawAppended))
+			combined = append(combined, rawInherited...)
+			combined = append(combined, rawAppended...)
+			for _, member := range combined {
+				resolved := edits.aliasTarget(member)
+				if deletedNodes[resolved] {
+					nodeDeletedFromGroup = true
+					continue
+				}
+				if deleted[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 仍被 %q 使用，请先修改成员"), resolved, name)
+				}
+				if changedGroups[name] && !all[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 的成员 %q 不存在"), name, resolved)
+				}
+				if seenMembers[resolved] {
+					return fmt.Errorf(localize.Text("策略组 %q 的成员重复"), name)
+				}
+				seenMembers[resolved] = true
+				members = append(members, resolved)
 			}
 		}
-		if changedGroups[name] && len(members) == 0 && len(proxyEntries(m, "use")) == 0 && m["include-all"] != true && m["include-all-proxies"] != true && m["include-all-providers"] != true {
+		if (changedGroups[name] || nodeDeletedFromGroup) && len(members) == 0 && len(proxyEntries(m, "use")) == 0 && m["include-all"] != true && m["include-all-proxies"] != true && m["include-all-providers"] != true {
 			return fmt.Errorf(localize.Text("策略组 %q 至少需要一个成员"), name)
 		}
 		values := make([]any, len(members))
@@ -583,6 +858,9 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 				if kind != "SUB-RULE" && deleted[target] {
 					return fmt.Errorf(localize.Text("策略组 %q 仍被规则使用，请先修改规则"), target)
 				}
+				if kind != "SUB-RULE" && deletedNodes[target] {
+					return fmt.Errorf(localize.Text("节点 %q 仍被规则使用，请先修改规则"), target)
+				}
 				rules[i] = next
 			}
 		}
@@ -596,6 +874,9 @@ func applyProxyEdits(doc map[string]any, edits *ProxyEdits) error {
 					kind, _, target, _ := RC.ParseRulePayload(next, true)
 					if kind != "SUB-RULE" && deleted[target] {
 						return fmt.Errorf(localize.Text("策略组 %q 仍被规则使用，请先修改规则"), target)
+					}
+					if kind != "SUB-RULE" && deletedNodes[target] {
+						return fmt.Errorf(localize.Text("节点 %q 仍被规则使用，请先修改规则"), target)
 					}
 					rules[i] = next
 				}

@@ -1,6 +1,7 @@
-import { cleanup, colorScheme, computed, createAnimatedValue, effect, Image, Overlay, reduceMotion, Scroll, Text, View, windowSize } from "nsh";
-import type { BoxShadowLayer, ImageAsset, JSX, StyleProp, ViewStyle } from "nsh";
-import { AlertDialog, Button, Dialog, Input, Sheet, Switch, Tab, Tabs as NativeTabs } from "nsh/base";
+import { cleanup, colorScheme, computed, createAnimatedValue, effect, Image, Overlay, reduceMotion, Scroll, signal, Text, View, windowSize } from "nsh";
+import type { BoxShadowLayer, ImageAsset, JSX, KeyboardType, StyleProp, ViewStyle } from "nsh";
+import { AlertDialog, Button, Checkbox, Dialog, Input, Progress, Sheet, Switch, Tab, Tabs as NativeTabs } from "nsh/base";
+import type { ProfileInfo } from "../client";
 import { colors } from "../theme";
 import { tr } from "../i18n";
 import { haptic } from "./platform";
@@ -9,39 +10,54 @@ import activityIcon from "../../assets/icons/activity.svg";
 import arrowDownIcon from "../../assets/icons/arrow-down-left.svg";
 import arrowUpIcon from "../../assets/icons/arrow-up-right.svg";
 import swapIcon from "../../assets/icons/arrow-left-right.svg";
+import arrowMoveDownIcon from "../../assets/icons/arrow-down.svg";
+import arrowMoveUpIcon from "../../assets/icons/arrow-up.svg";
 import cableIcon from "../../assets/icons/cable.svg";
 import checkIcon from "../../assets/icons/check.svg";
 import chevronDownIcon from "../../assets/icons/chevron-down.svg";
 import chevronRightIcon from "../../assets/icons/chevron-right.svg";
 import circleCheckIcon from "../../assets/icons/circle-check.svg";
 import circleIcon from "../../assets/icons/circle.svg";
+import copyIcon from "../../assets/icons/copy.svg";
+import ellipsisVerticalIcon from "../../assets/icons/ellipsis-vertical.svg";
+import eyeIcon from "../../assets/icons/eye.svg";
+import eyeOffIcon from "../../assets/icons/eye-off.svg";
 import fileTextIcon from "../../assets/icons/file-text.svg";
 import globeIcon from "../../assets/icons/globe.svg";
 import layersIcon from "../../assets/icons/layers-2.svg";
 import dashboardIcon from "../../assets/icons/layout-dashboard.svg";
 import filterIcon from "../../assets/icons/list-filter.svg";
 import networkIcon from "../../assets/icons/network.svg";
+import pencilIcon from "../../assets/icons/pencil.svg";
+import plusIcon from "../../assets/icons/plus.svg";
 import powerIcon from "../../assets/icons/power.svg";
 import radarIcon from "../../assets/icons/radar.svg";
 import refreshIcon from "../../assets/icons/refresh-cw.svg";
+import rotateCcwIcon from "../../assets/icons/rotate-ccw.svg";
 import routeIcon from "../../assets/icons/route.svg";
 import searchIcon from "../../assets/icons/search.svg";
 import serverIcon from "../../assets/icons/server.svg";
 import settingsIcon from "../../assets/icons/settings-2.svg";
 import shieldIcon from "../../assets/icons/shield-check.svg";
+import slidersIcon from "../../assets/icons/sliders-horizontal.svg";
+import stopIcon from "../../assets/icons/square-stop.svg";
 import terminalIcon from "../../assets/icons/square-terminal.svg";
+import trashIcon from "../../assets/icons/trash-2.svg";
 import xIcon from "../../assets/icons/x.svg";
 
 export type MobileIconName =
-  | "activity" | "arrowDown" | "arrowUp" | "cable" | "check" | "chevronDown"
-  | "chevronLeft" | "chevronRight" | "circleCheck" | "circle" | "filter"
-  | "layers" | "logs" | "network" | "overview" | "power" | "profiles"
-  | "proxies" | "radar" | "refresh" | "route" | "search" | "server"
-  | "settings" | "shield" | "swap" | "x";
+  | "activity" | "arrowDown" | "arrowMoveDown" | "arrowMoveUp" | "arrowUp" | "cable"
+  | "check" | "chevronDown" | "chevronLeft" | "chevronRight" | "circleCheck" | "circle"
+  | "copy" | "ellipsisVertical" | "eye" | "eyeOff" | "filter" | "layers" | "logs"
+  | "network" | "overview" | "pencil" | "plus" | "power" | "profiles" | "proxies"
+  | "radar" | "refresh" | "rotateCcw" | "route" | "search" | "server" | "settings"
+  | "shield" | "sliders" | "stop" | "swap" | "trash" | "x";
 
 const ICONS: Record<Exclude<MobileIconName, "chevronLeft">, ImageAsset> = {
   activity: activityIcon,
   arrowDown: arrowDownIcon,
+  arrowMoveDown: arrowMoveDownIcon,
+  arrowMoveUp: arrowMoveUpIcon,
   arrowUp: arrowUpIcon,
   cable: cableIcon,
   check: checkIcon,
@@ -49,28 +65,43 @@ const ICONS: Record<Exclude<MobileIconName, "chevronLeft">, ImageAsset> = {
   chevronRight: chevronRightIcon,
   circleCheck: circleCheckIcon,
   circle: circleIcon,
+  copy: copyIcon,
+  ellipsisVertical: ellipsisVerticalIcon,
+  eye: eyeIcon,
+  eyeOff: eyeOffIcon,
   filter: filterIcon,
   layers: layersIcon,
   logs: terminalIcon,
   network: networkIcon,
   overview: dashboardIcon,
+  pencil: pencilIcon,
+  plus: plusIcon,
   power: powerIcon,
   profiles: fileTextIcon,
   proxies: globeIcon,
   radar: radarIcon,
   refresh: refreshIcon,
+  rotateCcw: rotateCcwIcon,
   route: routeIcon,
   search: searchIcon,
   server: serverIcon,
   settings: settingsIcon,
   shield: shieldIcon,
+  sliders: slidersIcon,
+  stop: stopIcon,
   swap: swapIcon,
+  trash: trashIcon,
   x: xIcon,
 };
 
 export type Tone = "accent" | "success" | "warn" | "danger" | "muted";
 
+// 3-tier responsive breakpoints:
+// <680: phone bottom bar + BottomSheet/Subpage (390x844)
+// 680-903: sidebar + single column + Dialog (840x560)
+// >=904: sidebar + 2-column Master-Detail (360px list + >=348px detail/editor, 1060x720)
 export const compact = () => windowSize().width < 680;
+export const wideMasterDetail = () => windowSize().width >= 904;
 export const RADIUS = { control: 10, surface: 16, sheet: 20, pill: 999 } as const;
 
 export function tint(color: string, alpha: string): string { return color + alpha; }
@@ -120,7 +151,7 @@ export function formatRateParts(value: number): { num: string; unit: string } {
 export function formatUpdated(iso?: string): string {
   if (!iso) return "";
   const ts = Date.parse(iso);
-  if (Number.isNaN(ts)) return iso;
+  if (Number.isNaN(ts) || ts <= 0) return "";
   const diffMin = Math.floor((Date.now() - ts) / 60000);
   if (diffMin >= 0 && diffMin < 1) return tr("刚刚更新", "Updated just now");
   if (diffMin >= 1 && diffMin < 60) return tr(`${diffMin} 分钟前更新`, `Updated ${diffMin}m ago`);
@@ -130,6 +161,53 @@ export function formatUpdated(iso?: string): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return tr(`更新于 ${mm}-${dd}`, `Updated ${mm}-${dd}`);
+}
+
+export function hasQuotaInfo(info?: ProfileInfo | null): boolean {
+  if (!info) return false;
+  return info.total > 0 || info.upload > 0 || info.download > 0 || info.expire > 0;
+}
+
+export function quotaPercent(info?: ProfileInfo | null): number {
+  if (!info || info.total <= 0) return 0;
+  const used = Math.max(0, (info.upload || 0) + (info.download || 0));
+  return Math.min(100, Math.max(0, (used / info.total) * 100));
+}
+
+export function formatExpiry(expireUnixSec?: number): { label: string; expired: boolean; soon: boolean } | null {
+  if (!expireUnixSec || expireUnixSec <= 0) return null;
+  const ms = expireUnixSec * 1000;
+  const now = Date.now();
+  const d = new Date(ms);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const diffDays = Math.ceil((ms - now) / 86400000);
+  if (diffDays <= 0) {
+    return { label: tr(`已过期 (${mm}-${dd})`, `Expired (${mm}-${dd})`), expired: true, soon: false };
+  }
+  return {
+    label: tr(`剩余 ${diffDays} 天 · ${mm}-${dd} 到期`, `${diffDays}d left · ${mm}-${dd}`),
+    expired: false,
+    soon: diffDays <= 7,
+  };
+}
+
+export function groupTypeLabel(kind: string): string {
+  switch (String(kind).toLowerCase()) {
+    case "selector": case "select": return tr("手动选择", "Manual");
+    case "urltest": case "url-test": return tr("自动测速", "Auto");
+    case "fallback": return tr("故障转移", "Fallback");
+    case "loadbalance": case "load-balance": return tr("负载均衡", "Load balance");
+    case "relay": return tr("链式代理", "Relay");
+    default: return kind;
+  }
+}
+
+export function delayTone(delay: number): Tone {
+  if (delay <= 0) return "danger";
+  if (delay < 150) return "success";
+  if (delay < 400) return "warn";
+  return "danger";
 }
 
 export function Icon(props: { source?: ImageAsset; name?: MobileIconName; selected?: boolean; size?: number; color?: string }) {
@@ -189,6 +267,56 @@ export function Tag(props: { text: string; tone?: Tone; testID?: string }) {
   }}>
     <Text style={{ fontSize: 11, fontWeight: "600", color: fg(), numberOfLines: 1 }}>{props.text}</Text>
   </View>;
+}
+
+export function ProgressBar(props: {
+  percent: number;
+  tone?: Tone;
+  expired?: boolean;
+  testID?: string;
+  accessibilityLabel?: string;
+}) {
+  const clamped = () => Math.min(100, Math.max(0, Number.isFinite(props.percent) ? props.percent : 0));
+  const fillColor = () => {
+    if (props.tone) return toneColor(props.tone);
+    if (props.expired || clamped() >= 98) return colors().danger;
+    if (clamped() >= 85) return colors().warn;
+    return colors().accent;
+  };
+  return <Progress
+    testID={props.testID}
+    value={clamped()}
+    accessibilityLabel={props.accessibilityLabel ?? tr("流量使用进度", "Traffic quota usage")}
+    trackStyle={{ height: 4, borderRadius: 2, backgroundColor: colors().hover, overflow: "hidden" }}
+    indicatorStyle={{ height: 4, borderRadius: 2, backgroundColor: fillColor() }} />;
+}
+
+export function MobileCheckbox(props: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label?: string;
+  disabled?: boolean;
+  testID?: string;
+}) {
+  const fill = () => accentFill();
+  return <Checkbox
+    testID={props.testID}
+    checked={props.checked}
+    disabled={props.disabled}
+    accessibilityLabel={props.label}
+    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    onChange={({ checked }) => { haptic("selection"); props.onChange(checked); }}
+    style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24, opacity: props.disabled ? 0.45 : 1 }}
+    indicatorStyle={{
+      width: 22, height: 22, borderRadius: 6,
+      alignItems: "center", justifyContent: "center",
+      backgroundColor: props.checked ? fill().bg : colors().bg,
+      borderWidth: 1.5,
+      borderColor: props.checked ? fill().bg : colors().border,
+    }}
+    indicator={props.checked ? <Icon name="check" size={14} color={fill().fg} /> : undefined}>
+    <If when={!!props.label}><Label text={props.label ?? ""} size={13} /></If>
+  </Checkbox>;
 }
 
 export function Notice(props: { text: string; tone?: "info" | "warn" | "danger" | "success"; action?: () => JSX.Element; testID?: string }) {
@@ -262,7 +390,16 @@ export function Action(props: {
   </Button>;
 }
 
-export function IconButton(props: { icon: MobileIconName; label: string; onPress: () => void; disabled?: boolean; color?: string; size?: number; testID?: string }) {
+export function IconButton(props: {
+  icon: MobileIconName;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  color?: string;
+  size?: number;
+  dot?: boolean;
+  testID?: string;
+}) {
   return <Button
     testID={props.testID}
     accessibilityLabel={props.label}
@@ -279,7 +416,17 @@ export function IconButton(props: { icon: MobileIconName; label: string; onPress
     activeStyle={{ backgroundColor: colors().selected, opacity: 0.8 }}
     focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}
     disabledStyle={{ opacity: 0.38 }}>
-    <Icon name={props.icon} size={props.size ?? 19} color={props.color ?? colors().muted} />
+    <View style={{ alignItems: "center", justifyContent: "center" }}>
+      <Icon name={props.icon} size={props.size ?? 19} color={props.color ?? colors().muted} />
+      <If when={!!props.dot}>
+        <View style={{
+          position: "absolute", top: -2, right: -3,
+          width: 7, height: 7, borderRadius: 3.5,
+          backgroundColor: colors().accent,
+          borderWidth: 1.5, borderColor: colors().bg,
+        }} />
+      </If>
+    </View>
   </Button>;
 }
 
@@ -298,11 +445,7 @@ export function MoreButton(props: { label: string; onPress: () => void; disabled
     activeStyle={{ backgroundColor: colors().selected, opacity: 0.8 }}
     focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}
     disabledStyle={{ opacity: 0.38 }}>
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-      <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors().muted }} />
-      <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors().muted }} />
-      <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors().muted }} />
-    </View>
+    <Icon name="ellipsisVertical" size={18} color={colors().muted} />
   </Button>;
 }
 
@@ -372,8 +515,8 @@ export function Segmented(props: { items: SegmentedItem[]; value: string; onChan
   </NativeTabs>;
 }
 
-export function Panel(props: { children?: JSX.Element; padding?: number; gap?: number; style?: StyleProp<ViewStyle>; accentLeft?: boolean; accentColor?: string }) {
-  return <View style={[{
+export function Panel(props: { children?: JSX.Element; padding?: number; gap?: number; style?: StyleProp<ViewStyle>; accentLeft?: boolean; accentColor?: string; testID?: string }) {
+  return <View testID={props.testID} style={[{
     padding: props.padding ?? 16,
     gap: props.gap ?? 12,
     borderRadius: RADIUS.surface,
@@ -465,7 +608,7 @@ export function Heading(props: { title: string; description?: string; action?: (
   </View>;
 }
 
-export function SubpageHeader(props: { title: string; onBack: () => void; backDisabled?: boolean; backTestID?: string; action?: () => JSX.Element }) {
+export function SubpageHeader(props: { title: string; subtitle?: string; onBack: () => void; backDisabled?: boolean; backTestID?: string; action?: () => JSX.Element }) {
   return <View style={{
     flexDirection: "row", alignItems: "center", gap: 6, minHeight: 52,
     paddingHorizontal: 8, paddingVertical: 4,
@@ -484,7 +627,10 @@ export function SubpageHeader(props: { title: string; onBack: () => void; backDi
       <Icon name="chevronLeft" size={20} color={colors().text} />
       <Text style={{ fontSize: 14, fontWeight: "500", color: colors().text }}>{tr("返回", "Back")}</Text>
     </Button>
-    <Text role="header" style={{ flex: 1, fontSize: 17, fontWeight: "600", color: colors().text, numberOfLines: 1, textOverflow: "ellipsis" }}>{props.title}</Text>
+    <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+      <Text role="header" style={{ fontSize: 17, fontWeight: "600", color: colors().text, numberOfLines: 1, textOverflow: "ellipsis" }}>{props.title}</Text>
+      <If when={!!props.subtitle}><Text style={{ fontSize: 11.5, color: colors().muted, numberOfLines: 1, textOverflow: "ellipsis" }}>{props.subtitle ?? ""}</Text></If>
+    </View>
     <If when={!!props.action}><View style={{ flexShrink: 0, paddingRight: 4 }}>{props.action?.()}</View></If>
   </View>;
 }
@@ -500,33 +646,95 @@ export function Empty(props: { title: string; description: string; icon?: Mobile
   </View>;
 }
 
-export function Field(props: { label?: string; value: string; onChange: (value: string) => void; placeholder?: string; multiline?: boolean; disabled?: boolean; helper?: string; testID?: string; accessibilityLabel?: string }) {
+export function Field(props: {
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
+  height?: number;
+  disabled?: boolean;
+  secret?: boolean;
+  keyboardType?: KeyboardType;
+  trailing?: () => JSX.Element;
+  helper?: string;
+  error?: string;
+  testID?: string;
+  accessibilityLabel?: string;
+}) {
+  const revealed = signal(false);
+  const hasFrameAddon = () => !!props.secret || !!props.trailing;
+
   return <View style={{ gap: 6 }}>
     <If when={!!props.label}><Label text={props.label ?? ""} bold size={12} muted /></If>
-    <Input
-      testID={props.testID}
-      accessibilityLabel={props.accessibilityLabel ?? props.label ?? props.placeholder}
-      value={props.value}
-      onChange={({ value }) => props.onChange(value)}
-      placeholder={props.placeholder}
-      multiline={props.multiline}
-      autoCapitalize="none"
-      autoCorrect={false}
-      autoComplete="off"
-      readonly={props.disabled}
-      style={{
-        minHeight: 44,
-        height: props.multiline ? 150 : undefined,
-        paddingHorizontal: 12, paddingVertical: 10,
-        borderWidth: 1, borderColor: colors().border, borderRadius: RADIUS.control,
-        color: colors().text,
-        fontSize: props.multiline ? 12 : 14,
-        fontFamily: props.multiline ? "monospace" : undefined,
-        backgroundColor: colors().bg,
-        placeholderColor: colors().faint,
-      }}
-      focusStyle={{ borderColor: colors().accent }} />
-    <If when={!!props.helper}><Label text={props.helper ?? ""} muted size={11.5} /></If>
+    <If when={!hasFrameAddon()}>
+      <Input
+        testID={props.testID}
+        accessibilityLabel={props.accessibilityLabel ?? props.label ?? props.placeholder}
+        value={props.value}
+        onChange={({ value }) => props.onChange(value)}
+        placeholder={props.placeholder}
+        multiline={props.multiline}
+        keyboardType={props.keyboardType}
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="off"
+        readonly={props.disabled}
+        style={{
+          minHeight: 44,
+          height: props.multiline ? (props.height ?? 150) : undefined,
+          paddingHorizontal: 12, paddingVertical: 10,
+          borderWidth: 1, borderColor: props.error ? colors().danger : colors().border, borderRadius: RADIUS.control,
+          color: colors().text,
+          fontSize: props.multiline ? 12 : 14,
+          fontFamily: props.multiline ? "monospace" : undefined,
+          backgroundColor: colors().bg,
+          placeholderColor: colors().faint,
+        }}
+        focusStyle={{ borderColor: props.error ? colors().danger : colors().accent }} />
+    </If>
+    <If when={hasFrameAddon()}>
+      <View
+        style={{
+          flexDirection: "row", alignItems: "center", minHeight: 44,
+          paddingLeft: 12, paddingRight: 2,
+          borderWidth: 1, borderColor: props.error ? colors().danger : colors().border, borderRadius: RADIUS.control,
+          backgroundColor: colors().bg,
+        }}
+        focusWithinStyle={{ borderColor: props.error ? colors().danger : colors().accent }}>
+        <Input
+          testID={props.testID}
+          accessibilityLabel={props.accessibilityLabel ?? props.label ?? props.placeholder}
+          value={props.value}
+          onChange={({ value }) => props.onChange(value)}
+          placeholder={props.placeholder}
+          masked={!!props.secret && !revealed()}
+          keyboardType={props.keyboardType}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          readonly={props.disabled}
+          style={{
+            flex: 1, minWidth: 0, minHeight: 42,
+            paddingHorizontal: 0, paddingVertical: 8,
+            borderWidth: 0, backgroundColor: "transparent",
+            color: colors().text,
+            fontSize: 14,
+            placeholderColor: colors().faint,
+          }} />
+        <If when={!!props.secret}>
+          <IconButton
+            testID={props.testID ? `${props.testID}-reveal` : undefined}
+            icon={revealed() ? "eyeOff" : "eye"}
+            size={18}
+            label={revealed() ? tr("隐藏敏感内容", "Hide secret") : tr("显示敏感内容", "Reveal secret")}
+            onPress={() => { haptic("selection"); revealed.set(!revealed()); }} />
+        </If>
+        <If when={!!props.trailing}><View style={{ flexShrink: 0 }}>{props.trailing?.()}</View></If>
+      </View>
+    </If>
+    <If when={!!props.error}><Label text={props.error ?? ""} color={colors().danger} size={11.5} /></If>
+    <If when={!props.error && !!props.helper}><Label text={props.helper ?? ""} muted size={11.5} /></If>
   </View>;
 }
 

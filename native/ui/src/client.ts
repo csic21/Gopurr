@@ -32,7 +32,202 @@ export interface Status {
   mesh?: MeshSummary;
 }
 
-export interface Profile { id: string; name: string; kind: string; source: string; updated: string; active: boolean; reconnectRequired?: boolean }
+export interface ProfileInfo {
+  upload: number;
+  download: number;
+  total: number;
+  expire: number;
+}
+
+export interface AggregateRef {
+  id: string;
+  name: string;
+}
+
+export interface AggregateSourceSummary {
+  id: string;
+  name: string;
+  prefix?: string;
+}
+
+export interface AggregateSummary {
+  sources: AggregateSourceSummary[];
+  include?: string;
+  exclude?: string;
+  dedupe: boolean;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  kind: string;
+  source: string;
+  updated: string;
+  active: boolean;
+  reconnectRequired?: boolean;
+  info?: ProfileInfo;
+  userAgent?: string;
+  updateHours?: number | null;
+  useProxy?: boolean;
+  isAggregate?: boolean;
+  hasPath?: boolean;
+  isPureLocal?: boolean;
+  nodeCount?: number;
+  localNodeCount?: number;
+  editedNodeCount?: number;
+  editedGroupCount?: number;
+  extraRuleCount?: number;
+  templateCount?: number;
+  lastError?: string;
+  dependentAggregates?: AggregateRef[];
+  aggregate?: AggregateSummary;
+}
+
+export interface ProfileMutation {
+  profile?: Profile;
+  saved: boolean;
+  applied: boolean;
+  reconnectRequired?: boolean;
+  status: Status;
+}
+
+export interface ProfileEditor {
+  id: string;
+  name: string;
+  url: string;
+  kind: string;
+  info?: ProfileInfo;
+  userAgent?: string;
+  updateHours?: number | null;
+  useProxy?: boolean;
+  isAggregate?: boolean;
+  hasPath?: boolean;
+  isPureLocal?: boolean;
+  nodeCount?: number;
+  localNodeCount?: number;
+  editedNodeCount?: number;
+  editedGroupCount?: number;
+  extraRuleCount?: number;
+  templateCount?: number;
+  lastError?: string;
+  dependentAggregates?: AggregateRef[];
+  aggregate?: AggregateSummary;
+}
+
+export interface ParseFailure {
+  line: number;
+  raw: string;
+  reason: string;
+}
+
+export interface ParsedProxyNode {
+  name: string;
+  type: string;
+  server: string;
+  port: number;
+  options: Record<string, unknown>;
+}
+
+export interface ParseResult {
+  kind: "url" | "nodes" | "clash_yaml" | "empty" | "unknown";
+  url?: string;
+  yaml?: string;
+  decoded?: boolean;
+  ambiguousHttp?: boolean;
+  nodes?: ParsedProxyNode[];
+  failures?: ParseFailure[];
+}
+
+export interface NodeEdit {
+  source: string;
+  localId?: string;
+  aliases?: string[];
+  name?: string;
+  server?: string;
+  port?: number;
+  options?: Record<string, unknown>;
+  delete?: boolean;
+}
+
+export interface GroupEdit {
+  source?: string;
+  aliases?: string[];
+  name?: string;
+  type?: string;
+  members?: string[];
+  appendMembers?: string[];
+  delete?: boolean;
+}
+
+export interface ProxyEdits {
+  nodes?: NodeEdit[];
+  groups?: GroupEdit[];
+}
+
+export interface ProxyBaseNode {
+  name: string;
+  type: string;
+  server: string;
+  port: number;
+  options?: Record<string, unknown>;
+}
+
+export interface ProxyBaseGroup {
+  name: string;
+  type: string;
+  members?: string[];
+}
+
+export interface ProxyEditorNode {
+  source: string;
+  localId?: string;
+  name: string;
+  type: string;
+  server: string;
+  port: number;
+  options: Record<string, unknown>;
+  edited: boolean;
+  missing: boolean;
+  base?: ProxyBaseNode | null;
+}
+
+export interface ProxyEditorGroup {
+  source: string;
+  name: string;
+  type: string;
+  members: string[];
+  inheritedMembers: string[];
+  appendMembers: string[];
+  explicit: boolean;
+  explicitMembers: boolean;
+  edited: boolean;
+  missing: boolean;
+  deleted: boolean;
+  use: string[];
+  includeAll: boolean;
+  base?: ProxyBaseGroup | null;
+}
+
+export interface ProviderNodeInfo {
+  provider: string;
+  name: string;
+  type: string;
+}
+
+export interface ProxyEditorPayload {
+  id: string;
+  profileId: string;
+  profileName: string;
+  profileKind: string;
+  isPureLocal: boolean;
+  nodes: ProxyEditorNode[];
+  groups: ProxyEditorGroup[];
+  edits: ProxyEdits | null;
+  options: string[];
+  availableNames: string[];
+  providerNodes: ProviderNodeInfo[];
+}
+
 export interface Member { name: string; type: string; delay?: number }
 export interface Group { name: string; type: string; now: string; hidden: boolean; members: Member[] }
 interface Reply<T> { result?: T; error?: { code: string; message: string } }

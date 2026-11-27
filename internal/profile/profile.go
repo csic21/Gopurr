@@ -64,17 +64,21 @@ type Profile struct {
 // IsFile reports a local file rather than a subscription.
 func (p Profile) IsFile() bool { return p.Kind == KindFile }
 
+// IsPureLocal reports a local profile created/pasted in-app without a disk path.
+func (p Profile) IsPureLocal() bool { return p.Kind == KindFile && p.Path == "" }
+
 func (p Profile) IsAggregate() bool { return p.Kind == KindAggregate }
 
 // Store is the profiles directory plus its index.
 type Store struct {
-	mu       sync.Mutex
-	dir      string
-	Items    []Profile `json:"profiles"`
-	Active   string    `json:"active"`
-	proxyURL func() *url.URL
-	last     string // last error from a background refresh
-	revision uint64 // successful commits; never persisted
+	mu         sync.Mutex
+	dir        string
+	Items      []Profile `json:"profiles"`
+	Active     string    `json:"active"`
+	proxyURL   func() *url.URL
+	last       string            // last error from a background refresh
+	lastErrors map[string]string // per-profile last refresh error; never persisted
+	revision   uint64            // successful commits; never persisted
 }
 
 // Open loads (or creates) the store under dir.
@@ -85,7 +89,7 @@ func Open(dir string) (*Store, error) {
 	if err := securefs.PrivateDir(filepath.Join(dir, "profiles")); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir}
+	s := &Store{dir: dir, lastErrors: map[string]string{}}
 	b, err := os.ReadFile(filepath.Join(dir, "profiles.json"))
 	if err == nil {
 		if err := securefs.PrivateFile(filepath.Join(dir, "profiles.json")); err != nil {
@@ -276,7 +280,36 @@ func (s *Store) RefreshChecked(id string, accept func([]byte) error) error {
 	return s.RefreshCheckedContext(context.Background(), id, accept)
 }
 
-func (s *Store) RefreshCheckedContext(ctx context.Context, id string, accept func([]byte) error) error {
+// SetProfileError records or clears the last refresh error for one profile.
+func (s *Store) SetProfileError(id, msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lastErrors == nil {
+		s.lastErrors = map[string]string{}
+	}
+	if msg == "" {
+		delete(s.lastErrors, id)
+	} else {
+		s.lastErrors[id] = msg
+	}
+}
+
+// ProfileError returns the last refresh error recorded for a profile.
+func (s *Store) ProfileError(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastErrors[id]
+}
+
+// RefreshCheckedContext validates/applies the candidate before replacing the cache.
+func (s *Store) RefreshCheckedContext(ctx context.Context, id string, accept func([]byte) error) (retErr error) {
+	defer func() {
+		if retErr != nil {
+			s.SetProfileError(id, retErr.Error())
+		} else {
+			s.SetProfileError(id, "")
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return err
 	}

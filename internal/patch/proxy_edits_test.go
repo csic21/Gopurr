@@ -285,3 +285,250 @@ func TestProxyEditorBaseKeepsIntermediateTemplateIdentities(t *testing.T) {
 		t.Fatal("base skipped structural validation")
 	}
 }
+
+func TestSubscriptionRefreshPreservesLocalVPSNodesAndDeduplicatesAppendMembers(t *testing.T) {
+	subV1 := `proxies:
+  - name: SubHK
+    type: ss
+    server: hk.provider.example
+    port: 443
+    cipher: aes-128-gcm
+    password: secret-v1
+  - name: SubJP
+    type: trojan
+    server: jp.provider.example
+    port: 443
+    password: pass-v1
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [SubHK, SubJP, DIRECT]
+  - name: Auto
+    type: url-test
+    proxies: [SubHK, SubJP]
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+rules:
+  - DOMAIN-SUFFIX,google.com,Proxy
+  - MATCH,DIRECT
+`
+	// User adds a personal VPS node and appends it to Proxy & Auto via AppendMembers,
+	// plus also appends a node name "SubSG" that upstream does not yet have in Proxy.
+	edits := &ProxyEdits{
+		Nodes: []NodeEdit{
+			{
+				Source:  "",
+				LocalID: "vps-tokyo-1",
+				Name:    proxyString("MyVPS Tokyo"),
+				Server:  proxyString("203.0.113.10"),
+				Port:    proxyInt(443),
+				Options: map[string]any{
+					"type":       "vless",
+					"uuid":       "11111111-2222-3333-4444-555555555555",
+					"tls":        true,
+					"servername": "vps.example.com",
+				},
+			},
+		},
+		Groups: []GroupEdit{
+			{Source: "Proxy", AppendMembers: []string{"MyVPS Tokyo"}},
+			{Source: "Auto", AppendMembers: []string{"MyVPS Tokyo", "SubHK"}},
+		},
+	}
+
+	// Verify v1: MyVPS Tokyo is added, and SubHK in Auto's AppendMembers deduplicates against inherited SubHK!
+	rawV1, err := ApplyLayers([]byte(subV1), Default(), ProfileOverrides{ProxyEdits: edits})
+	if err != nil {
+		t.Fatalf("v1 apply failed: %v", err)
+	}
+	docV1 := proxyDocument(t, rawV1)
+	groupsV1 := proxyEntries(docV1, "proxy-groups")
+	if !reflect.DeepEqual(proxyMembers(groupsV1[0].(map[string]any)), []string{"SubHK", "SubJP", "DIRECT", "MyVPS Tokyo"}) {
+		t.Fatalf("v1 Proxy members unexpected: %v", proxyMembers(groupsV1[0].(map[string]any)))
+	}
+	if !reflect.DeepEqual(proxyMembers(groupsV1[1].(map[string]any)), []string{"SubHK", "SubJP", "MyVPS Tokyo"}) {
+		t.Fatalf("v1 Auto members did not auto-deduplicate SubHK: %v", proxyMembers(groupsV1[1].(map[string]any)))
+	}
+
+	// Now upstream subscription refreshes: SubJP is removed, SubSG and SubUS are added,
+	// credentials rotate, AND subscription rules are updated with new domains.
+	subV2 := `proxies:
+  - name: SubHK
+    type: ss
+    server: hk.provider.example
+    port: 443
+    cipher: aes-128-gcm
+    password: secret-v2
+  - name: SubSG
+    type: trojan
+    server: sg.provider.example
+    port: 443
+    password: pass-v2
+  - name: SubUS
+    type: trojan
+    server: us.provider.example
+    port: 443
+    password: pass-v2
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [SubHK, SubSG, SubUS, DIRECT]
+  - name: Auto
+    type: url-test
+    proxies: [SubHK, SubSG, SubUS]
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+rules:
+  - DOMAIN-SUFFIX,google.com,Proxy
+  - DOMAIN-SUFFIX,openai.com,Proxy
+  - MATCH,DIRECT
+`
+	rawV2, err := ApplyLayers([]byte(subV2), Default(), ProfileOverrides{ProxyEdits: edits})
+	if err != nil {
+		t.Fatalf("v2 refresh apply failed: %v", err)
+	}
+	docV2 := proxyDocument(t, rawV2)
+	// Confirm MyVPS Tokyo survived intact alongside refreshed upstream nodes.
+	var nodeNames []string
+	var foundVPS map[string]any
+	for _, entry := range proxyEntries(docV2, "proxies") {
+		m := entry.(map[string]any)
+		name := m["name"].(string)
+		nodeNames = append(nodeNames, name)
+		if name == "MyVPS Tokyo" {
+			foundVPS = m
+		}
+	}
+	if !reflect.DeepEqual(nodeNames, []string{"SubHK", "SubSG", "SubUS", "MyVPS Tokyo"}) {
+		t.Fatalf("v2 nodes unexpected: %v", nodeNames)
+	}
+	if foundVPS == nil || foundVPS["server"] != "203.0.113.10" || foundVPS["uuid"] != "11111111-2222-3333-4444-555555555555" {
+		t.Fatalf("VPS node fields altered after refresh: %v", foundVPS)
+	}
+	groupsV2 := proxyEntries(docV2, "proxy-groups")
+	if !reflect.DeepEqual(proxyMembers(groupsV2[0].(map[string]any)), []string{"SubHK", "SubSG", "SubUS", "DIRECT", "MyVPS Tokyo"}) {
+		t.Fatalf("v2 Proxy members unexpected: %v", proxyMembers(groupsV2[0].(map[string]any)))
+	}
+	if !reflect.DeepEqual(proxyMembers(groupsV2[1].(map[string]any)), []string{"SubHK", "SubSG", "SubUS", "MyVPS Tokyo"}) {
+		t.Fatalf("v2 Auto members unexpected: %v", proxyMembers(groupsV2[1].(map[string]any)))
+	}
+	if !strings.Contains(string(rawV2), "DOMAIN-SUFFIX,openai.com,Proxy") || !strings.Contains(string(rawV2), "secret-v2") {
+		t.Fatalf("updated subscription rules or credentials lost: %s", rawV2)
+	}
+
+	// Explicit duplicate INSIDE AppendMembers must still be rejected.
+	dupAppend := CloneProxyEdits(edits)
+	dupAppend.Groups[0].AppendMembers = []string{"MyVPS Tokyo", "MyVPS Tokyo"}
+	if _, err := PreviewProxyEdits([]byte(subV2), dupAppend); err == nil {
+		t.Fatal("duplicate inside AppendMembers was accepted")
+	}
+	// Explicit duplicate INSIDE Members must still be rejected.
+	dupExplicit := &ProxyEdits{Groups: []GroupEdit{{Source: "Proxy", Members: proxyStrings("SubHK", "SubHK")}}}
+	if _, err := PreviewProxyEdits([]byte(subV2), dupExplicit); err == nil {
+		t.Fatal("duplicate inside explicit Members was accepted")
+	}
+}
+
+func TestDeleteLocalAndBaseNodeCleansGroupsAndProtectsReferences(t *testing.T) {
+	// 1. Overlay local node deletion via PruneDeletedLocalNodeRefs + ValidateDeletedNodeRefs
+	prev := &ProxyEdits{
+		Nodes: []NodeEdit{
+			{Source: "", LocalID: "vps-1", Name: proxyString("MyVPS"), Server: proxyString("1.2.3.4"), Port: proxyInt(443), Options: map[string]any{"type": "trojan", "password": "pw"}},
+			{Source: "", LocalID: "vps-2", Name: proxyString("RelayVPS"), Server: proxyString("5.6.7.8"), Port: proxyInt(443), Options: map[string]any{"type": "trojan", "password": "pw", "dialer-proxy": "MyVPS"}},
+		},
+		Groups: []GroupEdit{
+			{Source: "Choice", AppendMembers: []string{"MyVPS"}},
+			{Name: proxyString("OnlyVPS"), Type: proxyString("select"), Members: proxyStrings("MyVPS")},
+		},
+	}
+	// User removes MyVPS from Nodes, leaving stale refs in Groups.
+	next := CloneProxyEdits(prev)
+	next.Nodes = next.Nodes[1:] // keep RelayVPS, drop MyVPS
+	pruned, deletedNames := PruneDeletedLocalNodeRefs(prev, next)
+	if !reflect.DeepEqual(deletedNames, []string{"MyVPS"}) {
+		t.Fatalf("deletedNames = %v, want [MyVPS]", deletedNames)
+	}
+	// Choice's no-op AppendMembers GroupEdit was dropped; OnlyVPS has empty Members -> rejected!
+	if _, err := PreviewProxyEdits([]byte(proxyEditFixture), pruned); err == nil {
+		t.Fatal("deleting sole member of OnlyVPS should fail with empty group error")
+	}
+	// Give OnlyVPS another member, but RelayVPS still has dialer-proxy: MyVPS -> ValidateDeletedNodeRefs catches it!
+	*pruned.Groups[0].Members = []string{"RelayVPS"}
+	compiled, err := PreviewProxyEdits([]byte(proxyEditFixture), pruned)
+	if err != nil {
+		t.Fatalf("unexpected preview error: %v", err)
+	}
+	if err := ValidateDeletedNodeRefs(compiled, deletedNames); err == nil {
+		t.Fatal("dangling dialer-proxy to deleted local node was not caught")
+	}
+	// Remove dialer-proxy from RelayVPS -> succeeds cleanly.
+	delete(pruned.Nodes[0].Options, "dialer-proxy")
+	compiled, err = PreviewProxyEdits([]byte(proxyEditFixture), pruned)
+	if err != nil {
+		t.Fatalf("unexpected error after fixing dialer: %v", err)
+	}
+	if err := ValidateDeletedNodeRefs(compiled, deletedNames); err != nil {
+		t.Fatalf("unexpected deleted ref error after cleanup: %v", err)
+	}
+
+	// 2. Pure local YAML base node deletion via NodeEdit{Source: "...", Delete: true}
+	localYAML := `proxies:
+  - name: NodeA
+    type: ss
+    server: a.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: p
+  - name: NodeB
+    type: ss
+    server: b.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: p
+proxy-groups:
+  - name: Gopurr Select
+    type: select
+    proxies: [Gopurr Auto, NodeA, NodeB]
+  - name: Gopurr Auto
+    type: url-test
+    proxies: [NodeA, NodeB]
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+rules:
+  - MATCH,Gopurr Select
+`
+	out, err := PreviewProxyEdits([]byte(localYAML), &ProxyEdits{
+		Nodes: []NodeEdit{{Source: "NodeA", Delete: true}},
+	})
+	if err != nil {
+		t.Fatalf("base node delete failed: %v", err)
+	}
+	doc := proxyDocument(t, out)
+	if len(proxyEntries(doc, "proxies")) != 1 {
+		t.Fatalf("NodeA not removed: %v", doc["proxies"])
+	}
+	for _, g := range proxyEntries(doc, "proxy-groups") {
+		if strings.Contains(strings.Join(proxyMembers(g.(map[string]any)), ","), "NodeA") {
+			t.Fatalf("group retained deleted NodeA: %v", g)
+		}
+	}
+	// Deleting BOTH NodeA and NodeB empties Gopurr Auto -> must fail!
+	if _, err := PreviewProxyEdits([]byte(localYAML), &ProxyEdits{
+		Nodes: []NodeEdit{{Source: "NodeA", Delete: true}, {Source: "NodeB", Delete: true}},
+	}); err == nil {
+		t.Fatal("emptying Gopurr Auto by deleting all nodes was accepted")
+	}
+	// Deleting a node referenced by dialer-proxy or rules -> must fail!
+	withRule := strings.Replace(localYAML, "MATCH,Gopurr Select", "DOMAIN,x.com,NodeA\n  - MATCH,Gopurr Select", 1)
+	if _, err := PreviewProxyEdits([]byte(withRule), &ProxyEdits{
+		Nodes: []NodeEdit{{Source: "NodeA", Delete: true}},
+	}); err == nil {
+		t.Fatal("deleting node referenced by rule was accepted")
+	}
+	withDialer := strings.Replace(localYAML, "server: b.example.com", "server: b.example.com\n    dialer-proxy: NodeA", 1)
+	if _, err := PreviewProxyEdits([]byte(withDialer), &ProxyEdits{
+		Nodes: []NodeEdit{{Source: "NodeA", Delete: true}},
+	}); err == nil {
+		t.Fatal("deleting node referenced by dialer-proxy was accepted")
+	}
+}

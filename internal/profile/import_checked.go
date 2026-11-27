@@ -14,6 +14,14 @@ import (
 	"gopurr/internal/localize"
 )
 
+// AddOptions carries optional fetch/metadata settings applied on the very first
+// download of a subscription URL.
+type AddOptions struct {
+	UserAgent   string
+	UseProxy    bool
+	UpdateHours *int
+}
+
 // AddChecked imports a URL, exposing the complete candidate to accept before
 // committing either its cache or index. The callback runs without the store
 // mutex and can inspect the old profile or apply a candidate to the kernel.
@@ -22,12 +30,24 @@ func (s *Store) AddChecked(address, name string, accept func(Profile, []byte) er
 }
 
 func (s *Store) AddCheckedContext(ctx context.Context, address, name string, accept func(Profile, []byte) error) (Profile, error) {
+	return s.AddCheckedWithOptionsContext(ctx, address, name, AddOptions{}, accept)
+}
+
+func (s *Store) AddCheckedWithOptionsContext(ctx context.Context, address, name string, opts AddOptions, accept func(Profile, []byte) error) (Profile, error) {
 	if err := ctx.Err(); err != nil {
 		return Profile{}, err
 	}
-	source := Profile{URL: address}
+	if err := ValidateSettings(Profile{Name: "import", URL: address, UserAgent: opts.UserAgent, UpdateHours: opts.UpdateHours}); err != nil {
+		return Profile{}, err
+	}
+	source := Profile{URL: address, UserAgent: opts.UserAgent, UseProxy: opts.UseProxy}
 	if old, err := s.Get(idOf(address)); err == nil {
-		source.UserAgent, source.UseProxy = old.UserAgent, old.UseProxy
+		if source.UserAgent == "" {
+			source.UserAgent = old.UserAgent
+		}
+		if !source.UseProxy {
+			source.UseProxy = old.UseProxy
+		}
 	}
 	body, info, title, err := s.fetchProfileContext(ctx, source)
 	if err != nil {
@@ -40,7 +60,18 @@ func (s *Store) AddCheckedContext(ctx context.Context, address, name string, acc
 	if name == "" {
 		name = firstNonEmpty(title, hostOf(address))
 	}
-	p := Profile{ID: idOf(address), Name: name, Kind: KindURL, URL: address, File: idOf(address) + ".yaml", Updated: time.Now(), Info: info}
+	p := Profile{
+		ID:          idOf(address),
+		Name:        name,
+		Kind:        KindURL,
+		URL:         address,
+		File:        idOf(address) + ".yaml",
+		Updated:     time.Now(),
+		Info:        info,
+		UserAgent:   opts.UserAgent,
+		UseProxy:    opts.UseProxy,
+		UpdateHours: opts.UpdateHours,
+	}
 	return s.importCheckedContext(ctx, p, body, explicitName, accept)
 }
 
@@ -94,7 +125,15 @@ func (s *Store) importCheckedContext(ctx context.Context, candidate Profile, bod
 		if !explicitName && previous.Name != "" {
 			candidate.Name = previous.Name
 		}
-		candidate.UserAgent, candidate.UpdateHours, candidate.UseProxy = previous.UserAgent, previous.UpdateHours, previous.UseProxy
+		if candidate.UserAgent == "" {
+			candidate.UserAgent = previous.UserAgent
+		}
+		if candidate.UpdateHours == nil {
+			candidate.UpdateHours = previous.UpdateHours
+		}
+		if !candidate.UseProxy {
+			candidate.UseProxy = previous.UseProxy
+		}
 		candidate.Overrides = previous.Overrides
 		candidate = cloneProfile(candidate)
 	}

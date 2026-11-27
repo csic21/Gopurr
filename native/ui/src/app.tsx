@@ -2,44 +2,38 @@ import { cleanup, colorScheme, createAnimatedValue, effect, host, Image, lifecyc
 import { BackHandler } from "nsh/mobile";
 import { Button, Progress } from "nsh/base";
 import { call } from "./client";
-import type { Profile } from "./client";
 import { colors } from "./theme";
 import { language, tr } from "./i18n";
 import {
-  action, activeProfile, appUpdate, awaitingMeshPermission, busy, changeMode, connected,
-  connecting, error, groupName, groupsIncomplete, loaded, members, meshAvailable, meshTunnel,
-  message, mutationBusy, navigate, openProxiesForGroup, openSubpage, page, profiles, query,
-  refresh, selectedGroup, session, showToast, startMobileStore, status, subpage, switchProfile,
-  tasks, testMember, toggleEngine, visibleGroups, vpnActive,
+  action, activeProfile, appUpdate, awaitingMeshPermission, changeMode, connected,
+  connecting, error, loaded, meshAvailable, meshTunnel, message, mutationBusy,
+  navigate, openProxiesForGroup, openSubpage, page, popSubpage, profiles,
+  reconnectVpn, refresh, selectedGroup, session, showToast, startMobileStore,
+  status, subpage, tasks, toggleEngine, vpnActive,
 } from "./mobile/store";
 import { androidCall, androidHost, haptic } from "./mobile/platform";
 import type { AppScope, AppUpdate, InstalledApp, NotificationSettings } from "./mobile/platform";
 import {
-  Action, BottomSheet, bytes, compact, confirmDialog, Empty, Field, formatRateParts,
-  formatUpdated, Group, GroupRow, Heading, Icon, IconButton, Label, MoreButton, Notice, Panel,
-  RADIUS, SearchField, SectionLabel, Segmented, StatusPill, SubpageHeader, Tag, tint, ToastHost,
+  Action, BottomSheet, bytes, compact, confirmDialog, Empty, formatRateParts,
+  formatUpdated, Group, GroupRow, Heading, Icon, IconButton, Label, Notice, Panel,
+  RADIUS, SearchField, SectionLabel, Segmented, StatusPill, SubpageHeader, Tag, ToastHost,
 } from "./mobile/ui";
 import type { MobileIconName, Tone } from "./mobile/ui";
 import { MeshGlanceCard, MeshPage } from "./mobile/mesh";
+import { ParsePreviewPage, Proxies } from "./mobile/nodes";
+import { NodeEditorPage } from "./mobile/node-editor";
+import { GroupEditorPage, GroupsManagerPage } from "./mobile/group-editor";
+import { openAddProfileSheet, Profiles, requestSwitchProfile } from "./mobile/profiles";
 import logo from "../assets/sidebar.png";
 
 // Module-level drafts & sheet state survive appearance remounts.
-const name = signal(""), source = signal(""), yaml = signal("");
-const importKind = signal<"url" | "yaml">("url");
-const adding = signal(false);
-const importError = signal("");
 const appearance = signal<"system" | "light" | "dark">("system");
-const editing = signal(""), editName = signal(""), editURL = signal(""), editKind = signal(""), editError = signal("");
-const profileMenu = signal<Profile | null>(null);
 const quickSwitchOpen = signal(false);
-const groupPickerOpen = signal(false);
 const notifSheetOpen = signal(false);
 const updateSheetOpen = signal(false);
 const notifSettings = signal<NotificationSettings | null>(null);
 const appScopeSummary = signal<AppScope | null>(null);
-const batchProgress = signal<{ done: number; total: number } | null>(null);
 const overviewRefreshing = signal(false);
-let batchStop = false;
 
 const nav: { id: "overview" | "proxies" | "profiles" | "settings"; zh: string; en: string; icon: MobileIconName }[] = [
   { id: "overview", zh: "连接", en: "Connect", icon: "overview" },
@@ -92,87 +86,11 @@ function connectionAction(): string {
     : connected() ? tr("停止本地代理", "Stop local proxy") : tr("启动本地代理", "Start local proxy");
 }
 
-function groupTypeLabel(kind: string): string {
-  switch (String(kind).toLowerCase()) {
-    case "selector": case "select": return tr("手动选择", "Manual");
-    case "urltest": case "url-test": return tr("自动测速", "Auto");
-    case "fallback": return tr("故障转移", "Fallback");
-    case "loadbalance": case "load-balance": return tr("负载均衡", "Load balance");
-    case "relay": return tr("链式代理", "Relay");
-    default: return kind;
-  }
-}
-
 function scopeSummaryText(scope: AppScope | null): string {
   if (!scope) return tr("所有应用", "All apps");
   if (scope.mode === "include") return tr(`仅 ${scope.packages.length} 个应用`, `${scope.packages.length} selected`);
   if (scope.mode === "exclude") return tr(`排除 ${scope.packages.length} 个应用`, `${scope.packages.length} excluded`);
   return tr("所有应用", "All apps");
-}
-
-async function requestSwitchProfile(target: Profile) {
-  if (target.active || mutationBusy()) return;
-  if (vpnActive()) {
-    const ok = await confirmDialog({
-      title: tr("切换配置需要断开当前连接", "Disconnect to switch profile?"),
-      description: tr(`将先断开当前 VPN，切换到「${target.name}」后重新连接。`, `Current VPN will disconnect, switch to "${target.name}", and reconnect.`),
-      confirmLabel: tr("断开并切换", "Disconnect & switch"),
-      cancelLabel: tr("取消", "Cancel"),
-    });
-    if (!ok) return;
-    await switchProfile(target.id, { name: target.name, reconnectVpn: true });
-    return;
-  }
-  await switchProfile(target.id, { name: target.name, reconnectVpn: false });
-}
-
-async function requestDeleteProfile(target: Profile) {
-  if (target.active && status()?.running) {
-    showToast(tr("请先断开连接后再删除当前配置", "Disconnect before deleting the active profile"));
-    return;
-  }
-  const ok = await confirmDialog({
-    title: tr(`删除「${target.name}」？`, `Delete "${target.name}"?`),
-    description: tr("将删除本地订阅和缓存，此操作无法撤销。", "This removes the saved profile and cache and cannot be undone."),
-    confirmLabel: tr("删除订阅", "Delete profile"),
-    cancelLabel: tr("取消", "Cancel"),
-    destructive: true,
-  });
-  if (!ok) return;
-  const done = await action("delete", async () => {
-    await call("profiles.delete", { id: target.id });
-  });
-  if (done) { haptic("confirm"); showToast(tr("已删除订阅", "Profile deleted")); }
-}
-
-async function importProfile() {
-  if (!name().trim() || !(importKind() === "url" ? source().trim() : yaml().trim())) return;
-  importError.set("");
-  const ok = await action("import", async () => {
-    await call("profiles.import", { name: name().trim(), ...(importKind() === "url" ? { url: source().trim() } : { yaml: yaml() }) });
-    source.set(""); yaml.set(""); name.set(""); adding.set(false);
-  });
-  if (ok) { haptic("confirm"); showToast(tr("订阅已导入", "Profile imported")); }
-  else importError.set(error());
-}
-
-async function beginEdit(id: string) {
-  editError.set("");
-  await action("editor", async () => {
-    const p = await call<{ id: string; name: string; url: string; kind: string }>("profiles.editor", { id });
-    editing.set(p.id); editName.set(p.name); editURL.set(p.url ?? ""); editKind.set(p.kind);
-  });
-}
-
-async function saveEdit() {
-  if (!editName().trim()) return;
-  editError.set("");
-  const ok = await action("edit", async () => {
-    await call("profiles.update", { id: editing(), name: editName().trim(), ...(editKind() === "url" ? { url: editURL().trim() } : {}) });
-    editing.set("");
-  });
-  if (ok) { haptic("confirm"); showToast(tr("订阅信息已保存", "Profile details saved")); }
-  else editError.set(error());
 }
 
 async function refreshNotificationSettings() {
@@ -346,8 +264,10 @@ function Overview() {
           <Notice
             testID="reconnect-required"
             tone="warn"
-            text={tr("新配置已保存，重新连接后生效。", "The new profile is saved. Reconnect to apply it.")}
-            action={() => <If when={connected()}><Action size="compact" quiet label={tr("断开", "Disconnect")} disabled={connectionDisabled()} onPress={toggleEngine} /></If>} />
+            text={tr("节点或订阅配置已更新，重新连接后生效。", "Configuration updated. Reconnect to apply.")}
+            action={() => <If when={connected() || !!status()?.running}>
+              <Action testID="overview-reconnect-btn" size="compact" label={tr("重新连接", "Reconnect")} disabled={connectionDisabled()} onPress={() => void reconnectVpn()} />
+            </If>} />
         </If>
 
         <Segmented
@@ -418,7 +338,7 @@ function Overview() {
       <MeshGlanceCard onOpen={() => openSubpage("mesh")} />
 
       <If when={!profiles().length && loaded()}>
-        <Action testID="overview-add-profile" label={tr("添加订阅", "Add profile")} primary={!meshAvailable()} full onPress={() => { navigate("profiles"); adding.set(true); }} />
+        <Action testID="overview-add-profile" label={tr("添加订阅", "Add profile")} primary={!meshAvailable()} full onPress={() => { navigate("profiles"); openAddProfileSheet(); }} />
       </If>
     </Scroll>
 
@@ -444,410 +364,6 @@ function Overview() {
           }} />}</Each>
       </Group>
       <Action quiet full label={tr("管理全部订阅", "Manage all profiles")} disabled={false} onPress={() => { quickSwitchOpen.set(false); navigate("profiles"); }} />
-    </BottomSheet>
-  </View>;
-}
-
-function ImportFormFields() {
-  return <View style={{ gap: 12 }}>
-    <Segmented
-      testIDPrefix="import-kind"
-      value={importKind()}
-      disabled={mutationBusy()}
-      onChange={id => importKind.set(id as "url" | "yaml")}
-      items={[
-        { id: "url", label: tr("订阅链接", "Subscription URL") },
-        { id: "yaml", label: tr("本地 YAML", "Local YAML") },
-      ]} />
-    <Field label={tr("名称", "Name")} testID="profile-name" value={name()} onChange={value => name.set(value)} placeholder={tr("例如：日常使用", "For example: Everyday")} disabled={mutationBusy()} />
-    <If when={importKind() === "url"}>
-      <Field label={tr("订阅链接", "Subscription URL")} testID="profile-url" value={source()} onChange={value => source.set(value)} placeholder="https://" disabled={mutationBusy()} />
-    </If>
-    <If when={importKind() === "yaml"}>
-      <If when={androidHost()}>
-        <Action testID="import-file" icon="profiles" full label={tr("从文件导入", "Import from file")} disabled={mutationBusy()} onPress={() => void action("file", async () => {
-          const file = await androidCall<{ name?: string; content?: string; cancelled?: boolean }>("android.file.pick");
-          if (file.cancelled || !file.content) return;
-          yaml.set(file.content);
-          if (!name()) name.set(file.name ?? tr("本地配置", "Local profile"));
-          importKind.set("yaml");
-        })} />
-      </If>
-      <Field label={tr("配置内容", "Configuration YAML")} testID="profile-yaml" value={yaml()} onChange={value => yaml.set(value)} placeholder={tr("粘贴完整 YAML 配置", "Paste a complete YAML profile")} multiline disabled={mutationBusy()} />
-    </If>
-    <Label text={tr("导入后在连接页启动；其他订阅需明确启用。", "Connect after importing. Activate another profile explicitly to switch.")} muted size={12} />
-  </View>;
-}
-
-function Profiles() {
-  const active = () => profiles().find(p => p.active);
-  const others = () => profiles().filter(p => !p.active);
-  const canImport = () => !mutationBusy() && !!name().trim() && !!(importKind() === "url" ? source().trim() : yaml().trim());
-
-  return <View style={{ flex: 1 }}>
-    <Scroll testID="profiles-scroll" style={{ flex: 1 }} contentStyle={{ padding: 16, gap: 14 }}>
-      <Heading
-        title={tr("订阅", "Profiles")}
-        description={vpnActive() ? tr("切换配置时将先断开当前 VPN 再重连。", "Switching profiles disconnects VPN first, then reconnects.") : tr("管理并选择本次连接使用的配置。", "Manage and select the profile for your connection.")}
-        action={() => <If when={profiles().length > 0}><Action testID="add-profile" label={tr("添加订阅", "Add profile")} primary disabled={mutationBusy() || !!editing()} onPress={() => { importError.set(""); adding.set(true); }} /></If>} />
-
-      <If when={!profiles().length}>
-        <Panel>
-          <Label text={tr("添加第一个订阅", "Add your first profile")} bold size={16} />
-          <ImportFormFields />
-          <If when={!!importError()}><Notice text={importError()} tone="danger" /></If>
-          <Action testID="import-profile" primary full label={tasks().import ? tr("正在导入…", "Importing…") : tr("导入", "Import")} onPress={() => void importProfile()} disabled={!canImport()} />
-        </Panel>
-      </If>
-
-      <If when={!!active()}>
-        <SectionLabel title={tr("当前使用", "Current")} />
-        <Panel accentLeft gap={10}>
-          <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-              <Text style={{ color: colors().text, fontSize: 16, fontWeight: "600", numberOfLines: 2 }}>{active()!.name}</Text>
-              <Text style={{ color: colors().muted, fontSize: 12, numberOfLines: 2, textOverflow: "ellipsis-middle" }}>
-                {[active()!.kind === "file" || active()!.kind === "local" ? tr("本地配置", "Local profile") : active()!.source, formatUpdated(active()!.updated)].filter(Boolean).join(" · ")}
-              </Text>
-            </View>
-            <Tag testID={`active-tag-${active()!.id}`} text={status()?.running ? tr("使用中", "Active") : tr("已选择", "Selected")} tone={status()?.running ? "success" : "accent"} />
-          </View>
-          <If when={!!active()!.reconnectRequired}>
-            <Notice tone="warn" text={tr("已保存 · 重新连接后生效", "Saved · reconnect to apply")} />
-          </If>
-          <View style={{ height: 1, backgroundColor: colors().border }} />
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", flex: 1 }}>
-              <If when={active()!.kind === "url"}>
-                <Action
-                  testID={`refresh-${active()!.id}`}
-                  size="compact"
-                  icon="refresh"
-                  label={tasks()[`refresh-${active()!.id}`] ? tr("正在更新…", "Refreshing…") : tr("更新", "Refresh")}
-                  disabled={mutationBusy()}
-                  onPress={() => void action(`refresh-${active()!.id}`, async () => {
-                    await call("profiles.refresh", { id: active()!.id });
-                    haptic("confirm");
-                    showToast(status()?.running ? tr("更新已保存，重连后生效", "Update saved, reconnect to apply") : tr("订阅已更新", "Profile refreshed"));
-                  })} />
-              </If>
-              <Action testID={`edit-${active()!.id}`} size="compact" quiet label={tr("编辑", "Edit")} disabled={mutationBusy() || !!editing()} onPress={() => void beginEdit(active()!.id)} />
-            </View>
-            <MoreButton testID={`more-${active()!.id}`} label={tr("更多操作", "More actions")} disabled={mutationBusy()} onPress={() => profileMenu.set(active()!)} />
-          </View>
-        </Panel>
-      </If>
-
-      <If when={others().length > 0}>
-        <SectionLabel title={tr("其他配置", "Other profiles")} trailing={String(others().length)} />
-        <Group>
-          <Each of={others()} key={p => p.id}>{p => <GroupRow
-            title={p().name}
-            subtitle={[p().kind === "file" || p().kind === "local" ? tr("本地配置", "Local profile") : p().source, formatUpdated(p().updated)].filter(Boolean).join(" · ")}
-            trailing={() => <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Action testID={`activate-${p().id}`} size="compact" label={tr("启用", "Activate")} disabled={mutationBusy()} onPress={() => void requestSwitchProfile(p())} />
-              <MoreButton testID={`more-${p().id}`} label={tr("更多操作", "More actions")} disabled={mutationBusy()} onPress={() => profileMenu.set(p())} />
-            </View>} />}</Each>
-        </Group>
-      </If>
-    </Scroll>
-
-    <BottomSheet
-      testID="import-profile-sheet"
-      open={adding() && profiles().length > 0}
-      onClose={() => adding.set(false)}
-      title={tr("添加订阅", "Add profile")}
-      scrollable
-      error={importError()}
-      footer={() => <View style={{ flexDirection: "row", gap: 10 }}>
-        <View style={{ flex: 1 }}><Action full label={tr("取消", "Cancel")} disabled={mutationBusy()} onPress={() => adding.set(false)} /></View>
-        <View style={{ flex: 1 }}><Action testID="import-profile" primary full label={tasks().import ? tr("正在导入…", "Importing…") : tr("导入", "Import")} onPress={() => void importProfile()} disabled={!canImport()} /></View>
-      </View>}>
-      <ImportFormFields />
-    </BottomSheet>
-
-    <BottomSheet
-      testID="edit-profile-sheet"
-      open={!!editing()}
-      onClose={() => editing.set("")}
-      title={tr("编辑订阅", "Edit profile")}
-      scrollable
-      error={editError()}
-      footer={() => <View style={{ flexDirection: "row", gap: 10 }}>
-        <View style={{ flex: 1 }}><Action full label={tr("放弃修改", "Discard")} disabled={mutationBusy()} onPress={() => editing.set("")} /></View>
-        <View style={{ flex: 1 }}><Action testID="save-profile" primary full label={tr("保存", "Save")} disabled={mutationBusy() || !editName().trim()} onPress={() => void saveEdit()} /></View>
-      </View>}>
-      <Field label={tr("名称", "Name")} testID="edit-profile-name" value={editName()} onChange={value => editName.set(value)} disabled={mutationBusy()} />
-      <If when={editKind() === "url"}>
-        <Field label={tr("订阅链接", "Subscription URL")} testID="edit-profile-url" value={editURL()} onChange={value => editURL.set(value)} disabled={mutationBusy()} helper={tr("保存只修改来源，点击更新后下载新内容。", "Saving changes the source. Refresh to download its contents.")} />
-      </If>
-    </BottomSheet>
-
-    <BottomSheet
-      testID="profile-actions-sheet"
-      closeTestID="profile-actions-close"
-      open={!!profileMenu()}
-      onClose={() => profileMenu.set(null)}
-      title={profileMenu()?.name ?? ""}
-      subtitle={profileMenu() ? (profileMenu()!.kind === "file" || profileMenu()!.kind === "local" ? tr("本地配置", "Local profile") : profileMenu()!.source) : ""}>
-      <If when={!!profileMenu()}>
-        <Group>
-          <If when={!profileMenu()!.active}>
-            <GroupRow
-              icon="check"
-              title={tr("启用此配置", "Activate profile")}
-              subtitle={vpnActive() ? tr("将先断开当前 VPN 再重连", "Disconnects VPN first, then reconnects") : undefined}
-              onPress={() => {
-                const target = profileMenu()!;
-                profileMenu.set(null);
-                void requestSwitchProfile(target);
-              }} />
-          </If>
-          <If when={profileMenu()!.kind === "url"}>
-            <GroupRow
-              testID={`sheet-refresh-${profileMenu()!.id}`}
-              icon="refresh"
-              title={tasks()[`refresh-${profileMenu()!.id}`] ? tr("正在更新…", "Refreshing…") : tr("更新订阅内容", "Refresh profile")}
-              onPress={() => {
-                const target = profileMenu()!;
-                profileMenu.set(null);
-                void action(`refresh-${target.id}`, async () => {
-                  await call("profiles.refresh", { id: target.id });
-                  haptic("confirm");
-                  showToast(target.active && status()?.running ? tr("更新已保存，重连后生效", "Update saved, reconnect to apply") : tr("订阅已更新", "Profile refreshed"));
-                });
-              }} />
-          </If>
-          <GroupRow
-            testID={`sheet-edit-${profileMenu()!.id}`}
-            icon="profiles"
-            title={tr("编辑名称与来源", "Edit details")}
-            onPress={() => {
-              const id = profileMenu()!.id;
-              profileMenu.set(null);
-              void beginEdit(id);
-            }} />
-          <GroupRow
-            testID={`delete-${profileMenu()!.id}`}
-            icon="x"
-            danger
-            disabled={profileMenu()!.active && !!status()?.running}
-            title={tr("删除订阅", "Delete profile")}
-            subtitle={profileMenu()!.active && !!status()?.running ? tr("运行中的配置须先断开连接后再删除", "Disconnect before deleting the active profile") : tr("删除本地配置和缓存，不可撤销", "Removes saved profile and cache")}
-            onPress={() => {
-              const target = profileMenu()!;
-              profileMenu.set(null);
-              void requestDeleteProfile(target);
-            }} />
-        </Group>
-      </If>
-    </BottomSheet>
-  </View>;
-}
-
-function delayTone(delay: number): Tone {
-  if (delay <= 0) return "danger";
-  if (delay < 150) return "success";
-  if (delay < 400) return "warn";
-  return "danger";
-}
-
-function Proxies() {
-  const isManualGroup = () => selectedGroup()?.type === "Selector";
-  const toggleBatchTest = () => {
-    if (batchProgress()) {
-      haptic("impact");
-      batchStop = true;
-      return;
-    }
-    const names = selectedGroup()?.members.map(m => m.name) ?? [];
-    if (!names.length) return;
-    haptic("impact");
-    batchStop = false;
-    batchProgress.set({ done: 0, total: names.length });
-    void action("delay-group", async () => {
-      try {
-        for (let i = 0; i < names.length; i++) {
-          if (batchStop || !status()?.running) break;
-          await testMember(names[i]);
-          batchProgress.set({ done: i + 1, total: names.length });
-        }
-      } finally {
-        batchProgress.set(null);
-        batchStop = false;
-      }
-    }, false);
-  };
-
-  const batchLabel = () => {
-    const p = batchProgress();
-    if (p) return tr(`测速 ${p.done}/${p.total} · 停止`, `${p.done}/${p.total} · Stop`);
-    return tr("测试本组", "Test group");
-  };
-
-  return <View style={{ flex: 1, padding: 16, gap: 12 }}>
-    <Heading
-      title={tr("节点", "Nodes")}
-      action={() => <If when={visibleGroups().length > 0}>
-        <Action
-          testID="test-group"
-          size="compact"
-          icon="radar"
-          label={batchLabel()}
-          disabled={!status()?.running || (!batchProgress() && !!busy())}
-          onPress={toggleBatchTest} />
-      </If>} />
-
-    <If when={!status()?.activeProfile}>
-      <Panel><Empty icon="profiles" title={tr("尚未选择配置", "No profile selected")} description={tr("导入并选择订阅后，无需连接即可查看节点。", "Import and select a profile to browse nodes without connecting.")} action={() => <Action label={tr("查看订阅", "Open profiles")} primary onPress={() => navigate("profiles")} />} /></Panel>
-    </If>
-
-    <If when={!!status()?.activeProfile && !visibleGroups().length}>
-      <Panel><Empty icon="proxies" title={tr("没有策略组", "No proxy groups")} description={tr("当前配置没有可显示的策略组。", "This profile has no visible proxy groups.")} /></Panel>
-    </If>
-
-    <If when={visibleGroups().length > 0}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Scroll horizontal scrollbar={false} style={{ flex: 1, height: 44 }} contentStyle={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Each of={visibleGroups()} key={g => g.name}>{g => {
-            const active = () => selectedGroup()?.name === g().name;
-            return <Button
-              testID={`group-${g().name}`}
-              selected={active()}
-              onPress={() => { if (!active()) haptic("selection"); groupName.set(g().name); query.set(""); }}
-              style={{
-                minHeight: 40, paddingHorizontal: 14, borderRadius: RADIUS.pill,
-                alignItems: "center", justifyContent: "center",
-                backgroundColor: active() ? colors().selected : colors().surface,
-                borderWidth: 1,
-                borderColor: active() ? colors().selectedBorder : colors().border,
-              }}
-              hitSlop={{ top: 2, bottom: 2 }}
-              hoverStyle={{ backgroundColor: active() ? colors().selected : colors().hover }}
-              activeStyle={{ opacity: 0.78 }}
-              focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}>
-              <Text style={{ fontSize: 13, fontWeight: active() ? "600" : "500", color: active() ? colors().accent : colors().text, numberOfLines: 1 }}>{g().name}</Text>
-            </Button>;
-          }}</Each>
-        </Scroll>
-        <If when={visibleGroups().length >= 4}>
-          <Button
-            testID="all-groups-trigger"
-            onPress={() => groupPickerOpen.set(true)}
-            style={{
-              flexDirection: "row", alignItems: "center", gap: 4,
-              minHeight: 40, paddingHorizontal: 12, borderRadius: RADIUS.pill,
-              backgroundColor: colors().surface, borderWidth: 1, borderColor: colors().border,
-            }}
-            hitSlop={{ top: 2, bottom: 2 }}
-            hoverStyle={{ backgroundColor: colors().hover }}
-            activeStyle={{ opacity: 0.78 }}>
-            <Text style={{ fontSize: 12.5, fontWeight: "500", color: colors().muted }}>{tr("全部", "All")}</Text>
-            <Icon name="chevronDown" size={14} color={colors().muted} />
-          </Button>
-        </If>
-      </View>
-
-      <SearchField testID="node-search" value={query()} onChange={value => query.set(value)} placeholder={tr("搜索节点", "Search nodes")} />
-
-      <If when={!status()?.running}>
-        <Notice
-          tone="info"
-          text={tr("未连接 · 浏览已保存的节点，连接后可切换和测速。", "Disconnected · Browse saved nodes. Connect to switch or test.")}
-          action={() => <Action size="compact" quiet label={tr("去连接", "Connect")} disabled={false} onPress={() => navigate("overview")} />} />
-      </If>
-      <If when={!status()?.running && groupsIncomplete()}>
-        <Label text={tr("部分提供器节点尚无可用本地预览，连接后加载完整列表。", "Some provider nodes have no local preview. Connect to load the full list.")} muted size={12} />
-      </If>
-
-      <If when={!!status()?.running && !!selectedGroup() && !isManualGroup()}>
-        <Notice
-          tone="info"
-          text={tr(`${groupTypeLabel(selectedGroup()!.type)} · 由系统自动调度出口，单节点测速仍可用。`, `${groupTypeLabel(selectedGroup()!.type)} · Outbound is managed automatically; individual testing stays available.`)} />
-      </If>
-
-      <List
-        testID="node-list"
-        each={members()}
-        keyExtractor={item => item.name}
-        keyboardDismissMode="on-drag"
-        style={{ flex: 1, borderRadius: RADIUS.surface, backgroundColor: colors().surface, borderWidth: 1, borderColor: colors().border }}
-        empty={<Empty
-          icon={query().trim() ? "search" : "proxies"}
-          title={!query().trim() && !status()?.running && groupsIncomplete() ? tr("节点等待加载", "Nodes not loaded yet") : tr("没有匹配的节点", "No matching nodes")}
-          description={!query().trim() && !status()?.running && groupsIncomplete() ? tr("连接后可加载此策略组的提供器节点。", "Connect to load provider nodes for this group.") : tr("换个名称，或清除搜索条件。", "Try another name or clear the search.")}
-          action={() => <If when={!!query().trim()}><Action label={tr("重置筛选", "Reset filter")} disabled={false} onPress={() => query.set("")} /></If>} />}>
-        {m => {
-          const isSelected = () => selectedGroup()?.now === m().name;
-          const testing = () => !!tasks()[`delay-${m().name}`];
-          const hasDelay = () => !!status()?.running && m().delay !== undefined;
-          return <View style={{
-            flexDirection: "row", minHeight: 58, alignItems: "center", gap: 6,
-            borderBottomWidth: 1, borderColor: colors().border,
-            borderLeftWidth: 3, borderLeftColor: isSelected() ? colors().accent : "transparent",
-            backgroundColor: isSelected() ? colors().selected : colors().surface,
-            paddingRight: 8,
-          }}>
-            <Button
-              testID={`node-${m().name}`}
-              selected={isSelected()}
-              disabled={!status()?.running || mutationBusy() || !isManualGroup()}
-              onPress={() => {
-                if (!isSelected()) haptic("selection");
-                void action("select", async () => { await call("proxies.select", { group: selectedGroup()?.name, member: m().name }); });
-              }}
-              style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minHeight: 58, paddingHorizontal: 12, paddingVertical: 8 }}
-              hoverStyle={{ backgroundColor: colors().hover }}
-              focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}
-              disabledStyle={{ opacity: status()?.running ? 0.8 : 1 }}>
-              <Icon name={isSelected() ? "circleCheck" : "circle"} selected={isSelected()} size={18} />
-              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                <Text style={{ fontSize: 13.5, color: colors().text, fontWeight: isSelected() ? "600" : "500", numberOfLines: 2 }}>{m().name}</Text>
-                <Label text={isSelected() ? (status()?.running ? tr("当前出口", "Selected") : tr("下次连接使用", "For next connection")) : m().type} muted size={11.5} />
-              </View>
-            </Button>
-            <Button
-              testID={`delay-${m().name}`}
-              accessibilityLabel={tr(`测速 ${m().name}`, `Test ${m().name}`)}
-              disabled={!status()?.running || !!busy()}
-              onPress={() => { haptic("selection"); void testMember(m().name); }}
-              style={{ minWidth: 64, minHeight: 44, paddingHorizontal: 10, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "transparent" }}
-              hoverStyle={{ backgroundColor: colors().hover }}
-              activeStyle={{ backgroundColor: colors().selected, opacity: 0.78 }}
-              focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}
-              disabledStyle={{ opacity: 0.4 }}>
-              <If when={testing()}>
-                <Text style={{ fontSize: 12, color: colors().muted }}>{tr("测速中…", "Testing…")}</Text>
-              </If>
-              <If when={!testing() && hasDelay()}>
-                <Tag text={m().delay! > 0 ? `${m().delay} ms` : tr("超时", "Timeout")} tone={delayTone(m().delay!)} />
-              </If>
-              <If when={!testing() && !hasDelay()}>
-                <Text style={{ fontSize: 12.5, fontWeight: "500", color: colors().muted }}>{tr("测速", "Test")}</Text>
-              </If>
-            </Button>
-          </View>;
-        }}
-      </List>
-    </If>
-
-    <BottomSheet
-      testID="all-groups-sheet"
-      open={groupPickerOpen()}
-      onClose={() => groupPickerOpen.set(false)}
-      title={tr("选择策略组", "Select group")}
-      scrollable>
-      <Group>
-        <Each of={visibleGroups()} key={g => g.name}>{g => <GroupRow
-          title={g().name}
-          subtitle={`${groupTypeLabel(g().type)} · ${g().now || "—"}`}
-          trailing={() => <If when={selectedGroup()?.name === g().name}><Tag text={tr("当前", "Current")} tone="accent" /></If>}
-          chevron={selectedGroup()?.name !== g().name}
-          onPress={() => {
-            if (selectedGroup()?.name !== g().name) haptic("selection");
-            groupName.set(g().name); query.set(""); groupPickerOpen.set(false);
-          }} />}</Each>
-      </Group>
     </BottomSheet>
   </View>;
 }
@@ -1344,6 +860,10 @@ function MobilePageStack() {
     <If when={subpage() === "apps"}><AppsPage /></If>
     <If when={subpage() === "logs"}><LogsPage /></If>
     <If when={subpage() === "mesh"}><MeshPage onBack={() => subpage.set("")} /></If>
+    <If when={subpage() === "node-editor"}><NodeEditorPage /></If>
+    <If when={subpage() === "groups-manager"}><GroupsManagerPage /></If>
+    <If when={subpage() === "group-editor"}><GroupEditorPage /></If>
+    <If when={subpage() === "parse-preview"}><ParsePreviewPage /></If>
   </View>;
 }
 
@@ -1353,7 +873,7 @@ export function GopurrApp(props: { preview?: boolean } = {}) {
     if (lang === "system" || lang === "zh-Hans" || lang === "en") language.set(lang);
   }).catch(e => error.set(message(e)));
 
-  startMobileStore();
+  startMobileStore(!!props.preview);
 
   if (androidHost()) {
     cleanup(host.on("android.navigate", value => {
@@ -1389,7 +909,7 @@ export function GopurrApp(props: { preview?: boolean } = {}) {
 
   // Open BottomSheet instances consume Android back natively via closeOnEscape.
   cleanup(BackHandler.on("press", () => {
-    if (subpage()) { subpage.set(""); return true; }
+    if (subpage()) { popSubpage(); return true; }
     if (page() !== "overview") { navigate("overview"); return true; }
     return false;
   }));

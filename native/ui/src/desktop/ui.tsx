@@ -1,6 +1,6 @@
-import { colorScheme, computed, host, Image, platform, reduceMotion, Scroll, Text, View, windowSize } from "nsh";
+import { colorScheme, computed, host, Image, platform, reduceMotion, Scroll, signal, Text, View, windowSize } from "nsh";
 import type { JSX, ImageAsset } from "nsh";
-import { Button, Dialog, Input, Switch, Tabs as NativeTabs, Tab } from "nsh/base";
+import { AlertDialog, Button, Checkbox, Dialog, Input, Popover, Progress, Switch, Tabs as NativeTabs, Tab } from "nsh/base";
 import { colors } from "./theme";
 import { tr } from "./i18n";
 import cable from "../../assets/icons/cable.svg";
@@ -16,6 +16,7 @@ import profiles from "../../assets/icons/file-text.svg";
 import proxies from "../../assets/icons/globe.svg";
 import settings from "../../assets/icons/settings-2.svg";
 import check from "../../assets/icons/circle-check.svg";
+import checkMark from "../../assets/icons/check.svg";
 import circle from "../../assets/icons/circle.svg";
 import shield from "../../assets/icons/shield-check.svg";
 import search from "../../assets/icons/search.svg";
@@ -29,7 +30,19 @@ import route from "../../assets/icons/route.svg";
 import swap from "../../assets/icons/arrow-left-right.svg";
 import power from "../../assets/icons/power.svg";
 import activity from "../../assets/icons/activity.svg";
-const icons: Record<string, ImageAsset> = { overview, subs: layers, profiles, proxies, conns: cable, mesh: network, rules: filter, logs: terminal, panel, down, up, settings, check, circle, search, x, chevronDown, chevronRight, refresh, shield, server, radar, route, swap, power, activity };
+import plus from "../../assets/icons/plus.svg";
+import pencil from "../../assets/icons/pencil.svg";
+import ellipsis from "../../assets/icons/ellipsis-vertical.svg";
+import eye from "../../assets/icons/eye.svg";
+import eyeOff from "../../assets/icons/eye-off.svg";
+import arrowUp from "../../assets/icons/arrow-up.svg";
+import arrowDown from "../../assets/icons/arrow-down.svg";
+import copy from "../../assets/icons/copy.svg";
+import trash from "../../assets/icons/trash-2.svg";
+import rotateCcw from "../../assets/icons/rotate-ccw.svg";
+import sliders from "../../assets/icons/sliders-horizontal.svg";
+import stop from "../../assets/icons/square-stop.svg";
+const icons: Record<string, ImageAsset> = { overview, subs: layers, profiles, proxies, conns: cable, mesh: network, rules: filter, logs: terminal, panel, down, up, settings, check, checkMark, circle, search, x, chevronDown, chevronRight, refresh, shield, server, radar, route, swap, power, activity, plus, pencil, ellipsis, eye, eyeOff, arrowUp, arrowDown, copy, trash, rotateCcw, sliders, stop };
 export function Icon(p: { name: string; size?: number; color?: string }) { return <Image src={icons[p.name] ?? circle} style={{ width: p.size ?? 16, height: p.size ?? 16, objectFit: "contain", tintColor: p.color ?? colors().muted }} />; }
 
 /**
@@ -71,24 +84,24 @@ export function Label(p: { text: string; muted?: boolean; faint?: boolean; size?
  * inside rows and page heads. Destructive actions are red text rather than red fills.
  */
 export function Action(p: { label: string; onPress: () => void; primary?: boolean; danger?: boolean; quiet?: boolean; disabled?: boolean; testID?: string; bold?: boolean; icon?: string; size?: "regular" | "small" }) {
-  const filled = !!p.primary, plain = !filled && (p.quiet || p.danger);
+  const filled = () => !!p.primary, plain = () => !filled() && (p.quiet || p.danger);
   const dark = () => colorScheme() === "dark";
   const fill = () => accentFill();
-  const fg = () => filled ? fill().fg : p.danger ? colors().danger : colors().text;
+  const fg = () => filled() ? fill().fg : p.danger ? colors().danger : colors().text;
   const height = p.size === "small" ? 26 : CONTROL_HEIGHT;
-  const shadow = () => filled
+  const shadow = () => filled()
     ? (dark() ? [{ x: 0, y: 1, blur: 0, color: "#ffffff24", inset: true }, { x: 0, y: 2, blur: 6, color: "#0b1a4a55" }] : [{ x: 0, y: 1, blur: 0, color: "#ffffff28", inset: true }, { x: 0, y: 1, blur: 3, color: tint(colors().accent, "38") }])
-    : plain
+    : plain()
       ? []
       : (dark() ? [{ x: 0, y: 1, blur: 0, color: "#ffffff0b", inset: true }] : [{ x: 0, y: 1, blur: 2, color: "#0f172a0c" }]);
-  return <Button testID={p.testID} onPress={p.onPress} disabled={p.disabled} style={{ cursor: p.disabled ? "default" : "pointer", height, minHeight: height, paddingHorizontal: plain ? 8 : filled ? 14 : 12, borderRadius: RADIUS.control, alignItems: "center", justifyContent: "center", borderWidth: filled || plain ? 0 : 1, borderColor: dark() ? "#2a3040" : colors().border, backgroundColor: filled ? fill().bg : plain ? "transparent" : (dark() ? "#1b1f2a" : "#ffffff"), boxShadow: shadow(), ...MOTION }}
-    hoverStyle={{ backgroundColor: filled ? fill().hover : plain ? colors().hover : (dark() ? "#232836" : colors().hover) }}
-    activeStyle={{ backgroundColor: filled ? fill().pressed : colors().selected, opacity: filled ? 1 : 0.92 }}
+  return <Button testID={p.testID} onPress={p.onPress} disabled={p.disabled} style={{ cursor: p.disabled ? "default" : "pointer", height, minHeight: height, paddingHorizontal: plain() ? 8 : filled() ? 14 : 12, borderRadius: RADIUS.control, alignItems: "center", justifyContent: "center", borderWidth: filled() || plain() ? 0 : 1, borderColor: dark() ? "#2a3040" : colors().border, backgroundColor: filled() ? fill().bg : plain() ? "transparent" : (dark() ? "#1b1f2a" : "#ffffff"), boxShadow: shadow(), ...MOTION }}
+    hoverStyle={{ backgroundColor: filled() ? fill().hover : plain() ? colors().hover : (dark() ? "#232836" : colors().hover) }}
+    activeStyle={{ backgroundColor: filled() ? fill().pressed : colors().selected, opacity: filled() ? 1 : 0.92 }}
     focusStyle={{ outlineWidth: 2, outlineColor: colors().accent, outlineOffset: 2 }}
     disabledStyle={{ opacity: 0.38, cursor: "default" }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-      <If when={!!p.icon}><Icon name={p.icon ?? "circle"} size={filled ? 14 : 13.5} color={filled ? fg() : p.danger ? colors().danger : colors().muted} /></If>
-      <Text style={{ fontSize: p.size === "small" ? 12 : 12.5, fontWeight: filled || p.bold ? 600 : 500, color: fg(), numberOfLines: 1 }}>{p.label}</Text>
+      <If when={!!p.icon}><Icon name={p.icon ?? "circle"} size={filled() ? 14 : 13.5} color={filled() ? fg() : p.danger ? colors().danger : colors().muted} /></If>
+      <Text style={{ fontSize: p.size === "small" ? 12 : 12.5, fontWeight: filled() || p.bold ? 600 : 500, color: fg(), numberOfLines: 1 }}>{p.label}</Text>
     </View>
   </Button>;
 }
@@ -130,8 +143,8 @@ export function GroupRow(p: { children?: JSX.Element; gap?: number; style?: any;
   return <View hoverStyle={p.hover ? { backgroundColor: colors().hover } : undefined} style={{ flexDirection: "row", alignItems: "center", minHeight: ROW_HEIGHT, paddingHorizontal: 16, paddingVertical: 10, gap: p.gap ?? 14, backgroundColor: colors().surface, ...MOTION, ...p.style }}>{p.children}</View>;
 }
 
-export function Row(p: { children?: JSX.Element; gap?: number; justify?: "space-between" | "flex-end" | "flex-start" | "center"; wrap?: boolean; style?: any }) {
-  return <View style={{ flexDirection: "row", alignItems: "center", gap: p.gap ?? 8, justifyContent: p.justify, flexWrap: p.wrap ? "wrap" : "nowrap", ...p.style }}>{p.children}</View>;
+export function Row(p: { children?: JSX.Element; gap?: number; justify?: "space-between" | "flex-end" | "flex-start" | "center"; wrap?: boolean; style?: any; testID?: string }) {
+  return <View testID={p.testID} style={{ flexDirection: "row", alignItems: "center", gap: p.gap ?? 8, justifyContent: p.justify, flexWrap: p.wrap ? "wrap" : "nowrap", ...p.style }}>{p.children}</View>;
 }
 
 export function Column(p: { children?: JSX.Element; gap?: number; flex?: number; style?: any }) {
@@ -288,3 +301,125 @@ export function fmtRate(value: number): string { return `${fmtBytes(value)}/s`; 
 export function fmtTime(value: string | number): string { if (!value) return "—"; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString(); }
 export function groupTypeLabel(kind: string): string { switch (String(kind).toLowerCase()) { case "selector": case "select": return tr("手动选择", "Manual"); case "urltest": case "url-test": return tr("自动选择", "Auto"); case "fallback": return tr("故障转移", "Fallback"); case "loadbalance": case "load-balance": return tr("负载均衡", "Load balance"); case "relay": return tr("链式代理", "Relay"); default: return kind; } }
 export function modeLabel(mode: string): string { switch (mode) { case "global": return tr("全局", "Global"); case "direct": return tr("直连", "Direct"); default: return tr("规则", "Rule"); } }
+
+/** Native AlertDialog confirmation helper (default action = keep editing / cancel). */
+export async function confirmDialog(options: {
+  title: string;
+  description?: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+}): Promise<boolean> {
+  const result = await AlertDialog.show({
+    title: options.title,
+    description: options.description,
+    presentation: "alert",
+    actions: [
+      { id: "cancel", label: options.cancelLabel ?? tr("取消", "Cancel"), role: "cancel" },
+      { id: "confirm", label: options.confirmLabel, role: options.destructive ? "destructive" : "default" },
+    ],
+  });
+  return result.action === "confirm";
+}
+
+/** Secret input with masked text and a 26x26 eye / eye-off reveal button. */
+export function SecretField(p: { label?: string; value: string; onChange: (value: string) => void; placeholder?: string; testID?: string; accessibilityLabel?: string }) {
+  const revealed = signal(false);
+  return <View style={{ gap: 6 }}>
+    <If when={!!p.label}><Text style={{ fontSize: TYPE.secondary, fontWeight: "600", color: colors().muted }}>{p.label ?? ""}</Text></If>
+    <View style={{ height: 32, minHeight: 32, flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 10, paddingRight: 3, borderRadius: 8, borderWidth: 1, borderColor: colors().border, backgroundColor: colorScheme() === "dark" ? colors().bg : colors().surface, ...MOTION }}
+      focusWithinStyle={{ borderColor: colors().accent, backgroundColor: colors().surface, boxShadow: [{ x: 0, y: 0, blur: 0, spread: 3, color: tint(colors().accent, "1f") }] }}>
+      <Input testID={p.testID} accessibilityLabel={p.accessibilityLabel ?? p.label} value={p.value} onChange={({ value }) => p.onChange(value)} placeholder={p.placeholder} masked={!revealed()} autoCorrect={false} autoCapitalize="none"
+        style={{ flex: 1, minWidth: 0, height: 30, paddingHorizontal: 0, paddingVertical: 0, borderWidth: 0, backgroundColor: "transparent", color: colors().text, placeholderColor: colors().faint, fontSize: TYPE.body, fontFamily: "system-ui" }} />
+      <Button testID={p.testID ? `${p.testID}-toggle` : undefined} accessibilityLabel={revealed() ? tr("隐藏内容", "Hide value") : tr("显示内容", "Show value")} onPress={() => revealed.set(!revealed())}
+        style={{ cursor: "pointer", width: 26, height: 26, alignItems: "center", justifyContent: "center", borderRadius: 6, ...MOTION }}
+        hoverStyle={{ backgroundColor: colors().hover }}
+        focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}>
+        <Icon name={revealed() ? "eyeOff" : "eye"} size={14} color={colors().muted} />
+      </Button>
+    </View>
+  </View>;
+}
+
+export interface MenuPopoverItem {
+  id: string;
+  label: string;
+  icon?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  dividerBefore?: boolean;
+  onPress: () => void;
+}
+
+/** Anchored popover menu for overflow (`⋮`) actions without native menu quirks. */
+export function MenuPopover(p: { items: MenuPopoverItem[]; triggerIcon?: string; triggerLabel: string; triggerSize?: number; testID?: string; disabled?: boolean }) {
+  const open = signal(false);
+  return <Popover open={open()} onOpenChange={({ open: next }) => open.set(next && !p.disabled)} placement="bottom" align="end" offset={4} margin={12}
+    popupStyle={{ minWidth: 176, maxWidth: 260, padding: 5, borderWidth: 1, borderColor: colors().border, borderRadius: 10, backgroundColor: colors().surface, boxShadow: elevation("popover"), gap: 2 }}
+    trigger={<View testID={p.testID} role="button" accessibilityLabel={p.triggerLabel} accessibilityState={{ expanded: open(), disabled: !!p.disabled }} disabled={p.disabled}
+      style={{ cursor: p.disabled ? "default" : "pointer", width: p.triggerSize ?? CONTROL_HEIGHT, height: p.triggerSize ?? CONTROL_HEIGHT, alignItems: "center", justifyContent: "center", borderRadius: RADIUS.control, backgroundColor: open() ? colors().hover : "transparent", opacity: p.disabled ? 0.35 : 1, ...MOTION }}
+      hoverStyle={{ backgroundColor: colors().hover }}
+      activeStyle={{ backgroundColor: colors().selected }}
+      focusStyle={{ outlineWidth: 2, outlineColor: colors().accent, outlineOffset: 1 }}>
+      <Icon name={p.triggerIcon ?? "ellipsis"} size={15} color={colors().muted} />
+    </View>}>
+    <If when={open()}><View style={{ gap: 2 }}>
+      <Each of={p.items} key={(it) => it.id}>{(it) => <View style={{ gap: 2 }}>
+        <If when={!!it().dividerBefore}><View style={{ height: 1, backgroundColor: colors().grid, marginVertical: 3, marginHorizontal: 6 }} /></If>
+        <Button testID={p.testID ? `${p.testID}-${it().id}` : undefined} disabled={it().disabled} onPress={() => { open.set(false); it().onPress(); }}
+          style={{ cursor: it().disabled ? "default" : "pointer", minHeight: 30, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "transparent", ...MOTION }}
+          hoverStyle={{ backgroundColor: colors().hover }}
+          activeStyle={{ backgroundColor: colors().selected }}
+          focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}
+          disabledStyle={{ opacity: 0.38, cursor: "default" }}>
+          <If when={!!it().icon}><Icon name={it().icon ?? "circle"} size={14} color={it().danger ? colors().danger : colors().muted} /></If>
+          <Text style={{ fontSize: 12.5, fontWeight: "500", color: it().danger ? colors().danger : colors().text, numberOfLines: 1, flexShrink: 1 }}>{it().label}</Text>
+        </Button>
+      </View>}</Each>
+    </View></If>
+  </Popover>;
+}
+
+/** Styled desktop checkbox row using native Checkbox semantics. */
+export function CheckRow(p: { checked: boolean; onChange: (checked: boolean) => void; label: string; subtitle?: string; disabled?: boolean; testID?: string; trailing?: () => JSX.Element }) {
+  const fill = () => accentFill();
+  return <Checkbox testID={p.testID} checked={p.checked} disabled={p.disabled} onChange={({ checked }) => p.onChange(checked)}
+    style={{ cursor: p.disabled ? "default" : "pointer", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, paddingVertical: 7, minHeight: 34, borderRadius: 8, backgroundColor: "transparent", ...MOTION }}
+    hoverStyle={{ backgroundColor: colors().hover }}
+    focusStyle={{ outlineWidth: 2, outlineColor: colors().accent }}
+    disabledStyle={{ opacity: 0.4, cursor: "default" }}
+    indicatorStyle={{ width: 16, height: 16, borderRadius: 4, borderWidth: 1, borderColor: p.checked ? fill().bg : colors().border, backgroundColor: p.checked ? fill().bg : (colorScheme() === "dark" ? colors().bg : colors().surface), alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+    indicator={<If when={p.checked}><Icon name="checkMark" size={11} color={fill().fg} /></If>}>
+    <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+      <Text style={{ fontSize: 12.5, fontWeight: "500", color: colors().text, numberOfLines: 1, textOverflow: "ellipsis" }} tooltip={p.label}>{p.label}</Text>
+      <If when={!!p.subtitle}><Text style={{ fontSize: 11, color: colors().faint, numberOfLines: 1, textOverflow: "ellipsis" }}>{p.subtitle}</Text></If>
+    </View>
+    <If when={!!p.trailing}><View style={{ flexShrink: 0 }}>{p.trailing?.()}</View></If>
+  </Checkbox>;
+}
+
+/** Thin 4px determinate progress bar for subscription quota visualization. */
+export function QuotaBar(p: { ratio: number; tone?: "accent" | "warn" | "danger"; label: string; testID?: string }) {
+  const pct = () => Math.max(0, Math.min(100, p.ratio * 100));
+  const barColor = () => p.tone === "danger" ? colors().danger : p.tone === "warn" ? colors().warn : colors().accent;
+  return <Progress testID={p.testID} value={pct()} accessibilityLabel={p.label}
+    trackStyle={{ height: 4, borderRadius: 2, backgroundColor: colors().border, overflow: "hidden" }}
+    indicatorStyle={{ height: 4, borderRadius: 2, backgroundColor: barColor() }} />;
+}
+
+/** Collapsible disclosure section for progressive forms. */
+export function Collapsible(p: { title: string; summary?: string; open: boolean; onToggle: () => void; children?: JSX.Element; testID?: string }) {
+  return <View style={{ borderRadius: 10, borderWidth: 1, borderColor: colors().border, backgroundColor: colorScheme() === "dark" ? "#ffffff03" : tint(colors().bg, "70"), overflow: "hidden" }}>
+    <Button testID={p.testID} onPress={p.onToggle}
+      style={{ cursor: "pointer", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 36, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: "transparent", ...MOTION }}
+      hoverStyle={{ backgroundColor: colors().hover }}
+      focusStyle={{ outlineWidth: 2, outlineColor: colors().accent, outlineOffset: -2 }}>
+      <Row gap={7} style={{ flex: 1, minWidth: 0 }}>
+        <Icon name={p.open ? "chevronDown" : "chevronRight"} size={13} color={colors().muted} />
+        <Text style={{ fontSize: 12, fontWeight: "600", color: colors().text, numberOfLines: 1 }}>{p.title}</Text>
+      </Row>
+      <If when={!!p.summary}><Text style={{ fontSize: 11, color: colors().faint, numberOfLines: 1, textOverflow: "ellipsis", flexShrink: 1 }}>{p.summary}</Text></If>
+    </Button>
+    <If when={p.open}><View style={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 12, gap: 10, borderTopWidth: 1, borderColor: colors().grid }}>{p.children}</View></If>
+  </View>;
+}

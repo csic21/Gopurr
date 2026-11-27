@@ -4,13 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/dlclark/regexp2"
+	C "github.com/metacubex/mihomo/constant"
+	"go.yaml.in/yaml/v3"
+
 	"gopurr/internal/buildinfo"
 	"gopurr/internal/core"
+	"gopurr/internal/patch"
+	"gopurr/internal/profile"
 	"gopurr/internal/remote"
 )
 
@@ -69,7 +79,7 @@ func (h webHost) Groups(ctx context.Context) ([]remote.Group, error) {
 		return nil, errors.New(tr("内核客户端没有初始化"))
 	}
 	if !a.k.Running() {
-		return []remote.Group{}, nil
+		return a.previewGroupsOffline(), nil
 	}
 	groups := a.k.Groups()
 	out := make([]remote.Group, 0, len(groups))
@@ -460,4 +470,278 @@ func (a *App) webSetMode(mode string) error {
 		a.invalidate()
 	})
 	return nil
+}
+
+type desktopPreviewNode struct {
+	Name string `yaml:"name"`
+	Type string `yaml:"type"`
+}
+
+type desktopPreviewGroup struct {
+	Name                string   `yaml:"name"`
+	Type                string   `yaml:"type"`
+	Proxies             []string `yaml:"proxies"`
+	Use                 []string `yaml:"use"`
+	IncludeAll          bool     `yaml:"include-all"`
+	IncludeAllProxies   bool     `yaml:"include-all-proxies"`
+	IncludeAllProviders bool     `yaml:"include-all-providers"`
+	Hidden              bool     `yaml:"hidden"`
+	Filter              string   `yaml:"filter"`
+	ExcludeFilter       string   `yaml:"exclude-filter"`
+	ExcludeType         string   `yaml:"exclude-type"`
+}
+
+type desktopPreviewProvider struct {
+	Type          string               `yaml:"type"`
+	Path          string               `yaml:"path"`
+	URL           string               `yaml:"url"`
+	Payload       []desktopPreviewNode `yaml:"payload"`
+	Filter        string               `yaml:"filter"`
+	ExcludeFilter string               `yaml:"exclude-filter"`
+	ExcludeType   string               `yaml:"exclude-type"`
+	Override      struct {
+		Prefix       string `yaml:"additional-prefix"`
+		Suffix       string `yaml:"additional-suffix"`
+		Replacements []any  `yaml:"proxy-name"`
+		Expressions  []any  `yaml:"override-expr"`
+	} `yaml:"override"`
+}
+
+// previewGroupsOffline statically parses the active profile's composed config
+// when the kernel is stopped so users can browse, add, and edit nodes offline.
+func (a *App) previewGroupsOffline() []remote.Group {
+	var raw []byte
+	var global patch.Overrides
+	var local patch.ProfileOverrides
+	var kernelHome string
+	runOnMain(func() {
+		global = a.runtimeOverrides()
+		global.TunEnable = false
+		kernelHome = filepath.Join(a.dir, "mihomo")
+		if a.store != nil {
+			if id := a.store.ActiveID(); id != "" {
+				if body, err := a.store.Content(id); err == nil {
+					raw = body
+					local = a.profileOverrides(id)
+				}
+			}
+		}
+		if len(raw) == 0 && strings.TrimSpace(a.cfgText) != "" {
+			raw = []byte(a.cfgText)
+		}
+	})
+	if len(raw) == 0 {
+		return []remote.Group{}
+	}
+	composed, err := patch.ApplyLayers(raw, global, local)
+	if err != nil {
+		return []remote.Group{}
+	}
+	return buildOfflineRemoteGroups(composed, kernelHome)
+}
+
+func buildOfflineRemoteGroups(raw []byte, kernelHome string) []remote.Group {
+	var doc struct {
+		Proxies   []desktopPreviewNode              `yaml:"proxies"`
+		Groups    []desktopPreviewGroup             `yaml:"proxy-groups"`
+		Providers map[string]desktopPreviewProvider `yaml:"proxy-providers"`
+	}
+	if yaml.Unmarshal(raw, &doc) != nil {
+		return []remote.Group{}
+	}
+	byName := map[string]string{"DIRECT": "Direct", "REJECT": "Reject", "REJECT-DROP": "RejectDrop", "PASS": "Pass", "COMPATIBLE": "Compatible"}
+	var all []string
+	for _, n := range doc.Proxies {
+		byName[n.Name] = desktopPreviewType(n.Type)
+		all = append(all, n.Name)
+	}
+	global := []string{"DIRECT", "REJECT"}
+	global = append(global, all...)
+	hasGlobal := false
+	for _, g := range doc.Groups {
+		byName[g.Name] = desktopPreviewType(g.Type)
+		global = append(global, g.Name)
+		hasGlobal = hasGlobal || g.Name == "GLOBAL"
+	}
+	var providerOrder []string
+	for name := range doc.Providers {
+		providerOrder = append(providerOrder, name)
+	}
+	sort.Strings(providerOrder)
+	providerNodes := make(map[string][]desktopPreviewNode)
+	for _, name := range providerOrder {
+		provider := doc.Providers[name]
+		nodes := provider.Payload
+		if provider.Type != "inline" {
+			path := provider.Path
+			if path == "" && provider.Type == "http" {
+				path = C.Path.GetPathByHash("proxies", provider.URL)
+			}
+			if cached, ok := readDesktopPreviewProvider(kernelHome, path); ok {
+				nodes = cached
+			}
+		}
+		if len(provider.Override.Replacements) > 0 || len(provider.Override.Expressions) > 0 {
+			continue
+		}
+		matches := desktopPreviewFilter(provider.Filter, provider.ExcludeFilter, provider.ExcludeType)
+		for _, n := range nodes {
+			if matches(n) {
+				n.Name = provider.Override.Prefix + n.Name + provider.Override.Suffix
+				providerNodes[name] = append(providerNodes[name], n)
+			}
+		}
+	}
+	if !hasGlobal && len(doc.Groups) > 0 {
+		doc.Groups = append(doc.Groups, desktopPreviewGroup{Name: "GLOBAL", Type: "select", Proxies: global})
+	}
+	out := make([]remote.Group, 0, len(doc.Groups))
+	for _, source := range doc.Groups {
+		g := remote.Group{
+			Name:    source.Name,
+			Type:    desktopPreviewType(source.Type),
+			Hidden:  source.Hidden,
+			Global:  source.Name == "GLOBAL",
+			Members: []remote.Member{},
+		}
+		matches := desktopPreviewFilter(source.Filter, source.ExcludeFilter, source.ExcludeType)
+		explicitMatches := desktopPreviewFilter("", source.ExcludeFilter, source.ExcludeType)
+		seen := map[string]bool{}
+		add := func(n desktopPreviewNode) {
+			if n.Name != "" && !seen[n.Name] {
+				seen[n.Name] = true
+				g.Members = append(g.Members, remote.Member{Name: n.Name, Type: desktopPreviewType(n.Type)})
+			}
+		}
+		for _, name := range source.Proxies {
+			if typ, ok := byName[name]; ok && explicitMatches(desktopPreviewNode{Name: name, Type: typ}) {
+				add(desktopPreviewNode{Name: name, Type: typ})
+			}
+		}
+		if source.IncludeAll || source.IncludeAllProxies {
+			for _, name := range all {
+				n := desktopPreviewNode{Name: name, Type: byName[name]}
+				if matches(n) {
+					add(n)
+				}
+			}
+		}
+		use := source.Use
+		if source.IncludeAll || source.IncludeAllProviders {
+			use = providerOrder
+		}
+		for _, name := range use {
+			for _, n := range providerNodes[name] {
+				if matches(n) {
+					add(n)
+				}
+			}
+		}
+		if g.Type == "Selector" && len(g.Members) > 0 {
+			g.Now = g.Members[0].Name
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+func readDesktopPreviewProvider(kernelHome, path string) ([]desktopPreviewNode, bool) {
+	if kernelHome == "" || path == "" {
+		return nil, false
+	}
+	root, err := filepath.EvalSymlinks(kernelHome)
+	if err != nil {
+		return nil, false
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, false
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || !filepath.IsLocal(rel) {
+		return nil, false
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > profile.MaxDocumentBytes {
+		return nil, false
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, profile.MaxDocumentBytes+1))
+	var doc struct {
+		Proxies []desktopPreviewNode `yaml:"proxies"`
+	}
+	if err != nil || len(raw) > profile.MaxDocumentBytes || yaml.Unmarshal(raw, &doc) != nil || doc.Proxies == nil {
+		return nil, false
+	}
+	return doc.Proxies, true
+}
+
+func desktopPreviewFilter(include, exclude, excludeType string) func(desktopPreviewNode) bool {
+	compile := func(pattern string) []*regexp2.Regexp {
+		var patterns []*regexp2.Regexp
+		if pattern == "" {
+			return patterns
+		}
+		for _, part := range strings.Split(pattern, "`") {
+			r, err := regexp2.Compile(part, regexp2.None)
+			if err != nil {
+				continue
+			}
+			r.MatchTimeout = 10 * time.Millisecond
+			patterns = append(patterns, r)
+		}
+		return patterns
+	}
+	includePatterns, excludePatterns := compile(include), compile(exclude)
+	excludedTypes := strings.Split(excludeType, "|")
+	match := func(patterns []*regexp2.Regexp, name string) bool {
+		for _, r := range patterns {
+			if ok, _ := r.MatchString(name); ok {
+				return true
+			}
+		}
+		return false
+	}
+	return func(n desktopPreviewNode) bool {
+		for _, typ := range excludedTypes {
+			if typ != "" && desktopPreviewType(typ) == desktopPreviewType(n.Type) {
+				return false
+			}
+		}
+		return (include == "" || match(includePatterns, n.Name)) && (exclude == "" || !match(excludePatterns, n.Name))
+	}
+}
+
+func desktopPreviewType(typ string) string {
+	switch strings.ToLower(typ) {
+	case "select", "selector":
+		return "Selector"
+	case "url-test", "urltest":
+		return "URLTest"
+	case "load-balance", "loadbalance":
+		return "LoadBalance"
+	case "ss", "shadowsocks":
+		return "Shadowsocks"
+	case "ssr", "shadowsocksr":
+		return "ShadowsocksR"
+	case "direct":
+		return "Direct"
+	case "reject":
+		return "Reject"
+	case "http":
+		return "Http"
+	case "fallback":
+		return "Fallback"
+	case "relay":
+		return "Relay"
+	default:
+		return typ
+	}
 }

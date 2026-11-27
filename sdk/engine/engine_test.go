@@ -308,6 +308,7 @@ iptables: {enable: true}
 		t.Fatalf("host reopen lost per-profile choices: %+v", groups)
 	}
 	testProfileChanges(t, reopened, imported.ID, source.URL, &sourceBody)
+	testMobileProxyEditorCreateLocalVPNSafetyAndRefreshSurvival(t, reopened)
 	if err := reopened.Close(); err != nil {
 		t.Fatal(err)
 	}

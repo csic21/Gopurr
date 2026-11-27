@@ -2022,5 +2022,21 @@
   "仅放行指定端口的组网流量，不会自动启动服务。": "Permits mesh traffic on explicit ports only; does not start services.",
   "确认开放并保存": "Save & allow access",
   "常用端口预设": "Quick port presets",
-  "多个端口用逗号分隔（支持 tcp / udp）；本地代理保留端口不可开放。": "Separate ports with commas (tcp / udp). Reserved local proxy ports cannot be opened."
+  "多个端口用逗号分隔（支持 tcp / udp）；本地代理保留端口不可开放。": "Separate ports with commas (tcp / udp). Reserved local proxy ports cannot be opened.",
+  "本地节点": "Local Nodes",
+  "新增节点不能标记为删除": "Added nodes cannot be marked for deletion",
+  "节点 %q 仍被 dialer-proxy 使用，请先修改链式代理": "Proxy %q is still used by dialer-proxy; update chained proxies first",
+  "节点 %q 仍被入站或端口转发使用，请先修改对应出口": "Proxy %q is still used by a listener or tunnel; update its outbound first",
+  "节点 %q 仍被规则使用，请先修改规则": "Proxy %q is still used by rules; update the rules first",
+  "无法识别节点链接、Base64 或 Clash YAML": "Unable to recognize proxy URI, Base64 or Clash YAML",
+  "不支持或无效的节点协议链接": "Unsupported or invalid proxy URI",
+  "请指定 HTTP 代理模式或补充认证信息": "Specify HTTP proxy mode or include credentials",
+  "节点链接格式无效或缺少必要参数": "Invalid proxy URI format or missing required parameters",
+  "代理链接格式无效": "Invalid proxy URI format",
+  "代理链接缺少服务器地址": "Proxy URI is missing server address",
+  "WireGuard 链接格式无效": "Invalid WireGuard URI format",
+  "WireGuard 链接缺少服务器地址": "WireGuard URI is missing server address",
+  "WireGuard 链接缺少端口": "WireGuard URI is missing port",
+  "WireGuard 链接缺少私钥或公钥": "WireGuard URI is missing private or public key",
+  "节点必须为 YAML 映射": "Proxy entry must be a YAML mapping"
 }

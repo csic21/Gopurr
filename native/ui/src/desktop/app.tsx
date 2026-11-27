@@ -2,7 +2,7 @@ import { batch, Canvas, cleanup, createAnimatedValue, effect, host, Image, keyma
 import { Button, Tabs as NativeTabs, Tab } from "nsh/base";
 import { colors } from "./theme";
 import { language, tr } from "./i18n";
-import { busy, call, chromeHeight, chromeInset, closeRequested, error, listenDesktopEvents, navigate, nativeCall, page, refresh, run, state } from "./client";
+import { busy, call, chromeHeight, chromeInset, closeRequested, error, listenDesktopEvents, navigate, nativeCall, page, refresh, run, sidebarCollapsed, state } from "./client";
 import { Action, Feedback, Icon, Label, Modal, Row, StatusDot, tint } from "./ui";
 import { OverviewPage } from "./overview";
 import { ProfilesPage } from "./profiles";
@@ -29,6 +29,7 @@ export function DesktopApp(preview:{motionProgress?:number;motionCollapsed?:bool
  // has them short of the end.
  const previewInitial=preview.motionProgress!==undefined||preview.motionCollapsed!==undefined;
  const collapsed=signal(preview.motionCollapsed??(preview.motionProgress!==undefined));
+ effect(()=>{sidebarCollapsed.set(collapsed());});
  const settled=signal(preview.motionCollapsed===true);
  const initial=signal(previewInitial);
  const navMoving=signal(preview.motionProgress!==undefined);

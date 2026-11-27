@@ -9,7 +9,7 @@ test("desktop proxy latency testing never switches selection",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-proxies");await app.waitFor("id:proxy-香港 01");await app.press("id:test-proxy-香港 01");expect(app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.select")).toBe(false);await app.press("id:proxy-新加坡 03");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.select"));
 });
 test("desktop proxy mode and bulk testing stay explicit",async()=>{
- const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-proxies");await app.waitFor("id:group-节点选择");await app.press("id:proxy-mode-global");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.mode.set"&&(c.data as any)?.params?.mode==="global"));await app.waitFor("id:group-GLOBAL");await app.press("text:测试全部");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.group.delay"&&(c.data as any)?.params?.names?.includes("香港 01")));await app.press("id:proxy-mode-direct");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.mode.set"&&(c.data as any)?.params?.mode==="direct"));await app.waitFor("text:当前为直连模式");
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-proxies");await app.waitFor("id:group-节点选择");await app.press("id:proxy-mode-global");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.mode.set"&&(c.data as any)?.params?.mode==="global"));await app.waitFor("id:group-GLOBAL");await app.press("id:proxies-overflow");await app.press("id:proxies-overflow-test-all");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.node.delay"&&(c.data as any)?.params?.name==="香港 01"));await app.press("id:proxy-mode-direct");await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.mode.set"&&(c.data as any)?.params?.mode==="direct"));await app.waitFor("text:当前为直连模式 · 所有流量直接连接。你仍可在下方管理节点，切换到规则或全局模式后可选择出口。");
 });
 test("failed desktop subscription imports preserve editable draft",async()=>{
  const app=await open("./Desktop.tsx",{host:host(true),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-subs");await app.press("id:add-profile");await app.type("id:profile-url","https://example.invalid/bad.yaml");await app.press("text:添加");await app.waitFor("text:Download failed; draft retained.");expect(app.value("id:profile-url")).toBe("https://example.invalid/bad.yaml");
@@ -144,9 +144,60 @@ test("a failed first-close preference save keeps the window open",async()=>{
  const app=await open("./Desktop.tsx",{host:h,width:840,height:560,locale:"zh-CN"});await app.host.send("desktop.event",{kind:"closeRequested"});await app.press("id:desktop-close-background");await app.waitFor("text:Could not save preferences.");expect(app.host.calls().some(c=>c.name==="desktop.window.close")).toBe(false);expect(app.enabled("id:desktop-close-background")).toBe(true);
 });
 test("the host receives only boolean dirty transitions and retains a hidden-page draft",async()=>{
- const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});await app.press("id:desktop-nav-subs");await app.press("id:add-profile");await app.type("id:profile-url","https://example.invalid/secret-profile-token");await app.keyboard.press("mod+8");
+ const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,locale:"zh-CN"});app.onDialog(()=>"放弃更改");await app.press("id:desktop-nav-subs");await app.press("id:add-profile");await app.type("id:profile-url","https://example.invalid/secret-profile-token");await app.keyboard.press("mod+8");
  const dirtyPosts=()=>app.host.posts().filter(v=>v.name==="desktop.window.dirty");expect(dirtyPosts().map(v=>v.data)).toEqual([{dirty:false},{dirty:true}]);expect(JSON.stringify(dirtyPosts())).not.toContain("secret-profile-token");
- await app.keyboard.press("mod+2");expect(app.value("id:profile-url")).toBe("https://example.invalid/secret-profile-token");await app.press("text:取消");expect(dirtyPosts().map(v=>v.data)).toEqual([{dirty:false},{dirty:true},{dirty:false}]);
+ await app.keyboard.press("mod+2");expect(app.value("id:profile-url")).toBe("https://example.invalid/secret-profile-token");await app.press("text:取消");await app.waitUntil(()=>(dirtyPosts().at(-1)?.data as any)?.dirty===false);expect(dirtyPosts().map(v=>v.data)).toEqual([{dirty:false},{dirty:true},{dirty:false}]);
+});
+
+test("desktop proxies 3-tier responsive inspector collapses group rail at 1060x720 and uses single-layer modal at 840x560",async()=>{
+ const app=await open("./Desktop.tsx",{host:host(),width:1060,height:720,locale:"zh-CN"});
+ await app.press("id:desktop-nav-proxies");await app.waitFor("id:edit-proxy-香港 01");
+ // Rail visible when inspector closed
+ expect(app.shows("id:proxies-group-rail")).toBe(true);
+ // Open inline inspector -> contentWidth = 1060 - 184 = 876 (800..959) -> rail auto-collapses to Select!
+ await app.press("id:edit-proxy-香港 01");await app.waitFor("id:proxy-inline-inspector");
+ expect(app.shows("id:proxies-collapsed-group-bar")).toBe(true);
+ expect(app.shows("id:proxies-group-rail")).toBe(false);
+ // Close inspector -> rail restores
+ await app.press("id:proxy-inspector-close");await app.waitFor("id:proxies-group-rail");
+ // Narrow viewport 840x560 -> contentWidth = 656 < 800 -> degrades to single-layer Modal
+ await app.setViewport(840,560);
+ await app.press("id:edit-proxy-香港 01");await app.waitFor("id:proxy-inspector-modal");
+ await app.press("id:proxy-inspector-modal-close");
+});
+
+test("desktop quick add node parses VPS URI and saves via AppendMembers or createLocal at 0 profiles",async()=>{
+ const h=host(),dispatch=h.handlers["desktop.dispatch"];
+ h.handlers["desktop.dispatch"]=async(value:unknown)=>{
+  const r=value as {method:string;params:any};
+  const res=await dispatch(value);
+  if(r.method==="desktop.snapshot"){const s={...(res.result as any),profiles:[],activeProfile:"",groups:[]};return {result:s};}
+  return res;
+ };
+ const app=await open("./Desktop.tsx",{host:h,width:1060,height:720,locale:"zh-CN"});
+ await app.press("id:desktop-nav-proxies");await app.waitFor("id:add-proxy-btn");
+ await app.press("id:add-proxy-btn");await app.waitFor("id:quick-add-paste-input");
+ await app.type("id:quick-add-paste-input","vless://11111111-2222-3333-4444-555555555555@vps.example.org:443#MyVPS");
+ await app.waitFor("text:MyVPS");
+ await app.press("id:quick-add-node-save");
+ await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.profiles.createLocal"));
+});
+
+test("desktop subscriptions shows quota bar, live aggregate preview and overlay pill navigation",async()=>{
+ const app=await open("./Desktop.tsx",{host:host(),width:1060,height:720,locale:"zh-CN"});
+ await app.press("id:desktop-nav-subs");await app.waitFor("id:quota-bar-daily");
+ expect(app.shows("id:update-all-profiles")).toBe(true);
+ // Active profile overlay pill navigates to Proxies filtered to local & edited
+ await app.press("id:overlay-pill-daily");await app.waitFor("id:desktop-proxies");
+ // Back to subs -> test inactive overlay pill opens targeted proxy manager modal
+ await app.press("id:desktop-nav-subs");await app.waitFor("id:overlay-pill-backup");
+ await app.press("id:overlay-pill-backup");await app.waitFor("id:profile-proxy-manager-dialog");
+ await app.press("id:profile-proxy-manager-close");
+ // Live aggregate preview with includeYaml: false
+ await app.press("id:add-aggregate");await app.waitFor("id:aggregate-preview-panel");
+ await app.press("id:agg-source-daily");
+ await app.waitUntil(()=>app.host.calls().some(c=>(c.data as any)?.method==="desktop.profiles.aggregatePreview"&&(c.data as any)?.params?.includeYaml===false));
+ await app.waitFor("id:aggregate-preview-stats");
 });
 test("native tab lists support focused arrows and Home and End",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,platform:"macos",locale:"zh-CN"});

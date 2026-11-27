@@ -5,9 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	C "github.com/metacubex/mihomo/constant"
+	"go.yaml.in/yaml/v3"
 
 	"gopurr/internal/applications"
 	"gopurr/internal/backup"
@@ -138,11 +143,15 @@ func (a *App) NativeCall(ctx context.Context, method string, raw json.RawMessage
 			out["content"] = string(body)
 			return out, nil
 		})
-	case "desktop.profiles.import", "desktop.profiles.update", "desktop.profiles.updateAll", "desktop.profiles.edit", "desktop.profiles.activate", "desktop.profiles.delete", "desktop.profiles.aggregate", "desktop.profiles.aggregatePreview":
+	case "desktop.profiles.import", "desktop.profiles.createLocal", "desktop.profiles.update", "desktop.profiles.updateAll", "desktop.profiles.edit", "desktop.profiles.activate", "desktop.profiles.delete", "desktop.profiles.aggregate", "desktop.profiles.aggregatePreview":
 		return a.nativeProfileCall(ctx, method, p)
+	case "desktop.proxies.parse":
+		return profile.ParseProxyInputsWithMode(nativeString(p, "text"), nativeString(p, "mode")), nil
 	case "desktop.proxies.editor":
 		return nativeMain(ctx, func() (any, error) { return a.nativeProxyEditor(nativeString(p, "id")) })
-	case "desktop.rules.save", "desktop.features.save", "desktop.features.policy", "desktop.proxies.save":
+	case "desktop.proxies.save":
+		return a.nativeSaveProxies(ctx, p)
+	case "desktop.rules.save", "desktop.features.save", "desktop.features.policy":
 		return a.nativeSaveOverrides(ctx, method, p)
 	case "desktop.library.save":
 		return a.nativeModelJob(ctx, func(w *App) (any, error) {
@@ -384,12 +393,7 @@ func (a *App) nativeSaveOverrides(ctx context.Context, method string, p map[stri
 				}
 			}
 		case "desktop.proxies.save":
-			if id == "" {
-				return nil, errors.New("choose a profile before editing its proxies")
-			}
-			if err := json.Unmarshal(p["edits"], &local.ProxyEdits); err != nil {
-				return nil, err
-			}
+			return nil, errors.New("handled by nativeSaveProxies")
 		default:
 			if method == "desktop.features.policy" {
 				key := "dnsPolicy"
@@ -473,6 +477,136 @@ func (a *App) nativeSaveOverrides(ctx context.Context, method string, p map[stri
 	select {
 	case err := <-result:
 		return map[string]any{"saved": err == nil}, err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (a *App) nativeSaveProxies(ctx context.Context, p map[string]json.RawMessage) (any, error) {
+	id := nativeString(p, "id")
+	var edits *patch.ProxyEdits
+	if rawEdits, ok := p["edits"]; ok && len(rawEdits) > 0 && string(rawEdits) != "null" {
+		if err := json.Unmarshal(rawEdits, &edits); err != nil {
+			return nil, err
+		}
+	}
+	var isPureLocal bool
+	_, err := nativeMain(ctx, func() (any, error) {
+		if a.store == nil {
+			return nil, errors.New("profile store unavailable")
+		}
+		if id == "" {
+			id = a.store.ActiveID()
+		}
+		if id == "" {
+			return nil, errors.New("choose a profile before editing its proxies")
+		}
+		item, err := a.store.Get(id)
+		if err != nil {
+			return nil, err
+		}
+		isPureLocal = item.IsPureLocal()
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if isPureLocal {
+		return a.nativeModelJob(ctx, func(w *App) (any, error) {
+			raw, err := w.store.Content(id)
+			if err != nil {
+				return nil, err
+			}
+			local := w.profileOverrides(id)
+			pruned, deletedLocal := patch.PruneDeletedLocalNodeRefs(local.ProxyEdits, edits)
+			nextRaw := raw
+			if pruned != nil {
+				nextRaw, err = patch.PreviewProxyEdits(raw, pruned)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if err := patch.ValidateDeletedNodeRefs(nextRaw, deletedLocal); err != nil {
+				return nil, err
+			}
+			nextLocal := local
+			nextLocal.ProxyEdits = nil
+			active := w.store.ActiveID() == id
+			running := active && w.k != nil && w.k.RunningForChange()
+			global := w.runtimeOverrides()
+			if !active {
+				global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
+			}
+			candidate, err := patch.ApplyLayers(nextRaw, global, nextLocal)
+			if err != nil {
+				return nil, fmt.Errorf(tr("配置验证失败：%w"), err)
+			}
+			if err := patch.ValidateDeletedNodeRefs(candidate, deletedLocal); err != nil {
+				return nil, err
+			}
+			var previous []byte
+			if running {
+				previous, err = w.lastAcceptedConfig()
+				if err != nil {
+					return nil, err
+				}
+			}
+			attempted := false
+			_, err = w.store.UpdateContentContext(ctx, id, nextRaw, &nextLocal, func(_ profile.Profile, _ []byte) error {
+				if running {
+					attempted = true
+					return w.k.Start(candidate)
+				}
+				return nil
+			})
+			if err != nil && attempted {
+				err = errors.Join(err, w.k.Start(previous))
+			}
+			return map[string]any{"saved": err == nil, "applied": err == nil && attempted}, err
+		}, nil)
+	}
+
+	result := make(chan error, 1)
+	var applied bool
+	_, err = nativeMain(ctx, func() (any, error) {
+		if a.store == nil {
+			return nil, errors.New("profile store unavailable")
+		}
+		if _, err := a.store.Get(id); err != nil {
+			return nil, err
+		}
+		local := a.profileOverrides(id)
+		pruned, deletedLocal := patch.PruneDeletedLocalNodeRefs(local.ProxyEdits, edits)
+		local.ProxyEdits = pruned
+		if len(deletedLocal) > 0 {
+			raw, err := a.store.Content(id)
+			if err != nil {
+				return nil, err
+			}
+			global := a.runtimeOverrides()
+			if id != a.store.ActiveID() {
+				global.ExtraRules, global.AppRules, global.TunEnable = nil, nil, false
+			}
+			candidate, err := patch.ApplyLayers(raw, global, local)
+			if err != nil {
+				return nil, fmt.Errorf(tr("配置验证失败：%w"), err)
+			}
+			if err := patch.ValidateDeletedNodeRefs(candidate, deletedLocal); err != nil {
+				return nil, err
+			}
+		}
+		a.requestOverrideChange(id, a.ov, local, func(didApply bool, e error) {
+			applied = didApply
+			result <- e
+		})
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case err := <-result:
+		return map[string]any{"saved": err == nil, "applied": err == nil && applied}, err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -564,26 +698,84 @@ func (a *App) nativeProfileCall(ctx context.Context, method string, p map[string
 		if err := json.Unmarshal(p["spec"], &spec); err != nil {
 			return nil, err
 		}
+		includeYaml := true
+		if rawFlag, ok := p["includeYaml"]; ok && len(rawFlag) > 0 && string(rawFlag) != "null" {
+			if err := json.Unmarshal(rawFlag, &includeYaml); err != nil {
+				return nil, err
+			}
+		}
 		return nativeMain(ctx, func() (any, error) {
 			if a.store == nil {
 				return nil, errors.New("profile store unavailable")
 			}
 			raw, stats, err := a.store.BuildAggregate(spec)
-			return map[string]any{"yaml": string(raw), "stats": nativeJSON(stats)}, err
+			if err != nil {
+				return nil, err
+			}
+			names := stats.Names
+			truncated := false
+			if len(names) > 200 {
+				names = names[:200]
+				truncated = true
+			}
+			if names == nil {
+				names = []string{}
+			}
+			statsOut := map[string]any{
+				"input":      stats.Input,
+				"matched":    stats.Output + stats.Duplicates,
+				"output":     stats.Output,
+				"duplicates": stats.Duplicates,
+			}
+			if includeYaml {
+				statsOut["names"] = stats.Names
+				return map[string]any{"yaml": string(raw), "stats": statsOut, "names": names, "truncated": truncated}, nil
+			}
+			return map[string]any{"stats": statsOut, "names": names, "truncated": truncated}, nil
 		})
 	}
 	return a.nativeModelJob(ctx, func(w *App) (any, error) {
 		switch method {
-		case "desktop.profiles.import":
-			if address := nativeString(p, "url"); address != "" {
-				if err := profile.ValidateSettings(profile.Profile{Name: "import", URL: address, UserAgent: nativeString(p, "userAgent")}); err != nil {
+		case "desktop.profiles.createLocal":
+			var nodes []patch.ProxyNode
+			if rawNodes, ok := p["nodes"]; ok && len(rawNodes) > 0 && string(rawNodes) != "null" {
+				if err := json.Unmarshal(rawNodes, &nodes); err != nil {
 					return nil, err
 				}
 			}
 			item, err := w.importManagedProfileContext(ctx, func(accept func(profile.Profile, []byte) error) (profile.Profile, error) {
+				return w.store.CreateLocal(ctx, nativeString(p, "name"), nodes, accept)
+			})
+			if err != nil {
+				return nil, err
+			}
+			if nativeBool(p, "activate") && w.store.ActiveID() != item.ID {
+				if err := w.activateManagedProfile(ctx, item.ID); err != nil {
+					return nil, err
+				}
+			}
+			return map[string]any{"profile": item, "active": w.store.ActiveID() == item.ID}, nil
+		case "desktop.profiles.import":
+			var updateHours *int
+			if rawHours, ok := p["updateHours"]; ok && len(rawHours) > 0 && string(rawHours) != "null" {
+				var hours int
+				if err := json.Unmarshal(rawHours, &hours); err != nil {
+					return nil, err
+				}
+				updateHours = &hours
+			}
+			userAgent := nativeString(p, "userAgent")
+			useProxy := nativeBool(p, "useProxy")
+			item, err := w.importManagedProfileContext(ctx, func(accept func(profile.Profile, []byte) error) (profile.Profile, error) {
 				switch {
 				case nativeString(p, "url") != "":
-					return workflow.Import(ctx, w.store, workflow.ImportSource{Name: nativeString(p, "name"), URL: nativeString(p, "url")}, accept)
+					return workflow.Import(ctx, w.store, workflow.ImportSource{
+						Name:        nativeString(p, "name"),
+						URL:         nativeString(p, "url"),
+						UserAgent:   userAgent,
+						UseProxy:    useProxy,
+						UpdateHours: updateHours,
+					}, accept)
 				case nativeString(p, "path") != "":
 					return workflow.Import(ctx, w.store, workflow.ImportSource{Name: nativeString(p, "name"), Path: nativeString(p, "path")}, accept)
 				case p["content"] != nil:
@@ -592,17 +784,8 @@ func (a *App) nativeProfileCall(ctx context.Context, method string, p map[string
 					return profile.Profile{}, errors.New("provide subscription URL, local path or YAML content")
 				}
 			})
-			// Source metadata, like the existing subscription editor, applies
-			// to the next refresh. A metadata write failure must not roll the
-			// accepted core back behind an already committed source cache.
-			if err == nil && nativeString(p, "url") != "" && (p["userAgent"] != nil || p["useProxy"] != nil) {
-				if p["userAgent"] != nil {
-					item.UserAgent = nativeString(p, "userAgent")
-				}
-				if p["useProxy"] != nil {
-					item.UseProxy = nativeBool(p, "useProxy")
-				}
-				err = w.store.Edit(item)
+			if err == nil && nativeBool(p, "activate") && w.store.ActiveID() != item.ID {
+				err = w.activateManagedProfile(ctx, item.ID)
 			}
 			return item, err
 
@@ -611,7 +794,7 @@ func (a *App) nativeProfileCall(ctx context.Context, method string, p map[string
 		case "desktop.profiles.updateAll":
 			var failures []error
 			for _, item := range w.store.List() {
-				if !item.IsAggregate() {
+				if item.Kind == profile.KindURL {
 					if err := w.refreshManagedProfileContext(ctx, item.ID); err != nil {
 						failures = append(failures, fmt.Errorf("%s: %w", item.Name, err))
 					}
@@ -671,7 +854,8 @@ func (a *App) nativeProxyEditor(id string) (any, error) {
 	if id == "" {
 		id = a.store.ActiveID()
 	}
-	if _, err := a.store.Get(id); err != nil {
+	prof, err := a.store.Get(id)
+	if err != nil {
 		return nil, err
 	}
 	w := &App{store: a.store, ov: a.ov, cfgText: a.cfgText}
@@ -679,6 +863,61 @@ func (a *App) nativeProxyEditor(id string) (any, error) {
 	if !w.showProxyEditor {
 		return nil, errors.New("cannot load proxy editor: " + w.notice)
 	}
+	edits := a.profileOverrides(id).ProxyEdits
+	editedNodes := map[string]bool{}
+	groupEditsBySource := map[string]patch.GroupEdit{}
+	if edits != nil {
+		for _, ne := range edits.Nodes {
+			if ne.Source == "" {
+				editedNodes["local:"+ne.LocalID] = true
+			} else {
+				editedNodes[ne.Source] = true
+			}
+		}
+		for _, ge := range edits.Groups {
+			if ge.Source != "" {
+				groupEditsBySource[ge.Source] = ge
+			}
+		}
+	}
+
+	var baseDoc struct {
+		Groups    []desktopPreviewGroup             `yaml:"proxy-groups"`
+		Providers map[string]desktopPreviewProvider `yaml:"proxy-providers"`
+	}
+	_ = yaml.Unmarshal([]byte(w.proxyEditorRaw), &baseDoc)
+	baseGroupMeta := map[string]desktopPreviewGroup{}
+	for _, g := range baseDoc.Groups {
+		baseGroupMeta[g.Name] = g
+	}
+	providerNodes := []map[string]any{}
+	var providerNames []string
+	for name := range baseDoc.Providers {
+		providerNames = append(providerNames, name)
+	}
+	sort.Strings(providerNames)
+	kernelHome := filepath.Join(a.dir, "mihomo")
+	for _, provName := range providerNames {
+		prov := baseDoc.Providers[provName]
+		pNodes := prov.Payload
+		if prov.Type != "inline" {
+			path := prov.Path
+			if path == "" && prov.Type == "http" {
+				path = C.Path.GetPathByHash("proxies", prov.URL)
+			}
+			if cached, ok := readDesktopPreviewProvider(kernelHome, path); ok {
+				pNodes = cached
+			}
+		}
+		for _, pn := range pNodes {
+			providerNodes = append(providerNodes, map[string]any{
+				"provider": provName,
+				"name":     prov.Override.Prefix + pn.Name + prov.Override.Suffix,
+				"type":     pn.Type,
+			})
+		}
+	}
+
 	nodes, groups := []any{}, []any{}
 	options := []string{"DIRECT", "REJECT"}
 	for _, key := range w.proxyEditorNodeOrder {
@@ -688,17 +927,90 @@ func (a *App) nativeProxyEditor(id string) (any, error) {
 			return nil, err
 		}
 		port, _ := strconv.Atoi(f.Port)
-		base := w.proxyEditorBaseNodes[f.Source]
-		nodes = append(nodes, map[string]any{"source": f.Source, "localId": f.LocalID, "name": f.Name, "type": f.Type, "server": f.Server, "port": port, "options": opts, "missing": f.Missing, "base": nativeJSON(base)})
+		var baseVal any
+		if f.Source != "" {
+			if base, ok := w.proxyEditorBaseNodes[f.Source]; ok {
+				baseVal = nativeJSON(base)
+			}
+		}
+		nodes = append(nodes, map[string]any{
+			"source":  f.Source,
+			"localId": f.LocalID,
+			"name":    f.Name,
+			"type":    f.Type,
+			"server":  f.Server,
+			"port":    port,
+			"options": opts,
+			"edited":  editedNodes[key],
+			"missing": f.Missing,
+			"base":    baseVal,
+		})
 		options = append(options, f.Name)
 	}
 	for _, key := range w.proxyEditorGroupOrder {
 		f := w.proxyEditorGroups[key]
-		base := w.proxyEditorBaseGroups[f.Source]
-		groups = append(groups, map[string]any{"source": f.Source, "name": f.Name, "type": f.Type, "members": f.Members, "missing": f.Missing, "deleted": f.Deleted, "base": nativeJSON(base)})
+		var baseVal any
+		inheritedMembers := []string{}
+		if f.Source != "" {
+			if base, ok := w.proxyEditorBaseGroups[f.Source]; ok {
+				baseVal = nativeJSON(base)
+				for _, m := range base.Members {
+					inheritedMembers = append(inheritedMembers, edits.Target(m))
+				}
+			}
+		}
+		appendMembers := []string{}
+		explicit := f.Source == ""
+		edited := f.Source == ""
+		if ge, ok := groupEditsBySource[f.Source]; ok && f.Source != "" {
+			edited = true
+			if ge.Members != nil {
+				explicit = true
+			}
+			if len(ge.AppendMembers) > 0 {
+				appendMembers = append(appendMembers, ge.AppendMembers...)
+			}
+		}
+		members := f.Members
+		if members == nil {
+			members = []string{}
+		}
+		meta := baseGroupMeta[f.Source]
+		use := meta.Use
+		if use == nil {
+			use = []string{}
+		}
+		groups = append(groups, map[string]any{
+			"source":           f.Source,
+			"name":             f.Name,
+			"type":             f.Type,
+			"members":          members,
+			"inheritedMembers": inheritedMembers,
+			"appendMembers":    appendMembers,
+			"explicit":         explicit,
+			"explicitMembers":  explicit,
+			"edited":           edited,
+			"missing":          f.Missing,
+			"deleted":          f.Deleted,
+			"use":              use,
+			"includeAll":       meta.IncludeAll || meta.IncludeAllProxies || meta.IncludeAllProviders,
+			"base":             baseVal,
+		})
 		if !f.Deleted {
 			options = append(options, f.Name)
 		}
 	}
-	return map[string]any{"id": id, "nodes": nodes, "groups": groups, "edits": a.profileOverrides(id).ProxyEdits, "options": options}, nil
+	return map[string]any{
+		"id":             id,
+		"profileId":      prof.ID,
+		"profileName":    prof.Name,
+		"profileKind":    prof.Kind,
+		"isPureLocal":    prof.IsPureLocal(),
+		"nodes":          nodes,
+		"groups":         groups,
+		"edits":          edits,
+		"options":        options,
+		"availableNames": options,
+		"providerNodes":  providerNodes,
+	}, nil
 }

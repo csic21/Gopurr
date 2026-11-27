@@ -192,7 +192,34 @@ func (a *App) NativeSnapshot(ctx context.Context, page, scopeID string) (map[str
 				if u, e := url.Parse(p.URL); e == nil && u.Hostname() != "" {
 					source = u.Hostname()
 				}
-				profiles = append(profiles, map[string]any{"id": p.ID, "name": p.Name, "kind": p.Kind, "source": source, "updated": p.Updated, "info": p.Info, "updateHours": p.UpdateHours, "useProxy": p.UseProxy, "active": p.ID == active})
+				inspect := a.store.InspectProfile(p)
+				entry := map[string]any{
+					"id":                  p.ID,
+					"name":                p.Name,
+					"kind":                p.Kind,
+					"source":              source,
+					"updated":             p.Updated,
+					"info":                p.Info,
+					"userAgent":           p.UserAgent,
+					"updateHours":         p.UpdateHours,
+					"useProxy":            p.UseProxy,
+					"active":              p.ID == active,
+					"isAggregate":         p.IsAggregate(),
+					"hasPath":             p.Path != "",
+					"isPureLocal":         p.IsPureLocal(),
+					"nodeCount":           inspect.NodeCount,
+					"localNodeCount":      inspect.LocalNodeCount,
+					"editedNodeCount":     inspect.EditedNodeCount,
+					"editedGroupCount":    inspect.EditedGroupCount,
+					"extraRuleCount":      inspect.ExtraRuleCount,
+					"templateCount":       inspect.TemplateCount,
+					"lastError":           inspect.LastError,
+					"dependentAggregates": inspect.DependentAggregates,
+				}
+				if inspect.Aggregate != nil {
+					entry["aggregate"] = inspect.Aggregate
+				}
+				profiles = append(profiles, entry)
 			}
 		}
 		out["profiles"], out["activeProfile"] = profiles, active
@@ -322,6 +349,7 @@ func (a *App) NativeSnapshot(ctx context.Context, page, scopeID string) (map[str
 			return nil, e
 		}
 		out["groups"] = groups
+		out["groupsPreview"] = !status.Kernel && len(groups) > 0
 	}
 	if page == "conns" || page == "" {
 		conns, e := h.Connections(ctx)

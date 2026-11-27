@@ -9,7 +9,15 @@ import (
 
 // ImportSource has exactly one source. Path is desktop-only; a mobile document
 // picker supplies YAML bytes so temporary platform URIs never become sources.
-type ImportSource struct{ Name, URL, YAML, Path string }
+type ImportSource struct {
+	Name        string
+	URL         string
+	YAML        string
+	Path        string
+	UserAgent   string
+	UseProxy    bool
+	UpdateHours *int
+}
 
 func Import(ctx context.Context, store *profile.Store, source ImportSource, accept func(profile.Profile, []byte) error) (profile.Profile, error) {
 	if store == nil {
@@ -29,7 +37,11 @@ func Import(ctx context.Context, store *profile.Store, source ImportSource, acce
 	}
 	switch {
 	case source.URL != "":
-		return store.AddCheckedContext(ctx, source.URL, source.Name, accept)
+		return store.AddCheckedWithOptionsContext(ctx, source.URL, source.Name, profile.AddOptions{
+			UserAgent:   source.UserAgent,
+			UseProxy:    source.UseProxy,
+			UpdateHours: source.UpdateHours,
+		}, accept)
 	case source.Path != "":
 		return store.AddFileCheckedContext(ctx, source.Path, source.Name, accept)
 	default:
