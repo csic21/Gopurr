@@ -1,6 +1,7 @@
 import { test, open, expect } from "nsh/test";
 import { desktopFixtureTransport } from "./src/desktop/fixture";
 import { mergeDiff } from "./src/desktop/proxies";
+import { buildNodeValue, extractNodeForm } from "./src/desktop/proxy-helpers";
 import { navigationLayout } from "./src/desktop/navigation";
 import { brandInterpolation, brandLayout, navFlightGeometry } from "./src/desktop/nav-flight";
 import { switchThumbTransform } from "./src/desktop/ui";
@@ -203,4 +204,86 @@ test("native tab lists support focused arrows and Home and End",async()=>{
  const app=await open("./Desktop.tsx",{host:host(),width:840,height:560,platform:"macos",locale:"zh-CN"});
  await app.keyboard.press("tab");await app.keyboard.press("right");await app.waitFor("text:所有请求使用全局策略");await app.keyboard.press("end");await app.waitFor("text:所有请求直接连接");await app.keyboard.press("home");await app.waitFor("text:节点选择 · 手动选择");
  await app.keyboard.press("shift+tab");await app.keyboard.press("shift+tab");await app.keyboard.press("down");await app.waitFor("id:desktop-profiles");await app.keyboard.press("end");await app.waitFor("text:偏好自动保存；网络与测试设置确认后应用");await app.keyboard.press("home");await app.waitFor("id:desktop-overview");
+});
+
+test("desktop node editor supports Reality ML-KEM-768 toggle and preserves unknown nested option sub-keys", async () => {
+  const form = extractNodeForm({
+    name: "VLESS-PQ",
+    type: "vless",
+    server: "pq.example.com",
+    port: 443,
+    options: {
+      type: "vless",
+      uuid: "11111111-2222-3333-4444-555555555555",
+      tls: true,
+      servername: "sni.example.com",
+      network: "ws",
+      "reality-opts": {
+        "public-key": "pk-abc",
+        "short-id": "ab12",
+        "support-x25519mlkem768": true,
+        "spider-x": "/test",
+      },
+      "ws-opts": {
+        path: "/ws",
+        headers: { Host: "cdn.example.com", "User-Agent": "CustomUA" },
+        "max-early-data": 2048,
+      },
+    },
+  });
+  expect(form.realitySupportX25519Mlkem768).toBe(true);
+  const built = buildNodeValue({ ...form, wsPath: "/v2" });
+  expect(built.options["reality-opts"]).toEqual({
+    "public-key": "pk-abc",
+    "short-id": "ab12",
+    "support-x25519mlkem768": true,
+    "spider-x": "/test",
+  });
+  expect(built.options["ws-opts"]).toEqual({
+    path: "/v2",
+    headers: { Host: "cdn.example.com", "User-Agent": "CustomUA" },
+    "max-early-data": 2048,
+  });
+
+  // Turning off ML-KEM-768 omits support-x25519mlkem768 while preserving unknown spider-x
+  const builtOff = buildNodeValue({ ...form, realitySupportX25519Mlkem768: false });
+  expect(builtOff.options["reality-opts"]).toEqual({
+    "public-key": "pk-abc",
+    "short-id": "ab12",
+    "spider-x": "/test",
+  });
+
+  // Unknown grpc-opts & h2-opts sub-keys survive editing
+  const grpcForm = extractNodeForm({
+    name: "GRPC", type: "vless", server: "g.example.com", port: 443,
+    options: { type: "vless", uuid: "u1", tls: true, network: "grpc", "grpc-opts": { "grpc-service-name": "svc", "idle-timeout": 30 } },
+  });
+  expect(buildNodeValue({ ...grpcForm, grpcServiceName: "svc2" }).options["grpc-opts"]).toEqual({
+    "grpc-service-name": "svc2",
+    "idle-timeout": 30,
+  });
+  const h2Form = extractNodeForm({
+    name: "H2", type: "vless", server: "h2.example.com", port: 443,
+    options: { type: "vless", uuid: "u2", tls: true, network: "h2", "h2-opts": { path: "/h2", host: ["h.example.com"], "keep-alive": true } },
+  });
+  expect(buildNodeValue(h2Form).options["h2-opts"]).toEqual({
+    path: "/h2",
+    host: ["h.example.com"],
+    "keep-alive": true,
+  });
+
+  // UI toggle in Desktop inspector persists support-x25519mlkem768: true
+  const app = await open("./Desktop.tsx", { host: host(), width: 1060, height: 720, locale: "zh-CN" });
+  await app.press("id:desktop-nav-proxies");
+  await app.waitFor("id:edit-proxy-自建 VPS 节点");
+  await app.press("id:edit-proxy-自建 VPS 节点");
+  await app.waitFor("id:inspector-node-transport-toggle");
+  await app.press("id:inspector-node-transport-toggle");
+  await app.waitFor("id:inspector-node-reality-mlkem");
+  await app.press("id:inspector-node-reality-mlkem");
+  await app.press("text:保存并应用");
+  await app.waitUntil(() => app.host.calls().some(c => (c.data as any)?.method === "desktop.proxies.save"));
+  const saveCall = app.host.calls().find(c => (c.data as any)?.method === "desktop.proxies.save");
+  const savedNode = (saveCall?.data as any)?.params?.edits?.nodes?.find((n: any) => n.name === "自建 VPS 节点");
+  expect(savedNode?.options?.["reality-opts"]?.["support-x25519mlkem768"]).toBe(true);
 });

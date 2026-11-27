@@ -28,7 +28,8 @@ export function LogsPage(p:PageProps) {
   const reset=()=>{query.set("");level.set("all");};
   const pause=()=>{if(!paused())frozen.set([...all()]);paused.set(!paused());};
   const time=(at:string)=>new Date(at).toLocaleTimeString();
-  return <View testID="desktop-logs" style={{flex:1,minWidth:0,paddingHorizontal:pad(),paddingTop:compact()?10:20,paddingBottom:compact()?10:16,gap:compact()?8:14}}>
+  return <View testID="desktop-logs" style={{flex:1,minWidth:0,minHeight:0}}>
+    <View style={{flex:1,minWidth:0,minHeight:0,paddingHorizontal:pad(),paddingTop:compact()?10:20,paddingBottom:compact()?10:16,gap:compact()?8:14}}>
     <Heading title={tr("日志","Logs")} description={tr("内核运行记录与网络事件","Kernel activity and network events")}/>
     <View style={{flex:1,minHeight:0,borderRadius:RADIUS.surface,backgroundColor:colors().surface,borderWidth:1,borderColor:colors().border,boxShadow:elevation("surface"),overflow:"hidden"}}>
       <View style={{flexDirection:"row",alignItems:"center",gap:8,paddingHorizontal:compact()?12:14,minHeight:compact()?46:50,borderBottomWidth:1,borderColor:colors().border}}>
@@ -52,6 +53,7 @@ export function LogsPage(p:PageProps) {
         <Row gap={6} style={{flexShrink:1,minWidth:0}}><If when={paused()}><View style={{width:6,height:6,borderRadius:3,backgroundColor:colors().warn}}/><Label text={tr("已暂停显示，内核仍在记录","Display paused; the kernel continues logging")} color={colors().warn} size={11.5} lines={1}/></If></Row>
         <Label text={String(filtered().length)+" "+tr("条记录","entries")} muted size={11.5} tabular lines={1}/>
       </View>
+    </View>
     </View>
     <Modal title={tr("清空日志？","Clear logs?")} open={confirm()} onClose={()=>confirm.set(false)} footer={()=><Row justify="flex-end"><Action label={tr("取消","Cancel")} onPress={()=>confirm.set(false)}/><Action danger label={tr("清空","Clear")} onPress={()=>void p.run("clear-logs",async()=>{await p.call("desktop.logs.clear");frozen.set([]);confirm.set(false);})}/></Row>}><Label text={tr("当前日志缓冲区将被清空。需要保留的内容请先导出。","The current log buffer will be cleared. Export any entries you need first.")}/></Modal>
   </View>;

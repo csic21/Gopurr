@@ -622,7 +622,7 @@ export function GroupEditorPage() {
 
     <View style={{
       paddingHorizontal: 16, paddingVertical: 12,
-      paddingBottom: "env(keyboard-inset-height)",
+      marginBottom: "env(keyboard-inset-height)",
       backgroundColor: colors().surface,
       borderTopWidth: 1, borderColor: colors().border,
     }}>

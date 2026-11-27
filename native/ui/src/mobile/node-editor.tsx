@@ -55,6 +55,7 @@ export interface NodeEditorDraft {
   alpn: string;
   realityPublicKey: string;
   realityShortId: string;
+  realitySupportX25519Mlkem768: boolean;
   network: string;
   wsPath: string;
   wsHost: string;
@@ -70,7 +71,7 @@ const MANAGED_OPTION_KEYS = new Set([
   "obfs", "obfs-password", "up", "down", "congestion-controller", "udp-relay-mode",
   "private-key", "public-key", "ip", "pre-shared-key", "mtu", "username",
   "tls", "servername", "sni", "client-fingerprint", "skip-cert-verify", "alpn",
-  "reality-opts", "network", "ws-opts", "grpc-opts", "h2-opts", "http-opts",
+  "reality-opts", "network", "ws-opts", "grpc-opts", "h2-opts",
 ]);
 
 function emptyDraft(protocol = "vless", targetGroups: string[] = []): NodeEditorDraft {
@@ -106,6 +107,7 @@ function emptyDraft(protocol = "vless", targetGroups: string[] = []): NodeEditor
     alpn: "",
     realityPublicKey: "",
     realityShortId: "",
+    realitySupportX25519Mlkem768: false,
     network: "tcp",
     wsPath: "/",
     wsHost: "",
@@ -115,13 +117,14 @@ function emptyDraft(protocol = "vless", targetGroups: string[] = []): NodeEditor
   };
 }
 
-function draftFromNode(node: ProxyEditorNode, editor: ProxyEditorPayload, duplicate = false): NodeEditorDraft {
+export function draftFromNode(node: ProxyEditorNode, editor: ProxyEditorPayload, duplicate = false): NodeEditorDraft {
   const protocol = normalizeProtocolId(node.type || String(node.options?.type ?? "vless"));
   const opts = node.options ?? {};
   const base = emptyDraft(protocol);
   const wsOpts = (opts["ws-opts"] && typeof opts["ws-opts"] === "object") ? opts["ws-opts"] as Record<string, unknown> : {};
   const wsHeaders = (wsOpts.headers && typeof wsOpts.headers === "object") ? wsOpts.headers as Record<string, unknown> : {};
   const grpcOpts = (opts["grpc-opts"] && typeof opts["grpc-opts"] === "object") ? opts["grpc-opts"] as Record<string, unknown> : {};
+  const h2Opts = (opts["h2-opts"] && typeof opts["h2-opts"] === "object") ? opts["h2-opts"] as Record<string, unknown> : {};
   const realityOpts = (opts["reality-opts"] && typeof opts["reality-opts"] === "object") ? opts["reality-opts"] as Record<string, unknown> : {};
   const alpnList = Array.isArray(opts.alpn) ? opts.alpn.map(String).join(", ") : typeof opts.alpn === "string" ? opts.alpn : "";
 
@@ -130,12 +133,47 @@ function draftFromNode(node: ProxyEditorNode, editor: ProxyEditorPayload, duplic
     if (!MANAGED_OPTION_KEYS.has(k)) extra[k] = v;
   }
 
+  const realityExtra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(realityOpts)) {
+    if (k !== "public-key" && k !== "short-id" && k !== "support-x25519mlkem768") realityExtra[k] = v;
+  }
+  if (Object.keys(realityExtra).length) extra["reality-opts"] = realityExtra;
+
+  const wsExtra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(wsOpts)) {
+    if (k === "path") continue;
+    if (k === "headers" && v && typeof v === "object" && !Array.isArray(v)) {
+      const extraHeaders: Record<string, unknown> = {};
+      for (const [hk, hv] of Object.entries(v as Record<string, unknown>)) {
+        if (hk !== "Host" && hk !== "host") extraHeaders[hk] = hv;
+      }
+      if (Object.keys(extraHeaders).length) wsExtra.headers = extraHeaders;
+    } else {
+      wsExtra[k] = v;
+    }
+  }
+  if (Object.keys(wsExtra).length) extra["ws-opts"] = wsExtra;
+
+  const grpcExtra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(grpcOpts)) {
+    if (k !== "grpc-service-name") grpcExtra[k] = v;
+  }
+  if (Object.keys(grpcExtra).length) extra["grpc-opts"] = grpcExtra;
+
+  const h2Extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(h2Opts)) {
+    if (k !== "path" && k !== "host") h2Extra[k] = v;
+  }
+  if (Object.keys(h2Extra).length) extra["h2-opts"] = h2Extra;
+
   const memberGroups = editor.groups
     .filter(g => !g.deleted && !g.missing && g.members.includes(node.name))
     .map(g => g.name);
 
   const existingNames = new Set(editor.nodes.map(n => n.name));
   const displayName = duplicate ? uniqueNodeName(`${node.name} Copy`, existingNames) : node.name;
+  const network = String(opts.network ?? "tcp");
+  const h2HostStr = Array.isArray(h2Opts.host) ? h2Opts.host.map(String).join(", ") : String(h2Opts.host ?? "");
 
   return {
     ...base,
@@ -169,16 +207,17 @@ function draftFromNode(node: ProxyEditorNode, editor: ProxyEditorPayload, duplic
     alpn: alpnList,
     realityPublicKey: String(realityOpts["public-key"] ?? ""),
     realityShortId: String(realityOpts["short-id"] ?? ""),
-    network: String(opts.network ?? "tcp"),
-    wsPath: String(wsOpts.path ?? ""),
-    wsHost: String(wsHeaders.Host ?? wsHeaders.host ?? ""),
+    realitySupportX25519Mlkem768: realityOpts["support-x25519mlkem768"] === true,
+    network,
+    wsPath: String(wsOpts.path ?? (network === "h2" ? h2Opts.path ?? "" : "")),
+    wsHost: String(wsHeaders.Host ?? wsHeaders.host ?? (network === "h2" ? h2HostStr : "")),
     grpcServiceName: String(grpcOpts["grpc-service-name"] ?? ""),
     targetGroups: memberGroups.length ? memberGroups : findDefaultTargetGroups(editor, selectedGroup()?.name),
     advancedYaml: serializeSimpleYaml(extra),
   };
 }
 
-function buildOptionsFromDraft(d: NodeEditorDraft, advanced: Record<string, unknown>): Record<string, unknown> {
+export function buildOptionsFromDraft(d: NodeEditorDraft, advanced: Record<string, unknown>): Record<string, unknown> {
   const opts: Record<string, unknown> = { ...advanced, type: d.protocol };
   const p = d.protocol;
 
@@ -235,11 +274,17 @@ function buildOptionsFromDraft(d: NodeEditorDraft, advanced: Record<string, unkn
       if (d.fingerprint.trim()) opts["client-fingerprint"] = d.fingerprint.trim();
       if (d.skipCertVerify) opts["skip-cert-verify"] = true;
       if (d.alpn.trim()) opts.alpn = d.alpn.split(",").map(s => s.trim()).filter(Boolean);
-      if (p === "vless" && d.realityPublicKey.trim()) {
-        opts["reality-opts"] = {
-          "public-key": d.realityPublicKey.trim(),
-          ...(d.realityShortId.trim() ? { "short-id": d.realityShortId.trim() } : {}),
-        };
+      if (p === "vless") {
+        const extraReality = (opts["reality-opts"] && typeof opts["reality-opts"] === "object" && !Array.isArray(opts["reality-opts"]))
+          ? { ...(opts["reality-opts"] as Record<string, unknown>) }
+          : {};
+        if (d.realityPublicKey.trim() || d.realityShortId.trim() || d.realitySupportX25519Mlkem768 || Object.keys(extraReality).length) {
+          const r: Record<string, unknown> = { ...extraReality };
+          if (d.realityPublicKey.trim()) r["public-key"] = d.realityPublicKey.trim();
+          if (d.realityShortId.trim()) r["short-id"] = d.realityShortId.trim();
+          if (d.realitySupportX25519Mlkem768) r["support-x25519mlkem768"] = true;
+          if (Object.keys(r).length) opts["reality-opts"] = r;
+        }
       }
     }
   }
@@ -247,16 +292,31 @@ function buildOptionsFromDraft(d: NodeEditorDraft, advanced: Record<string, unkn
   if (meta?.supportsTransport && d.network && d.network !== "tcp") {
     opts.network = d.network;
     if (d.network === "ws" || d.network === "httpupgrade") {
-      const wsOpts: Record<string, unknown> = {};
+      const extraWs = (opts["ws-opts"] && typeof opts["ws-opts"] === "object" && !Array.isArray(opts["ws-opts"]))
+        ? { ...(opts["ws-opts"] as Record<string, unknown>) }
+        : {};
+      const extraHeaders = (extraWs.headers && typeof extraWs.headers === "object" && !Array.isArray(extraWs.headers))
+        ? { ...(extraWs.headers as Record<string, unknown>) }
+        : {};
+      const wsOpts: Record<string, unknown> = { ...extraWs };
       if (d.wsPath.trim()) wsOpts.path = d.wsPath.trim();
-      if (d.wsHost.trim()) wsOpts.headers = { Host: d.wsHost.trim() };
+      if (d.wsHost.trim()) wsOpts.headers = { ...extraHeaders, Host: d.wsHost.trim() };
+      else if (Object.keys(extraHeaders).length) wsOpts.headers = extraHeaders;
       if (Object.keys(wsOpts).length) opts["ws-opts"] = wsOpts;
-    } else if (d.network === "grpc" && d.grpcServiceName.trim()) {
-      opts["grpc-opts"] = { "grpc-service-name": d.grpcServiceName.trim() };
+    } else if (d.network === "grpc") {
+      const extraGrpc = (opts["grpc-opts"] && typeof opts["grpc-opts"] === "object" && !Array.isArray(opts["grpc-opts"]))
+        ? { ...(opts["grpc-opts"] as Record<string, unknown>) }
+        : {};
+      const grpcOpts: Record<string, unknown> = { ...extraGrpc };
+      if (d.grpcServiceName.trim()) grpcOpts["grpc-service-name"] = d.grpcServiceName.trim();
+      if (Object.keys(grpcOpts).length) opts["grpc-opts"] = grpcOpts;
     } else if (d.network === "h2") {
-      const h2Opts: Record<string, unknown> = {};
+      const extraH2 = (opts["h2-opts"] && typeof opts["h2-opts"] === "object" && !Array.isArray(opts["h2-opts"]))
+        ? { ...(opts["h2-opts"] as Record<string, unknown>) }
+        : {};
+      const h2Opts: Record<string, unknown> = { ...extraH2 };
       if (d.wsPath.trim()) h2Opts.path = d.wsPath.trim();
-      if (d.wsHost.trim()) h2Opts.host = [d.wsHost.trim()];
+      if (d.wsHost.trim()) h2Opts.host = d.wsHost.split(",").map(s => s.trim()).filter(Boolean);
       if (Object.keys(h2Opts).length) opts["h2-opts"] = h2Opts;
     }
   }
@@ -768,8 +828,14 @@ export function NodeEditorBody(props: {
               </View>
             </View>
             <If when={draft().protocol === "vless"}>
-              <Field label={tr("Reality Public Key（选填）", "Reality public key (optional)")} value={draft().realityPublicKey} onChange={v => updateDraft({ realityPublicKey: v })} disabled={saving()} />
-              <Field label={tr("Reality Short ID（选填）", "Reality short ID (optional)")} value={draft().realityShortId} onChange={v => updateDraft({ realityShortId: v })} disabled={saving()} />
+              <Field testID="node-editor-reality-pubkey" label={tr("Reality Public Key（选填）", "Reality public key (optional)")} value={draft().realityPublicKey} onChange={v => updateDraft({ realityPublicKey: v })} disabled={saving()} />
+              <Field testID="node-editor-reality-shortid" label={tr("Reality Short ID（选填）", "Reality short ID (optional)")} value={draft().realityShortId} onChange={v => updateDraft({ realityShortId: v })} disabled={saving()} />
+              <Group>
+                <GroupRow
+                  title={tr("ML-KEM-768 后量子密钥交换", "ML-KEM-768 post-quantum")}
+                  subtitle="support-x25519mlkem768"
+                  trailing={() => <ToggleSwitch testID="node-editor-reality-mlkem" checked={draft().realitySupportX25519Mlkem768} onChange={v => updateDraft({ realitySupportX25519Mlkem768: v })} label={tr("ML-KEM-768 后量子密钥交换", "ML-KEM-768 post-quantum")} disabled={saving()} />} />
+              </Group>
             </If>
           </If>
 
@@ -853,7 +919,7 @@ export function NodeEditorBody(props: {
     {/* Sticky Bottom Save Bar (keyboard & safe-area aware) */}
     <View style={{
       paddingHorizontal: 16, paddingVertical: 12,
-      paddingBottom: props.inline ? 12 : "env(keyboard-inset-height)",
+      marginBottom: props.inline ? 0 : "env(keyboard-inset-height)",
       backgroundColor: colors().surface,
       borderTopWidth: 1, borderColor: colors().border,
       flexDirection: "row", gap: 10,

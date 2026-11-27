@@ -92,6 +92,7 @@ export interface StructuredNodeForm {
   skipCertVerify: boolean;
   realityPublicKey: string;
   realityShortId: string;
+  realitySupportX25519Mlkem768: boolean;
   network: string;
   wsPath: string;
   wsHost: string;
@@ -107,7 +108,7 @@ const STRUCTURED_OPTION_KEYS = new Set([
   "uuid", "password", "username", "cipher", "alterId", "flow",
   "private-key", "public-key", "ip", "ipv6", "obfs", "obfs-password", "congestion-controller",
   "tls", "servername", "sni", "client-fingerprint", "alpn", "skip-cert-verify",
-  "reality-opts", "network", "ws-opts", "grpc-opts", "h2-opts", "http-opts",
+  "reality-opts", "network", "ws-opts", "grpc-opts", "h2-opts",
 ]);
 
 function parseScalar(raw: string): any {
@@ -256,6 +257,39 @@ export function extractNodeForm(row: any): StructuredNodeForm {
   for (const [k, v] of Object.entries(opts)) {
     if (!STRUCTURED_OPTION_KEYS.has(k)) extra[k] = v;
   }
+  const realityExtra: Record<string, any> = {};
+  for (const [k, v] of Object.entries(reality)) {
+    if (k !== "public-key" && k !== "short-id" && k !== "support-x25519mlkem768") realityExtra[k] = v;
+  }
+  if (Object.keys(realityExtra).length) extra["reality-opts"] = realityExtra;
+
+  const wsExtra: Record<string, any> = {};
+  for (const [k, v] of Object.entries(wsOpts)) {
+    if (k === "path") continue;
+    if (k === "headers" && v && typeof v === "object" && !Array.isArray(v)) {
+      const extraHeaders: Record<string, any> = {};
+      for (const [hk, hv] of Object.entries(v)) {
+        if (hk !== "Host" && hk !== "host") extraHeaders[hk] = hv;
+      }
+      if (Object.keys(extraHeaders).length) wsExtra.headers = extraHeaders;
+    } else {
+      wsExtra[k] = v;
+    }
+  }
+  if (Object.keys(wsExtra).length) extra["ws-opts"] = wsExtra;
+
+  const grpcExtra: Record<string, any> = {};
+  for (const [k, v] of Object.entries(grpcOpts)) {
+    if (k !== "grpc-service-name") grpcExtra[k] = v;
+  }
+  if (Object.keys(grpcExtra).length) extra["grpc-opts"] = grpcExtra;
+
+  const h2Extra: Record<string, any> = {};
+  for (const [k, v] of Object.entries(h2Opts)) {
+    if (k !== "path" && k !== "host") h2Extra[k] = v;
+  }
+  if (Object.keys(h2Extra).length) extra["h2-opts"] = h2Extra;
+
   const hasTls = Boolean(opts.tls || type === "trojan" || type === "hysteria2" || type === "tuic");
   const sniKey = type === "trojan" || type === "hysteria2" || type === "tuic" ? (opts.sni ?? opts.servername ?? "") : (opts.servername ?? opts.sni ?? "");
   return {
@@ -283,6 +317,7 @@ export function extractNodeForm(row: any): StructuredNodeForm {
     skipCertVerify: Boolean(opts["skip-cert-verify"]),
     realityPublicKey: String(reality["public-key"] ?? ""),
     realityShortId: String(reality["short-id"] ?? ""),
+    realitySupportX25519Mlkem768: reality["support-x25519mlkem768"] === true,
     network: String(opts.network ?? "tcp").toLowerCase(),
     wsPath: String(wsOpts.path ?? ""),
     wsHost: String(wsHeaders.Host ?? wsHeaders.host ?? ""),
@@ -353,24 +388,43 @@ export function buildNodeValue(form: StructuredNodeForm): { name: string; type: 
     if (alpn.length) options.alpn = alpn;
   }
   if (form.skipCertVerify) options["skip-cert-verify"] = true;
-  if (form.realityPublicKey.trim() || form.realityShortId.trim()) {
-    const r: Record<string, any> = {};
+  const extraReality = options["reality-opts"] && typeof options["reality-opts"] === "object" && !Array.isArray(options["reality-opts"])
+    ? { ...options["reality-opts"] }
+    : {};
+  if (form.realityPublicKey.trim() || form.realityShortId.trim() || form.realitySupportX25519Mlkem768 || Object.keys(extraReality).length) {
+    const r: Record<string, any> = { ...extraReality };
     if (form.realityPublicKey.trim()) r["public-key"] = form.realityPublicKey.trim();
     if (form.realityShortId.trim()) r["short-id"] = form.realityShortId.trim();
-    options["reality-opts"] = r;
+    if (form.realitySupportX25519Mlkem768) r["support-x25519mlkem768"] = true;
+    if (Object.keys(r).length) options["reality-opts"] = r;
   }
   const net = form.network.trim().toLowerCase();
   if (net && net !== "tcp" && type !== "wireguard" && type !== "hysteria2" && type !== "tuic") {
     options.network = net;
     if (net === "ws" || net === "httpupgrade") {
-      const ws: Record<string, any> = {};
+      const extraWs = options["ws-opts"] && typeof options["ws-opts"] === "object" && !Array.isArray(options["ws-opts"])
+        ? { ...options["ws-opts"] }
+        : {};
+      const extraHeaders = extraWs.headers && typeof extraWs.headers === "object" && !Array.isArray(extraWs.headers)
+        ? { ...extraWs.headers }
+        : {};
+      const ws: Record<string, any> = { ...extraWs };
       if (form.wsPath.trim()) ws.path = form.wsPath.trim();
-      if (form.wsHost.trim()) ws.headers = { Host: form.wsHost.trim() };
+      if (form.wsHost.trim()) ws.headers = { ...extraHeaders, Host: form.wsHost.trim() };
+      else if (Object.keys(extraHeaders).length) ws.headers = extraHeaders;
       if (Object.keys(ws).length) options["ws-opts"] = ws;
     } else if (net === "grpc") {
-      if (form.grpcServiceName.trim()) options["grpc-opts"] = { "grpc-service-name": form.grpcServiceName.trim() };
+      const extraGrpc = options["grpc-opts"] && typeof options["grpc-opts"] === "object" && !Array.isArray(options["grpc-opts"])
+        ? { ...options["grpc-opts"] }
+        : {};
+      const grpc: Record<string, any> = { ...extraGrpc };
+      if (form.grpcServiceName.trim()) grpc["grpc-service-name"] = form.grpcServiceName.trim();
+      if (Object.keys(grpc).length) options["grpc-opts"] = grpc;
     } else if (net === "h2") {
-      const h2: Record<string, any> = {};
+      const extraH2 = options["h2-opts"] && typeof options["h2-opts"] === "object" && !Array.isArray(options["h2-opts"])
+        ? { ...options["h2-opts"] }
+        : {};
+      const h2: Record<string, any> = { ...extraH2 };
       if (form.h2Path.trim()) h2.path = form.h2Path.trim();
       if (form.h2Host.trim()) h2.host = form.h2Host.split(",").map((s) => s.trim()).filter(Boolean);
       if (Object.keys(h2).length) options["h2-opts"] = h2;
@@ -383,7 +437,7 @@ export function buildNodeValue(form: StructuredNodeForm): { name: string; type: 
 export function transportSummary(form: StructuredNodeForm): string {
   const parts: string[] = [];
   if (form.tls || ["trojan", "hysteria2", "tuic"].includes(form.type)) parts.push("TLS");
-  if (form.realityPublicKey.trim()) parts.push("Reality");
+  if (form.realityPublicKey.trim() || form.realitySupportX25519Mlkem768) parts.push("Reality");
   if (form.network && form.network !== "tcp") parts.push(form.network.toUpperCase());
   else if (!["wireguard", "hysteria2", "tuic"].includes(form.type)) parts.push("TCP");
   if (form.sni.trim()) parts.push(form.sni.trim());

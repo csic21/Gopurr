@@ -963,14 +963,16 @@ export function Proxies() {
     </If>
   </View>;
 
-  return <View style={{ flex: 1, padding: 16, gap: 12 }}>
-    <If when={!wideMasterDetail()}>{renderListColumn()}</If>
-    <If when={wideMasterDetail()}>
-      <View style={{ flex: 1, minHeight: 0, flexDirection: "row", gap: 16 }}>
-        <View style={{ width: 360, minHeight: 0, flexShrink: 0 }}>{renderListColumn()}</View>
-        {renderDetailPane()}
-      </View>
-    </If>
+  return <View style={{ flex: 1, minHeight: 0 }}>
+    <View style={{ flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 }}>
+      <If when={!wideMasterDetail()}>{renderListColumn()}</If>
+      <If when={wideMasterDetail()}>
+        <View style={{ flex: 1, minHeight: 0, flexDirection: "row", gap: 16 }}>
+          <View style={{ width: 360, minHeight: 0, flexShrink: 0 }}>{renderListColumn()}</View>
+          {renderDetailPane()}
+        </View>
+      </If>
+    </View>
 
     {/* Routing Mode BottomSheet */}
     <BottomSheet

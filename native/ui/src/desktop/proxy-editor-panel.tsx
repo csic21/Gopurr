@@ -492,8 +492,15 @@ export function NodeEditorFields(p: {
           </Row>
           <Row justify="space-between"><Label text={tr("跳过证书校验", "Skip certificate verify")} weight={500} size={12.5} /><Toggle showLabel={false} label={tr("跳过证书校验", "Skip certificate verify")} checked={p.form().skipCertVerify} onChange={(v) => update("skipCertVerify", v)} /></Row>
           <If when={type() === "vless"}>
-            <Field label={tr("Reality 公钥 (Public key)", "Reality public key")} value={p.form().realityPublicKey} onChange={(v) => update("realityPublicKey", v)} placeholder={tr("仅 Reality 节点填写", "Reality only")} />
-            <Field label="Reality Short ID" value={p.form().realityShortId} onChange={(v) => update("realityShortId", v)} placeholder={tr("可选", "Optional")} />
+            <Field testID={`${prefix}-reality-pubkey`} label={tr("Reality 公钥 (Public key)", "Reality public key")} value={p.form().realityPublicKey} onChange={(v) => update("realityPublicKey", v)} placeholder={tr("仅 Reality 节点填写", "Reality only")} />
+            <Field testID={`${prefix}-reality-shortid`} label="Reality Short ID" value={p.form().realityShortId} onChange={(v) => update("realityShortId", v)} placeholder={tr("可选", "Optional")} />
+            <Row justify="space-between" gap={8}>
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <Label text={tr("ML-KEM-768 后量子密钥交换", "ML-KEM-768 post-quantum")} weight={500} size={12.5} />
+                <Label text="support-x25519mlkem768" faint size={11} />
+              </View>
+              <Toggle testID={`${prefix}-reality-mlkem`} showLabel={false} label={tr("ML-KEM-768 后量子密钥交换", "ML-KEM-768 post-quantum")} checked={p.form().realitySupportX25519Mlkem768} onChange={(v) => update("realitySupportX25519Mlkem768", v)} />
+            </Row>
           </If>
         </If>
         <If when={supportsTransport()}>

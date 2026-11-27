@@ -1,5 +1,7 @@
 import { expect, open, test } from "nsh/test";
 import { fixtureTransport } from "./src/fixture";
+import { buildOptionsFromDraft, draftFromNode } from "./src/mobile/node-editor";
+import { parseAdvancedYaml } from "./src/mobile/proxy-helpers";
 
 function host(empty = false) {
   const dispatch = fixtureTransport(empty);
@@ -1101,4 +1103,111 @@ test("Policy groups manager supports dual-mode AppendMembers vs custom Members a
   await app.waitFor("id:group-inherited-toggle");
   await app.press("id:group-editor-back");
   await app.waitFor("id:groups-manager-back");
+});
+
+test("Mobile node editor supports Reality ML-KEM-768 toggle and preserves unknown nested option sub-keys", async () => {
+  const emptyEditor = { id: "p1", profileId: "p1", profileName: "Test", profileKind: "file", isPureLocal: true, nodes: [], groups: [], edits: null, options: [], availableNames: [], providerNodes: [] };
+
+  // 1. Round-trip Reality support-x25519mlkem768 + unknown reality-opts & ws-opts sub-keys
+  const wsRealityNode = {
+    source: "n1",
+    name: "VLESS-PQ",
+    type: "vless",
+    server: "pq.example.com",
+    port: 443,
+    options: {
+      type: "vless",
+      uuid: "11111111-2222-3333-4444-555555555555",
+      tls: true,
+      servername: "sni.example.com",
+      network: "ws",
+      "reality-opts": {
+        "public-key": "pk-abc",
+        "short-id": "ab12",
+        "support-x25519mlkem768": true,
+        "spider-x": "/test",
+      },
+      "ws-opts": {
+        path: "/ws",
+        headers: { Host: "cdn.example.com", "User-Agent": "CustomUA" },
+        "max-early-data": 2048,
+      },
+    },
+    edited: false,
+    missing: false,
+  };
+  const draft1 = draftFromNode(wsRealityNode, emptyEditor);
+  expect(draft1.realitySupportX25519Mlkem768).toBe(true);
+  const adv1 = parseAdvancedYaml(draft1.advancedYaml);
+  expect(adv1.ok).toBe(true);
+  const rebuilt1 = buildOptionsFromDraft({ ...draft1, wsPath: "/v2" }, (adv1 as { ok: true; value: Record<string, unknown> }).value);
+  expect(rebuilt1["reality-opts"]).toEqual({
+    "public-key": "pk-abc",
+    "short-id": "ab12",
+    "support-x25519mlkem768": true,
+    "spider-x": "/test",
+  });
+  expect(rebuilt1["ws-opts"]).toEqual({
+    path: "/v2",
+    headers: { Host: "cdn.example.com", "User-Agent": "CustomUA" },
+    "max-early-data": 2048,
+  });
+
+  // Toggling ML-KEM-768 off omits support-x25519mlkem768 while preserving spider-x
+  const rebuiltOff = buildOptionsFromDraft({ ...draft1, realitySupportX25519Mlkem768: false }, (adv1 as { ok: true; value: Record<string, unknown> }).value);
+  expect(rebuiltOff["reality-opts"]).toEqual({
+    "public-key": "pk-abc",
+    "short-id": "ab12",
+    "spider-x": "/test",
+  });
+
+  // 2. Unknown grpc-opts & h2-opts sub-keys survive editing
+  const grpcNode = {
+    source: "n2", name: "GRPC", type: "vless", server: "g.example.com", port: 443,
+    options: { type: "vless", uuid: "u1", tls: true, network: "grpc", "grpc-opts": { "grpc-service-name": "svc", "idle-timeout": 30 } },
+    edited: false, missing: false,
+  };
+  const grpcDraft = draftFromNode(grpcNode, emptyEditor);
+  const grpcAdv = parseAdvancedYaml(grpcDraft.advancedYaml);
+  expect(grpcAdv.ok).toBe(true);
+  expect(buildOptionsFromDraft({ ...grpcDraft, grpcServiceName: "svc2" }, (grpcAdv as { ok: true; value: Record<string, unknown> }).value)["grpc-opts"]).toEqual({
+    "grpc-service-name": "svc2",
+    "idle-timeout": 30,
+  });
+
+  const h2Node = {
+    source: "n3", name: "H2", type: "vless", server: "h2.example.com", port: 443,
+    options: { type: "vless", uuid: "u2", tls: true, network: "h2", "h2-opts": { path: "/h2", host: ["h.example.com"], "keep-alive": true } },
+    edited: false, missing: false,
+  };
+  const h2Draft = draftFromNode(h2Node, emptyEditor);
+  const h2Adv = parseAdvancedYaml(h2Draft.advancedYaml);
+  expect(h2Adv.ok).toBe(true);
+  expect(buildOptionsFromDraft(h2Draft, (h2Adv as { ok: true; value: Record<string, unknown> }).value)["h2-opts"]).toEqual({
+    path: "/h2",
+    host: ["h.example.com"],
+    "keep-alive": true,
+  });
+
+  // 3. Mobile UI toggle sets support-x25519mlkem768: true on save
+  const app = await open("./App.tsx", { host: host(true), locale: "en-US", width: 390, height: 844 });
+  await app.press("id:nav-proxies");
+  await app.waitFor("id:empty-add-node");
+  await app.press("id:empty-add-node");
+  await app.press("id:add-node-manual");
+  await app.waitFor("id:node-editor-server");
+  await app.type("id:node-editor-server", "mlkem.example.com");
+  await app.type("id:node-editor-uuid", "11111111-2222-3333-4444-555555555555");
+  await app.press("id:node-editor-transport-toggle");
+  await app.waitFor("id:node-editor-reality-pubkey");
+  await app.type("id:node-editor-reality-pubkey", "pk-mobile");
+  await app.press("id:node-editor-reality-mlkem");
+  await app.press("id:node-editor-save");
+  await app.waitUntil(() => app.host.calls().some(c => (c.data as { method?: string })?.method === "profiles.createLocal"));
+  const createCall = app.host.calls().find(c => (c.data as { method?: string })?.method === "profiles.createLocal");
+  const savedNodes = (createCall?.data as { params?: { nodes?: Array<{ options?: Record<string, unknown> }> } })?.params?.nodes;
+  expect(savedNodes?.[0]?.options?.["reality-opts"]).toEqual({
+    "public-key": "pk-mobile",
+    "support-x25519mlkem768": true,
+  });
 });

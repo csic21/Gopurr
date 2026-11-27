@@ -100,7 +100,8 @@ export function ConnectionsPage(p:PageProps) {
       <View style={{width:RATE_WIDTH,alignItems:"flex-end"}}><Row justify="flex-end" gap={4}><Icon name="up" size={11} color={colors().up}/><Text style={{fontSize:12,fontWeight:"500",color:colors().text,fontVariant:"tabular-nums",numberOfLines:1}}>{fmtBytes(item().up)}</Text></Row></View>
     </View>
   </Button>;};
-  return <View testID="desktop-connections" style={{flex:1,paddingHorizontal:PAD(),paddingTop:compact()?10:20,paddingBottom:compact()?12:20,gap:compact()?10:16}}>
+  return <View testID="desktop-connections" style={{flex:1,minHeight:0}}>
+    <View style={{flex:1,minHeight:0,paddingHorizontal:PAD(),paddingTop:compact()?10:20,paddingBottom:compact()?12:20,gap:compact()?10:16}}>
     <Heading title={tr("连接","Connections")} description={paused()?tr(`已暂停 · ${all().length} 个连接保持快照`,`Paused · ${all().length} connections frozen`):tr(`${all().length} 个活跃连接 · 自动刷新`,`${all().length} active connections · auto-refresh`)} action={()=><Row gap={8}><Action label={paused()?tr("继续更新","Resume"):tr("暂停更新","Pause")} onPress={()=>{if(!paused())frozen.set([...all()]);paused.set(!paused());}}/><Action quiet danger label={tr("断开全部…","Disconnect all…")} disabled={!all().length||!!p.busy()} onPress={()=>confirm.set(true)}/></Row>}/>
     <Row gap={10}>
       <View style={{width:compact()?260:320,maxWidth:"100%"}}><SearchField testID="connections-search" value={query()} onChange={v=>query.set(v)} placeholder={tr("搜索主机、进程、IP、规则或代理链","Search host, process, IP, rule or chain")}/></View>
@@ -135,6 +136,7 @@ export function ConnectionsPage(p:PageProps) {
           <View style={{paddingHorizontal:14,paddingVertical:10,borderTopWidth:1,borderColor:colors().border}}>{detailActions()}</View>
         </Card>
       </If>
+    </View>
     </View>
     <Modal title={tr("连接详情","Connection details")} closeTestID="connection-detail-modal-close" open={!!selected()&&!wide()} onClose={()=>selected.set(null)} width={560} footer={detailActions}>{detailBody()}</Modal>
     <Modal title={tr("断开所有连接？","Disconnect all connections?")} open={confirm()} onClose={()=>confirm.set(false)} footer={()=><Row justify="flex-end" gap={8}><Action label={tr("取消","Cancel")} onPress={()=>confirm.set(false)}/><Action danger label={tr("断开全部","Disconnect all")} onPress={()=>void p.run("close-all",async()=>{await p.call("desktop.connections.closeAll");confirm.set(false);selected.set(null);})}/></Row>}><Label text={tr("现有连接将中断，应用可能自动重新建立连接。","Existing connections will be interrupted. Applications may reconnect automatically.")}/></Modal>

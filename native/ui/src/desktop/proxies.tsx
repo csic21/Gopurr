@@ -876,8 +876,9 @@ export function ProxiesPage(p: PageProps) {
     }
   };
 
-  return <View testID="desktop-proxies" style={{ flex: 1, paddingHorizontal: padX(), paddingTop: padY(), paddingBottom: padY(), gap: gap() }}>
-    <Heading
+  return <View testID="desktop-proxies" style={{ flex: 1, minHeight: 0 }}>
+    <View style={{ flex: 1, minHeight: 0, paddingHorizontal: padX(), paddingTop: padY(), paddingBottom: padY(), gap: gap() }}>
+      <Heading
       title={tr("代理", "Proxies")}
       description={notice() || (offlinePreview() ? tr("内核未运行 · 离线预览（可编辑节点，启动后生效）", "Kernel stopped · offline preview (edits apply after starting)") : tr("策略组与节点选择 · 测速不会改变当前出口", "Policy groups and proxies · latency tests do not change selection"))}
       action={() => <Row gap={6} style={{ flexShrink: 0 }}>
@@ -1073,6 +1074,7 @@ export function ProxiesPage(p: PageProps) {
         </If>
       </View>
     </If>
+    </View>
 
     {/* Narrow viewport (<800 contentWidth, e.g. 840x560 expanded sidebar) single-layer Modal Inspector */}
     <Modal

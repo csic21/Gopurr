@@ -173,7 +173,8 @@ export function OverviewPage(p:PageProps) {
    <RouteAction/>
   </View>
  </View>;
- return <View testID="desktop-overview" style={{flex:1,paddingHorizontal:compact()?16:24,paddingTop:compact()?10:20,paddingBottom:compact()?10:20,gap:compact()?8:16}}>
+ return <View testID="desktop-overview" style={{flex:1,minHeight:0}}>
+ <View style={{flex:1,minHeight:0,paddingHorizontal:compact()?16:24,paddingTop:compact()?10:20,paddingBottom:compact()?10:20,gap:compact()?8:16}}>
  <Heading title={tr("概览","Overview")} description={errorText()||tr("连接状态与实时网络活动","Connection status and live network activity")} descriptionTone={errorText()?"danger":"muted"} action={()=><Tabs items={[{id:"rule",label:tr("规则","Rule")},{id:"global",label:tr("全局","Global")},{id:"direct",label:tr("直连","Direct")}]} value={status().mode??"rule"} onChange={mode=>void p.run("mode",()=>p.call("desktop.mode.set",{mode}))}/>}/>
  <If when={bento()}>{ConsoleLayout()}</If>
  <If when={!bento()}>{StackedLayout()}</If>
@@ -193,6 +194,7 @@ export function OverviewPage(p:PageProps) {
   </View>
   <Control title={tr("内置 DNS","Built-in DNS")} icon="server" desc={(p.snapshot().features?.dns?.enable?tr("已开启","Enabled"):tr("未开启","Disabled"))+" · "+tr("当前订阅","Current profile")} kind="dns"/>
   <Control title={tr("域名嗅探","Domain sniffing")} icon="radar" desc={(p.snapshot().features?.sniffer?.enable?tr("已开启","Enabled"):tr("未开启","Disabled"))+" · "+tr("全局","Global")} kind="sniffer"/>
+ </View>
  </View>
  <Modal testID="feature-settings-dialog" closeTestID="feature-settings-dialog-close" title={feature()==="dns"?tr("内置 DNS 设置","Built-in DNS settings"):tr("域名嗅探设置","Domain sniffing settings")} open={!!feature()} onClose={()=>feature.set(null)} width={660}><If when={!!feature()}><View style={{height:featureSource()==="custom"?Math.min(windowSize().height-210,420):180}}><FeatureEditor page={p} kind={feature()??"dns"} onSourceChange={v=>featureSource.set(v)}/></View></If></Modal>
  <Modal title={tr("系统代理","System proxy")} open={details()} onClose={()=>details.set(false)}><Label text={tr("混合端口","Mixed port")+": "+String(p.snapshot().network.mixedPort??7890)}/><Label text={tr("系统代理由当前 Gopurr 实例管理。关闭后恢复此前的系统设置。","Gopurr manages the system proxy and restores previous settings when disabled.")} muted/><Action label={tr("打开网络设置","Open network settings")} onPress={()=>{details.set(false);p.navigate("settings");}}/></Modal>
